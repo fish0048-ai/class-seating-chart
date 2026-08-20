@@ -15,17 +15,23 @@
         <div class="brand">
           <span class="brand-mark">座</span>
           <div>
-            <h1>班級座位表</h1>
+            <h1>上課模式</h1>
             <p id="syncMeta">正在載入…</p>
           </div>
         </div>
-        <label class="class-picker">
-          <span>班級</span>
-          <select id="classSelect" aria-label="選擇班級"></select>
-        </label>
+        <div class="topbar-actions">
+          <label class="class-picker">
+            <span>班級</span>
+            <select id="classSelect" aria-label="選擇班級"></select>
+          </label>
+          <div class="mode-switch" role="group" aria-label="切換模式">
+            <button type="button" class="tool tab-on" data-app-view="class">上課模式</button>
+            <button type="button" class="tool" data-app-view="teacher" id="btnDatabase">教師模式</button>
+          </div>
+        </div>
       </header>
 
-      <nav class="toolbar" aria-label="主要操作">
+      <nav class="toolbar" aria-label="上課操作">
         <button type="button" class="tool" data-mode="plus" id="btnPlus">加分</button>
         <button type="button" class="tool" data-mode="minus" id="btnMinus">扣分</button>
         <div class="delta-group" role="group" aria-label="分數幅度">
@@ -34,16 +40,8 @@
           <button type="button" class="chip" data-delta="5">5</button>
         </div>
         <button type="button" class="tool" id="btnUndo">復原</button>
-        <button type="button" class="tool teacher-only" id="btnResetScores">重製加扣分</button>
         <button type="button" class="tool accent" id="btnLottery">抽籤</button>
-        <button type="button" class="tool teacher-only" id="btnUpload">上傳名單</button>
-        <button type="button" class="tool teacher-only" id="btnExport">下載備份</button>
-        <button type="button" class="tool teacher-only" id="btnImport">還原備份</button>
         <button type="button" class="tool primary" id="btnSave">存檔</button>
-        <button type="button" class="tool" id="btnDatabase">教師模式</button>
-        <button type="button" class="tool teacher-only" id="btnTeacherLock">鎖定</button>
-        <button type="button" class="tool teacher-only" id="btnSettings">設定</button>
-        <input id="backupFile" type="file" accept=".json,application/json" hidden />
       </nav>
 
       <main class="stage">
@@ -60,13 +58,152 @@
       </main>
     </div>
 
+    <div id="teacherView" class="teacher-page" hidden>
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark">師</span>
+          <div>
+            <h1>教師模式</h1>
+            <p>名單、結算、統計、設定都在這一頁。</p>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <div class="mode-switch" role="group" aria-label="切換模式">
+            <button type="button" class="tool" data-app-view="class">上課模式</button>
+            <button type="button" class="tool tab-on" data-app-view="teacher">教師模式</button>
+          </div>
+          <button type="button" class="tool" id="btnTeacherLock">鎖定</button>
+        </div>
+      </header>
+
+      <nav class="toolbar teacher-tabs" role="tablist" aria-label="教師功能">
+        <button type="button" class="tool tab-on" data-teacher-tab="roster">名單</button>
+        <button type="button" class="tool" data-teacher-tab="daily">每日結算</button>
+        <button type="button" class="tool" data-teacher-tab="stats">統計</button>
+        <button type="button" class="tool" data-teacher-tab="settings">設定與上傳</button>
+        <button type="button" class="tool" id="btnExport">下載備份</button>
+        <button type="button" class="tool" id="btnImport">還原備份</button>
+        <button type="button" class="tool" id="btnResetScores">重製加扣分</button>
+        <input id="backupFile" type="file" accept=".json,application/json" hidden />
+      </nav>
+
+      <section class="teacher-page-main">
+        <div class="db-toolbar">
+          <label>班級
+            <select id="dbClassFilter" aria-label="篩選班級"></select>
+          </label>
+          <button type="button" class="tool teacher-tab-only" data-for-tab="roster" id="btnDbAdd">新增一列</button>
+          <button type="button" class="tool accent teacher-tab-only" data-for-tab="daily" id="btnSettleToday" hidden>結算今日分數</button>
+          <button type="button" class="tool teacher-tab-only" data-for-tab="settings" id="btnUpload" hidden>選擇名單檔</button>
+        </div>
+
+        <div class="teacher-body">
+          <div id="tabRoster" class="teacher-panel">
+            <p class="hint">直接改班級、座號、姓名、今日分數。改完按「儲存名單」。</p>
+            <div class="db-table-wrap">
+              <table class="db-table">
+                <thead>
+                  <tr>
+                    <th>班級</th>
+                    <th>座號</th>
+                    <th>姓名</th>
+                    <th>今日分數</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="dbBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div id="tabDaily" class="teacher-panel" hidden>
+            <p class="hint">把今天的加扣分存成當日紀錄，並把今日分數歸零，方便明天重新計分。</p>
+            <div id="dailyToday" class="stat-cards"></div>
+            <h3 class="subhead">已結算日期</h3>
+            <div class="db-table-wrap">
+              <table class="db-table">
+                <thead>
+                  <tr>
+                    <th>日期</th>
+                    <th>總分</th>
+                    <th>加分人數</th>
+                    <th>扣分人數</th>
+                    <th>平均</th>
+                  </tr>
+                </thead>
+                <tbody id="dailyBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div id="tabStats" class="teacher-panel" hidden>
+            <p class="hint">含已結算累計與今天尚未結算的分數。</p>
+            <div id="statsCards" class="stat-cards"></div>
+            <h3 class="subhead">學生累計排行</h3>
+            <div class="db-table-wrap">
+              <table class="db-table">
+                <thead>
+                  <tr>
+                    <th>名次</th>
+                    <th>座號</th>
+                    <th>姓名</th>
+                    <th>已結算</th>
+                    <th>今日</th>
+                    <th>合計</th>
+                  </tr>
+                </thead>
+                <tbody id="statsBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div id="tabSettings" class="teacher-panel settings-panel" hidden>
+            <p class="hint">上傳 CSV／Excel，或直接貼上。儲存後立刻可用。</p>
+            <div class="form-grid">
+              <label>班級名稱
+                <input id="settingClassName" type="text" maxlength="40" placeholder="例如 301" />
+              </label>
+              <label>列數
+                <input id="settingRows" type="number" min="1" max="20" />
+              </label>
+              <label>欄數
+                <input id="settingCols" type="number" min="1" max="16" />
+              </label>
+            </div>
+            <div id="uploadBox" class="upload-box">
+              <input id="settingFile" type="file" accept=".csv,.txt,.xlsx,.xls" hidden />
+              <p><strong>把名單檔拖到這裡</strong>，或按上方「選擇名單檔」。</p>
+              <p class="hint">欄位：班級、座號、姓名（分數可有可無）。Excel 請用第一個工作表。</p>
+              <p><a href="學生名單範本.csv" download>下載 CSV 範本</a></p>
+              <p id="uploadPreview" class="upload-preview" hidden></p>
+            </div>
+            <label class="check left">
+              <input type="checkbox" id="settingReplace" />
+              覆蓋這些班級的舊名單（沒出現的座號會刪除）
+            </label>
+            <label>或直接貼上（每行：座號,姓名 或 班級,座號,姓名）
+              <textarea id="settingStudents" rows="10" placeholder="301,01,陳安安&#10;301,02,林冠宇"></textarea>
+            </label>
+            <div class="modal-actions">
+              <button type="button" class="tool" id="btnExportCsv">下載本班 CSV</button>
+              <button type="button" class="tool primary" id="btnSettingsSave">儲存設定</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="teacher-footer">
+          <button type="button" class="tool primary" id="btnDatabaseSave">儲存名單</button>
+        </div>
+      </section>
+    </div>
+
     <div id="toast" class="toast" hidden></div>
     <div id="fxLayer" class="fx-layer" aria-hidden="true"></div>
 
     <div id="authModal" class="modal" hidden>
       <div class="modal-card auth-card">
         <h2 id="authTitle">教師模式</h2>
-        <p id="authHint" class="hint">請輸入教師密碼。</p>
+        <p id="authHint" class="hint">請輸入教師密碼後進入教師頁。</p>
         <label>密碼
           <input id="authPassword" class="pw-mask" type="password" autocomplete="current-password" maxlength="64" />
         </label>
@@ -76,90 +213,6 @@
         <div class="modal-actions">
           <button type="button" class="tool" id="btnAuthCancel">取消</button>
           <button type="button" class="tool primary" id="btnAuthSubmit">進入</button>
-        </div>
-      </div>
-    </div>
-
-    <div id="databaseModal" class="modal" hidden>
-      <div class="modal-card database-card">
-        <h2>教師模式</h2>
-        <div class="teacher-tabs" role="tablist">
-          <button type="button" class="tool tab-on" data-teacher-tab="roster">名單</button>
-          <button type="button" class="tool" data-teacher-tab="daily">每日結算</button>
-          <button type="button" class="tool" data-teacher-tab="stats">統計</button>
-        </div>
-        <div class="db-toolbar">
-          <label>班級
-            <select id="dbClassFilter" aria-label="篩選班級"></select>
-          </label>
-          <button type="button" class="tool teacher-tab-only" data-for-tab="roster" id="btnDbAdd">新增一列</button>
-          <button type="button" class="tool accent teacher-tab-only" data-for-tab="daily" id="btnSettleToday" hidden>結算今日分數</button>
-        </div>
-
-        <div class="teacher-body">
-        <div id="tabRoster" class="teacher-panel">
-          <p class="hint">直接改班級、座號、姓名、今日分數。改完按「儲存名單」。</p>
-          <div class="db-table-wrap">
-            <table class="db-table">
-              <thead>
-                <tr>
-                  <th>班級</th>
-                  <th>座號</th>
-                  <th>姓名</th>
-                  <th>今日分數</th>
-                  <th></th>
-                </tr>
-              </thead>
-              <tbody id="dbBody"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div id="tabDaily" class="teacher-panel" hidden>
-          <p class="hint">把今天的加扣分存成當日紀錄，並把今日分數歸零，方便明天重新計分。</p>
-          <div id="dailyToday" class="stat-cards"></div>
-          <h3 class="subhead">已結算日期</h3>
-          <div class="db-table-wrap">
-            <table class="db-table">
-              <thead>
-                <tr>
-                  <th>日期</th>
-                  <th>總分</th>
-                  <th>加分人數</th>
-                  <th>扣分人數</th>
-                  <th>平均</th>
-                </tr>
-              </thead>
-              <tbody id="dailyBody"></tbody>
-            </table>
-          </div>
-        </div>
-
-        <div id="tabStats" class="teacher-panel" hidden>
-          <p class="hint">含已結算累計與今天尚未結算的分數。</p>
-          <div id="statsCards" class="stat-cards"></div>
-          <h3 class="subhead">學生累計排行</h3>
-          <div class="db-table-wrap">
-            <table class="db-table">
-              <thead>
-                <tr>
-                  <th>名次</th>
-                  <th>座號</th>
-                  <th>姓名</th>
-                  <th>已結算</th>
-                  <th>今日</th>
-                  <th>合計</th>
-                </tr>
-              </thead>
-              <tbody id="statsBody"></tbody>
-            </table>
-          </div>
-        </div>
-        </div>
-
-        <div class="modal-actions">
-          <button type="button" class="tool" id="btnDatabaseClose">關閉</button>
-          <button type="button" class="tool primary" id="btnDatabaseSave">儲存名單</button>
         </div>
       </div>
     </div>
@@ -180,43 +233,6 @@
           <button type="button" class="tool" id="btnLotteryReset">重置名單</button>
           <button type="button" class="tool" id="btnLotteryClose">關閉</button>
           <button type="button" class="tool primary" id="btnLotteryAgain">再抽一次</button>
-        </div>
-      </div>
-    </div>
-
-    <div id="settingsModal" class="modal" hidden>
-      <div class="modal-card settings-card">
-        <h2>班級設定與學生名單</h2>
-        <p class="hint">上傳 CSV／Excel，或直接貼上。儲存後立刻可用。</p>
-        <div class="form-grid">
-          <label>班級名稱
-            <input id="settingClassName" type="text" maxlength="40" placeholder="例如 301" />
-          </label>
-          <label>列數
-            <input id="settingRows" type="number" min="1" max="20" />
-          </label>
-          <label>欄數
-            <input id="settingCols" type="number" min="1" max="16" />
-          </label>
-        </div>
-        <div id="uploadBox" class="upload-box">
-          <input id="settingFile" type="file" accept=".csv,.txt,.xlsx,.xls" hidden />
-          <p><strong>把名單檔拖到這裡</strong>，或 <button type="button" class="linkish" id="btnPickFile">選擇檔案</button></p>
-          <p class="hint">欄位：班級、座號、姓名（分數可有可無）。Excel 請用第一個工作表。</p>
-          <p><a href="學生名單範本.csv" download>下載 CSV 範本</a></p>
-          <p id="uploadPreview" class="upload-preview" hidden></p>
-        </div>
-        <label class="check left">
-          <input type="checkbox" id="settingReplace" />
-          覆蓋這些班級的舊名單（沒出現的座號會刪除）
-        </label>
-        <label>或直接貼上（每行：座號,姓名 或 班級,座號,姓名）
-          <textarea id="settingStudents" rows="8" placeholder="301,01,陳安安&#10;301,02,林冠宇"></textarea>
-        </label>
-        <div class="modal-actions">
-          <button type="button" class="tool" id="btnExportCsv">下載本班 CSV</button>
-          <button type="button" class="tool" id="btnSettingsClose">取消</button>
-          <button type="button" class="tool primary" id="btnSettingsSave">儲存</button>
         </div>
       </div>
     </div>

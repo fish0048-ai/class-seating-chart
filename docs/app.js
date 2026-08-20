@@ -29,7 +29,6 @@
     lotteryStamp: document.getElementById('lotteryStamp'),
     lotteryMeta: document.getElementById('lotteryMeta'),
     lotteryUnique: document.getElementById('lotteryUnique'),
-    settingsModal: document.getElementById('settingsModal'),
     settingClassName: document.getElementById('settingClassName'),
     settingRows: document.getElementById('settingRows'),
     settingCols: document.getElementById('settingCols'),
@@ -40,7 +39,8 @@
     uploadPreview: document.getElementById('uploadPreview'),
     fxLayer: document.getElementById('fxLayer'),
     lotteryCard: document.getElementById('lotteryCard'),
-    databaseModal: document.getElementById('databaseModal'),
+    app: document.getElementById('app'),
+    teacherView: document.getElementById('teacherView'),
     dbBody: document.getElementById('dbBody'),
     dbClassFilter: document.getElementById('dbClassFilter'),
     dailyToday: document.getElementById('dailyToday'),
@@ -84,19 +84,18 @@
   });
   document.getElementById('btnLotteryReset').addEventListener('click', resetDrawn);
   document.getElementById('btnSave').addEventListener('click', saveAll);
-  document.getElementById('btnSettings').addEventListener('click', function () {
-    requireTeacher(openSettings);
-  });
-  document.getElementById('btnSettingsClose').addEventListener('click', function () {
-    els.settingsModal.hidden = true;
-  });
-  document.getElementById('btnSettingsSave').addEventListener('click', saveSettings);
-  var dbBtn = document.getElementById('btnDatabase');
-  if (dbBtn) {
-    dbBtn.addEventListener('click', function () {
-      requireTeacher(openDatabase);
+  var settingsSave = document.getElementById('btnSettingsSave');
+  if (settingsSave) settingsSave.addEventListener('click', saveSettings);
+  document.querySelectorAll('[data-app-view]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var view = btn.getAttribute('data-app-view');
+      if (view === 'teacher') {
+        requireTeacher(openDatabase);
+        return;
+      }
+      showClassView();
     });
-  }
+  });
   var lockBtn = document.getElementById('btnTeacherLock');
   if (lockBtn) {
     lockBtn.addEventListener('click', lockTeacher);
@@ -120,10 +119,6 @@
       if (event.key === 'Enter') submitAuth();
     });
   }
-  var dbClose = document.getElementById('btnDatabaseClose');
-  if (dbClose) dbClose.addEventListener('click', function () {
-    if (els.databaseModal) els.databaseModal.hidden = true;
-  });
   document.querySelectorAll('[data-teacher-tab]').forEach(function (btn) {
     btn.addEventListener('click', function () {
       switchTeacherTab(btn.getAttribute('data-teacher-tab'));
@@ -165,17 +160,7 @@
   var uploadBtn = document.getElementById('btnUpload');
   if (uploadBtn) {
     uploadBtn.addEventListener('click', function () {
-      requireTeacher(function () {
-        openSettings();
-        setTimeout(function () {
-          if (els.settingFile) els.settingFile.click();
-        }, 80);
-      });
-    });
-  }
-  var pickBtn = document.getElementById('btnPickFile');
-  if (pickBtn) {
-    pickBtn.addEventListener('click', function () {
+      switchTeacherTab('settings');
       if (els.settingFile) els.settingFile.click();
     });
   }
@@ -244,6 +229,26 @@
     document.body.classList.toggle('teacher-on', !!(window.TeacherAuth && TeacherAuth.isUnlocked()));
   }
 
+  function showClassView() {
+    App.appView = 'class';
+    if (els.app) els.app.hidden = false;
+    if (els.teacherView) els.teacherView.hidden = true;
+    document.body.classList.remove('view-teacher');
+    document.querySelectorAll('[data-app-view]').forEach(function (btn) {
+      btn.classList.toggle('tab-on', btn.getAttribute('data-app-view') === 'class');
+    });
+  }
+
+  function showTeacherView() {
+    App.appView = 'teacher';
+    if (els.app) els.app.hidden = true;
+    if (els.teacherView) els.teacherView.hidden = false;
+    document.body.classList.add('view-teacher');
+    document.querySelectorAll('[data-app-view]').forEach(function (btn) {
+      btn.classList.toggle('tab-on', btn.getAttribute('data-app-view') === 'teacher');
+    });
+  }
+
   function requireTeacher(nextFn) {
     if (window.TeacherAuth && TeacherAuth.isUnlocked()) {
       nextFn();
@@ -255,11 +260,10 @@
 
   function lockTeacher() {
     if (window.TeacherAuth) TeacherAuth.lock();
-    if (els.databaseModal) els.databaseModal.hidden = true;
-    if (els.settingsModal) els.settingsModal.hidden = true;
     if (els.authModal) els.authModal.hidden = true;
     applyTeacherUi();
-    toast('已鎖定教師模式');
+    showClassView();
+    toast('已鎖定並回到上課模式');
   }
 
   function openAuthModal(mode) {
@@ -268,7 +272,7 @@
     if (els.authPassword2) els.authPassword2.value = '';
     if (els.authPassword2Wrap) els.authPassword2Wrap.hidden = true;
     if (els.authTitle) els.authTitle.textContent = '教師模式';
-    if (els.authHint) els.authHint.textContent = '請輸入教師密碼。';
+    if (els.authHint) els.authHint.textContent = '請輸入教師密碼後進入教師頁。';
     var submit = document.getElementById('btnAuthSubmit');
     if (submit) submit.textContent = '進入';
     if (els.authModal) els.authModal.hidden = false;
@@ -306,7 +310,7 @@
     run('getBootstrapData', [], function (data) {
       applyPayload(data, true);
       if (App.classroom && !App.classroom.students.length) {
-        toast('這個班還沒有學生，請按「教師模式」輸入名單');
+        toast('這個班還沒有學生，請切到「教師模式」輸入名單');
       } else {
         toast('已載入，拖放、抽籤、加扣分都會自動存檔');
       }
@@ -373,7 +377,8 @@
       var emptyBtn = document.getElementById('btnEmptySetup');
       if (emptyBtn) {
         emptyBtn.addEventListener('click', function () {
-          requireTeacher(openSettings);
+          App.pendingTeacherTab = 'settings';
+          requireTeacher(openDatabase);
         });
       }
       return;
@@ -659,10 +664,10 @@
       fillDatabaseFilter(data.classNames || App.classNames || []);
       if (els.dbClassFilter) els.dbClassFilter.value = App.dbFilter;
       renderDatabaseTable(App.dbRows);
-      switchTeacherTab(App.pendingTeacherTab || 'roster');
+      switchTeacherTab(App.pendingTeacherTab || App.teacherTab || 'roster');
       App.pendingTeacherTab = null;
       refreshTeacherExtras();
-      if (els.databaseModal) els.databaseModal.hidden = false;
+      showTeacherView();
     });
   }
 
@@ -673,22 +678,32 @@
   }
 
   function switchTeacherTab(tab) {
-    App.teacherTab = tab || 'roster';
+    var next = tab || 'roster';
+    var changed = App.teacherTab !== next;
+    App.teacherTab = next;
     document.querySelectorAll('[data-teacher-tab]').forEach(function (btn) {
       btn.classList.toggle('tab-on', btn.getAttribute('data-teacher-tab') === App.teacherTab);
     });
     var roster = document.getElementById('tabRoster');
     var daily = document.getElementById('tabDaily');
     var stats = document.getElementById('tabStats');
+    var settings = document.getElementById('tabSettings');
     if (roster) roster.hidden = App.teacherTab !== 'roster';
     if (daily) daily.hidden = App.teacherTab !== 'daily';
     if (stats) stats.hidden = App.teacherTab !== 'stats';
+    if (settings) settings.hidden = App.teacherTab !== 'settings';
     document.querySelectorAll('.teacher-tab-only').forEach(function (btn) {
       btn.hidden = btn.getAttribute('data-for-tab') !== App.teacherTab;
     });
     var saveBtn = document.getElementById('btnDatabaseSave');
     if (saveBtn) saveBtn.hidden = App.teacherTab !== 'roster';
-    if (App.teacherTab !== 'roster') refreshTeacherExtras();
+    var footer = document.querySelector('.teacher-footer');
+    if (footer) footer.hidden = App.teacherTab !== 'roster';
+    if (els.dbClassFilter && els.dbClassFilter.parentElement) {
+      els.dbClassFilter.parentElement.hidden = App.teacherTab === 'settings';
+    }
+    if (App.teacherTab === 'settings' && changed) openSettings();
+    if (App.teacherTab !== 'roster' && App.teacherTab !== 'settings') refreshTeacherExtras();
   }
 
   function refreshTeacherExtras() {
@@ -869,8 +884,7 @@
     };
     run('saveRecords', [body], function (data) {
       applyPayload(data, true);
-      App.dbRows = null;
-      if (els.databaseModal) els.databaseModal.hidden = true;
+      renderDatabaseTable(App.dbRows || rows);
       toast('資料已更改，座位表已更新');
       refreshTeacherExtras();
     });
@@ -1018,10 +1032,6 @@
     if (els.settingFile) els.settingFile.value = '';
     App.pendingImport = null;
     renderUploadPreview(null);
-    els.settingsModal.hidden = false;
-    setTimeout(function () {
-      els.settingStudents.focus();
-    }, 50);
   }
 
   function saveSettings() {
@@ -1042,7 +1052,6 @@
         if (!imported.length) {
           return api('loadClassroom', [className]).then(function (data) {
             applyPayload(data, true);
-            els.settingsModal.hidden = true;
             toast('班級行列設定已儲存');
           });
         }
@@ -1081,7 +1090,6 @@
       App.drawn[data.classroom.className] = App.drawn[data.classroom.className] || [];
       applyPayload(data, true);
       els.classSelect.value = data.classroom.className;
-      els.settingsModal.hidden = true;
       App.pendingImport = null;
       toast('已匯入 ' + rows.length + ' 位學生');
     });
