@@ -510,6 +510,45 @@
     flex: 1;
   }
 
+  .date-picker {
+    flex: 2;
+    min-width: 280px;
+    display: grid;
+    gap: 6px;
+    font-size: 14px;
+  }
+
+  .date-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .date-nav input[type="date"] {
+    min-height: 44px;
+    min-width: 150px;
+  }
+
+  .score-day-label {
+    flex: 1 0 100%;
+    margin: 0;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--primary);
+  }
+
+  .db-table tr.day-on td {
+    background: #e7f3fb;
+  }
+
+  .db-table tr[data-day] {
+    cursor: pointer;
+  }
+
+  .db-table .day-plus { color: var(--plus); font-weight: 700; }
+  .db-table .day-minus { color: var(--minus); font-weight: 700; }
+
   .db-table-wrap {
     overflow: auto;
     min-height: 0;

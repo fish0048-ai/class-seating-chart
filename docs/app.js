@@ -14,7 +14,10 @@
     rankBumpSeat: null,
     dbRows: [],
     dbFilter: '__all__',
-    pendingImport: null
+    pendingImport: null,
+    activeDate: '',
+    viewDate: '',
+    dailyDays: []
   };
 
   const els = {
@@ -45,6 +48,10 @@
     dbClassFilter: document.getElementById('dbClassFilter'),
     dailyToday: document.getElementById('dailyToday'),
     dailyBody: document.getElementById('dailyBody'),
+    dailyStudents: document.getElementById('dailyStudents'),
+    dbDateFilter: document.getElementById('dbDateFilter'),
+    scoreDayLabel: document.getElementById('scoreDayLabel'),
+    dbScoreHead: document.getElementById('dbScoreHead'),
     statsCards: document.getElementById('statsCards'),
     statsBody: document.getElementById('statsBody'),
     authModal: document.getElementById('authModal'),
@@ -124,10 +131,6 @@
       switchTeacherTab(btn.getAttribute('data-teacher-tab'));
     });
   });
-  var settleBtn = document.getElementById('btnSettleToday');
-  if (settleBtn) {
-    settleBtn.addEventListener('click', settleTodayScores);
-  }
   var dbSave = document.getElementById('btnDatabaseSave');
   if (dbSave) dbSave.addEventListener('click', saveDatabase);
   var dbAdd = document.getElementById('btnDbAdd');
@@ -147,6 +150,22 @@
       App.dbFilter = els.dbClassFilter.value;
       renderDatabaseTable(App.dbRows || []);
       refreshTeacherExtras();
+    });
+  }
+  if (els.dbDateFilter) {
+    els.dbDateFilter.addEventListener('change', function () {
+      setViewDate(els.dbDateFilter.value);
+    });
+  }
+  var prevDay = document.getElementById('btnDayPrev');
+  if (prevDay) prevDay.addEventListener('click', function () { shiftViewDate(-1); });
+  var nextDay = document.getElementById('btnDayNext');
+  if (nextDay) nextDay.addEventListener('click', function () { shiftViewDate(1); });
+  if (els.dailyBody) {
+    els.dailyBody.addEventListener('click', function (event) {
+      var btn = event.target.closest('[data-day]');
+      if (!btn) return;
+      setViewDate(btn.getAttribute('data-day'));
     });
   }
   if (els.dbBody) {
@@ -317,6 +336,11 @@
     });
   }
 
+  setInterval(syncScoreDay, 30000);
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) syncScoreDay();
+  });
+
   function loadClass(className) {
     run('loadClassroom', [className], function (data) {
       App.drawn[className] = App.drawn[className] || [];
@@ -326,12 +350,40 @@
 
   function applyPayload(data, replace) {
     App.classNames = data.classNames || [];
+    noteScoreRoll(data);
     if (replace || !App.classroom) {
       App.classroom = data.classroom;
       App.dirty = false;
       App.selectedSeatNo = null;
     }
     renderAll();
+  }
+
+  function noteScoreRoll(data) {
+    if (!data) return;
+    var prevActive = App.activeDate;
+    if (data.activeDate) {
+      App.activeDate = data.activeDate;
+      if (!App.viewDate || !prevActive || App.viewDate === prevActive) {
+        App.viewDate = data.activeDate;
+      }
+    }
+    if (data.rolled && data.closedDate) {
+      toast('已過晚上 10 點，已自動存下 ' + formatZhDate(data.closedDate) + ' 的加扣分');
+    }
+    updateScoreDayLabel();
+  }
+
+  function syncScoreDay() {
+    if (!App.classroom) return;
+    api('loadClassroom', [App.classroom.className]).then(function (data) {
+      if (!data || !data.rolled) {
+        if (data && data.activeDate) noteScoreRoll(data);
+        return;
+      }
+      applyPayload(data, true);
+      if (App.appView === 'teacher') openDatabase();
+    }).catch(function () {});
   }
 
   function renderAll() {
@@ -646,23 +698,25 @@
       toast('目前沒有加扣分可以重製');
       return;
     }
-    if (!window.confirm('要把「' + App.classroom.className + '」全班加扣分都歸零嗎？座位不會變。')) {
+    if (!window.confirm('要把「' + App.classroom.className + '」目前這一天的加扣分都歸零嗎？以前存檔的日期不會刪，座位也不會變。')) {
       return;
     }
     run('resetScores', [App.classroom.className], function (data) {
       App.classroom = data.classroom;
       App.rankBumpSeat = null;
       renderAll();
-      toast('已重製本班加扣分，排行已清空');
+      toast('已重製目前這一天的加扣分，以前的日期還在');
     });
   }
 
   function openDatabase() {
     run('listRecords', [], function (data) {
+      noteScoreRoll(data);
       App.dbRows = data.rows || [];
       App.dbFilter = (App.classroom && App.classroom.className) || '__all__';
       fillDatabaseFilter(data.classNames || App.classNames || []);
       if (els.dbClassFilter) els.dbClassFilter.value = App.dbFilter;
+      if (!App.viewDate && App.activeDate) App.viewDate = App.activeDate;
       renderDatabaseTable(App.dbRows);
       switchTeacherTab(App.pendingTeacherTab || App.teacherTab || 'roster');
       App.pendingTeacherTab = null;
@@ -696,12 +750,16 @@
       btn.hidden = btn.getAttribute('data-for-tab') !== App.teacherTab;
     });
     var saveBtn = document.getElementById('btnDatabaseSave');
-    if (saveBtn) saveBtn.hidden = App.teacherTab !== 'roster';
+    if (saveBtn) saveBtn.hidden = App.teacherTab !== 'roster' || !viewingLiveScores();
     var footer = document.querySelector('.teacher-footer');
-    if (footer) footer.hidden = App.teacherTab !== 'roster';
+    if (footer) footer.hidden = App.teacherTab !== 'roster' || !viewingLiveScores();
     if (els.dbClassFilter && els.dbClassFilter.parentElement) {
       els.dbClassFilter.parentElement.hidden = App.teacherTab === 'settings';
     }
+    document.querySelectorAll('.teacher-date-only').forEach(function (el) {
+      el.hidden = App.teacherTab === 'settings';
+    });
+    updateScoreDayLabel();
     if (App.teacherTab === 'settings' && changed) openSettings();
     if (App.teacherTab !== 'roster' && App.teacherTab !== 'settings') refreshTeacherExtras();
   }
@@ -709,25 +767,108 @@
   function refreshTeacherExtras() {
     var className = teacherTargetClass();
     if (!className) return;
-    api('listDaily', [className]).then(renderDailyPanel).catch(function () {});
-    api('getClassStats', [className]).then(renderStatsPanel).catch(function () {});
+    api('listDaily', [className]).then(function (data) {
+      noteScoreRoll(data);
+      renderDailyPanel(data);
+      renderDatabaseTable(App.dbRows || []);
+    }).catch(function () {});
+    api('getClassStats', [className]).then(function (data) {
+      noteScoreRoll(data);
+      renderStatsPanel(data);
+    }).catch(function () {});
   }
 
-  function settleTodayScores() {
-    var className = teacherTargetClass();
-    if (!className) {
-      toast('請先選擇班級');
-      return;
+  function viewingLiveScores() {
+    if (!App.viewDate || !App.activeDate) return true;
+    return App.viewDate === App.activeDate;
+  }
+
+  function formatZhDate(key) {
+    var parts = String(key || '').split('-');
+    if (parts.length !== 3) return key || '';
+    return Number(parts[0]) + '年' + Number(parts[1]) + '月' + Number(parts[2]) + '日';
+  }
+
+  function formatDateKey(d) {
+    var y = d.getFullYear();
+    var m = String(d.getMonth() + 1).padStart(2, '0');
+    var day = String(d.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + day;
+  }
+
+  function parseDateKey(key) {
+    var parts = String(key || '').split('-');
+    if (parts.length !== 3) return new Date();
+    return new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+  }
+
+  function findDayRecord(date) {
+    var days = App.dailyDays || [];
+    for (var i = 0; i < days.length; i++) {
+      if (days[i].date === date) return days[i];
     }
-    if (!window.confirm('要結算「' + className + '」今天的分數嗎？結算後今日分數會歸零，紀錄會留在每日結算。')) {
-      return;
+    return null;
+  }
+
+  function scoreForView(row) {
+    if (viewingLiveScores()) return Number(row.score) || 0;
+    var day = findDayRecord(App.viewDate);
+    if (!day) return 0;
+    var hit = (day.students || []).filter(function (s) {
+      return String(s.seatNo) === String(row.seatNo) && String(s.name || '') === String(row.name || '');
+    })[0];
+    if (!hit) {
+      hit = (day.students || []).filter(function (s) {
+        return String(s.seatNo) === String(row.seatNo);
+      })[0];
     }
-    run('settleToday', [className], function (data) {
-      applyPayload(data, true);
-      toast(className + ' 今日已結算，分數已歸零');
-      App.pendingTeacherTab = 'daily';
-      openDatabase();
+    return hit ? Number(hit.score) || 0 : 0;
+  }
+
+  function updateScoreDayLabel() {
+    var date = App.viewDate || App.activeDate;
+    if (!date) return;
+    var live = viewingLiveScores();
+    var text = '正在看 ' + formatZhDate(date) + ' 的加扣分';
+    text += live ? '（進行中，晚上 10 點自動存檔）' : '（已存檔）';
+    if (els.scoreDayLabel) els.scoreDayLabel.textContent = text;
+    if (els.dbDateFilter) {
+      els.dbDateFilter.value = date;
+      if (App.activeDate) els.dbDateFilter.max = App.activeDate;
+    }
+    if (els.dbScoreHead) els.dbScoreHead.textContent = live ? '進行中分數' : formatZhDate(date);
+    var hint = document.getElementById('rosterHint');
+    if (hint) {
+      hint.textContent = live
+        ? '直接改班級、座號、姓名與這一天的分數。晚上 10 點會自動存檔。改完按「儲存名單」。'
+        : '這是 ' + formatZhDate(date) + ' 已存檔的加扣分，只能查看。要改名單請回到目前計分日。';
+    }
+    var title = document.getElementById('dailyDayTitle');
+    if (title) title.textContent = formatZhDate(date) + ' 的學生加扣分';
+    var saveBtn = document.getElementById('btnDatabaseSave');
+    if (saveBtn && App.teacherTab === 'roster') saveBtn.hidden = !live;
+    var footer = document.querySelector('.teacher-footer');
+    if (footer && App.teacherTab === 'roster') footer.hidden = !live;
+    var addBtn = document.getElementById('btnDbAdd');
+    if (addBtn && App.teacherTab === 'roster') addBtn.hidden = !live;
+  }
+
+  function setViewDate(date) {
+    if (!date) return;
+    if (App.activeDate && date > App.activeDate) date = App.activeDate;
+    App.viewDate = date;
+    updateScoreDayLabel();
+    renderDatabaseTable(App.dbRows || []);
+    renderDailyPanel({
+      days: App.dailyDays || [],
+      activeDate: App.activeDate
     });
+  }
+
+  function shiftViewDate(delta) {
+    var current = parseDateKey(App.viewDate || App.activeDate || formatDateKey(new Date()));
+    current.setDate(current.getDate() + delta);
+    setViewDate(formatDateKey(current));
   }
 
   function statCard(label, value) {
@@ -735,23 +876,57 @@
   }
 
   function renderDailyPanel(data) {
-    if (els.dailyToday && data.today) {
+    data = data || {};
+    if (data.days) App.dailyDays = data.days;
+    var days = App.dailyDays || [];
+    var date = App.viewDate || data.activeDate || App.activeDate;
+    var day = findDayRecord(date) || {
+      date: date,
+      inProgress: viewingLiveScores(),
+      students: [],
+      total: 0,
+      plusCount: 0,
+      minusCount: 0,
+      zeroCount: 0,
+      average: 0
+    };
+    if (els.dailyToday) {
       els.dailyToday.innerHTML =
-        statCard('今日日期', data.today.date) +
-        statCard('今日總分', data.today.total) +
-        statCard('加分人數', data.today.plusCount) +
-        statCard('扣分人數', data.today.minusCount) +
-        statCard('尚未加減', data.today.zeroCount);
+        statCard('日期', formatZhDate(day.date || date)) +
+        statCard('狀態', day.inProgress ? '進行中' : '已存檔') +
+        statCard('當天總分', day.total || 0) +
+        statCard('加分人數', day.plusCount || 0) +
+        statCard('扣分人數', day.minusCount || 0) +
+        statCard('尚未加減', day.zeroCount || 0);
+    }
+    if (els.dailyStudents) {
+      var students = (day.students || []).slice().sort(function (a, b) {
+        return (Number(b.score) || 0) - (Number(a.score) || 0);
+      });
+      if (!students.length) {
+        els.dailyStudents.innerHTML = '<tr><td colspan="3">這天還沒有加扣分紀錄</td></tr>';
+      } else {
+        els.dailyStudents.innerHTML = students.map(function (s) {
+          var score = Number(s.score) || 0;
+          var cls = score > 0 ? 'day-plus' : (score < 0 ? 'day-minus' : '');
+          var signed = (score > 0 ? '+' : '') + score;
+          return '<tr><td>' + escapeHtml(s.seatNo) + '</td><td>' + escapeHtml(s.name) +
+            '</td><td class="' + cls + '">' + signed + '</td></tr>';
+        }).join('');
+      }
     }
     if (!els.dailyBody) return;
-    var days = data.days || [];
     if (!days.length) {
-      els.dailyBody.innerHTML = '<tr><td colspan="5">還沒有結算紀錄。下課前按「結算今日分數」即可。</td></tr>';
+      els.dailyBody.innerHTML = '<tr><td colspan="5">還沒有日期紀錄。上課加扣分後，晚上 10 點會自動存檔。</td></tr>';
       return;
     }
-    els.dailyBody.innerHTML = days.map(function (day) {
-      return '<tr><td>' + escapeHtml(day.date) + '</td><td>' + day.total + '</td><td>' +
-        day.plusCount + '</td><td>' + day.minusCount + '</td><td>' + day.average + '</td></tr>';
+    els.dailyBody.innerHTML = days.map(function (item) {
+      var on = item.date === date ? ' class="day-on"' : '';
+      var mark = item.inProgress ? '（進行中）' : '';
+      return '<tr' + on + ' data-day="' + escapeHtml(item.date) + '"><td>' +
+        escapeHtml(formatZhDate(item.date)) + mark + '</td><td>' + item.total +
+        '</td><td>' + item.plusCount + '</td><td>' + item.minusCount +
+        '</td><td>' + item.average + '</td></tr>';
     }).join('');
   }
 
@@ -760,9 +935,9 @@
       var top = (data.students && data.students[0]) ? data.students[0].name + '（' + data.students[0].grand + '）' : '—';
       els.statsCards.innerHTML =
         statCard('學生人數', data.studentCount) +
-        statCard('已結算天數', data.settledDays) +
-        statCard('已結算總分', data.settledTotal) +
-        statCard('今日進行中', data.today ? data.today.total : 0) +
+        statCard('已存檔天數', data.settledDays) +
+        statCard('已存檔總分', data.settledTotal) +
+        statCard('進行中', data.today ? data.today.total : 0) +
         statCard('合計總分', data.grandTotal) +
         statCard('目前第一', top);
     }
@@ -780,6 +955,7 @@
   }
 
   function mergeVisibleDatabaseRows() {
+    if (!viewingLiveScores()) return;
     var visible = collectDatabaseRows();
     var oldFilter = App.dbFilter || '__all__';
     if (oldFilter === '__all__') {
@@ -829,15 +1005,21 @@
 
   function addDatabaseRow(row, focus) {
     if (!els.dbBody) return;
+    var live = viewingLiveScores();
+    var score = scoreForView(row);
+    var locked = live ? '' : ' readonly';
+    var del = live
+      ? '<button type="button" class="tool danger" data-del>刪</button>'
+      : '';
     var tr = document.createElement('tr');
     tr.innerHTML =
-      '<td class="col-class"><input data-col="className" type="text" maxlength="40" value="' + escapeHtml(row.className || '') + '" /></td>' +
-      '<td class="col-seat"><input data-col="seatNo" type="text" maxlength="12" value="' + escapeHtml(row.seatNo || '') + '" /></td>' +
-      '<td class="col-name"><input data-col="name" type="text" maxlength="40" value="' + escapeHtml(row.name || '') + '" /></td>' +
-      '<td class="col-score"><input data-col="score" type="number" step="1" value="' + (Number(row.score) || 0) + '" /></td>' +
-      '<td class="col-del"><button type="button" class="tool danger" data-del>刪</button></td>';
+      '<td class="col-class"><input data-col="className" type="text" maxlength="40" value="' + escapeHtml(row.className || '') + '"' + locked + ' /></td>' +
+      '<td class="col-seat"><input data-col="seatNo" type="text" maxlength="12" value="' + escapeHtml(row.seatNo || '') + '"' + locked + ' /></td>' +
+      '<td class="col-name"><input data-col="name" type="text" maxlength="40" value="' + escapeHtml(row.name || '') + '"' + locked + ' /></td>' +
+      '<td class="col-score"><input data-col="score" type="number" step="1" value="' + score + '"' + locked + ' /></td>' +
+      '<td class="col-del">' + del + '</td>';
     els.dbBody.appendChild(tr);
-    if (focus) {
+    if (focus && live) {
       var seat = tr.querySelector('[data-col="seatNo"]');
       if (seat) seat.focus();
     }
@@ -863,6 +1045,10 @@
   }
 
   function saveDatabase() {
+    if (!viewingLiveScores()) {
+      toast('目前是在看舊的日期，請先回到進行中的那一天再改名單');
+      return;
+    }
     mergeVisibleDatabaseRows();
     var filter = els.dbClassFilter ? els.dbClassFilter.value : '__all__';
     var rows = filter === '__all__' ? (App.dbRows || []) : collectDatabaseRows();

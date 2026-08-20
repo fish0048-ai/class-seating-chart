@@ -15,15 +15,124 @@
     return Math.min(max, Math.max(min, n));
   }
 
-  function todayKey_() {
-  var d = new Date();
-  var y = d.getFullYear();
-  var m = String(d.getMonth() + 1).padStart(2, '0');
-  var day = String(d.getDate()).padStart(2, '0');
-  return y + '-' + m + '-' + day;
-}
+  var rollNotice = null;
 
-function summarizeStudents_(students) {
+  function formatDateKey_(d) {
+    var y = d.getFullYear();
+    var m = String(d.getMonth() + 1).padStart(2, '0');
+    var day = String(d.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + day;
+  }
+
+  function todayKey_() {
+    return formatDateKey_(new Date());
+  }
+
+  function scoreDateFromNow_(now) {
+    var d = now ? new Date(now.getTime()) : new Date();
+    if (d.getHours() >= 22) d.setDate(d.getDate() + 1);
+    return formatDateKey_(d);
+  }
+
+  function localDateKeyFromIso_(iso) {
+    var d = iso ? new Date(iso) : new Date();
+    if (isNaN(d.getTime())) return todayKey_();
+    return formatDateKey_(d);
+  }
+
+  function inferScoreDate_(store) {
+    var latest = '';
+    Object.keys(store.classes || {}).forEach(function (cn) {
+      var iso = store.classes[cn] && store.classes[cn].updatedAt;
+      if (!iso) return;
+      var key = localDateKeyFromIso_(iso);
+      if (!latest || key > latest) latest = key;
+    });
+    return latest || todayKey_();
+  }
+
+  function takeRollNotice_() {
+    var notice = rollNotice;
+    rollNotice = null;
+    return notice;
+  }
+
+  function withRoll_(data, store) {
+    var notice = takeRollNotice_();
+    data.activeDate = store.scoreDate || scoreDateFromNow_();
+    data.rolled = !!(notice && notice.rolled);
+    data.closedDate = notice && notice.closedDate ? notice.closedDate : '';
+    return data;
+  }
+
+  function makeDayRecord_(room, date, inProgress) {
+    var summary = summarizeStudents_(room.students);
+    return {
+      date: date,
+      settledAt: inProgress ? '' : nowIso(),
+      inProgress: !!inProgress,
+      students: (room.students || []).map(function (s) {
+        return { seatNo: s.seatNo, name: s.name, score: Number(s.score) || 0 };
+      }),
+      total: summary.total,
+      plusCount: summary.plusCount,
+      minusCount: summary.minusCount,
+      zeroCount: summary.zeroCount,
+      average: summary.average
+    };
+  }
+
+  function settleClassDate_(store, className, date) {
+    var room = ensureClass(store, className);
+    store.daily = store.daily || {};
+    store.daily[className] = store.daily[className] || [];
+    var already = store.daily[className].some(function (item) {
+      return item.date === date;
+    });
+    var hasScore = (room.students || []).some(function (s) {
+      return Number(s.score) !== 0;
+    });
+    if (hasScore) {
+      var record = makeDayRecord_(room, date, false);
+      store.daily[className] = store.daily[className].filter(function (item) {
+        return item.date !== date;
+      });
+      store.daily[className].push(record);
+      if (!already) {
+        addHistory(store, {
+          className: className,
+          type: '每日結算',
+          seatNo: '',
+          name: '',
+          delta: 0,
+          newScore: 0,
+          detail: date + ' 晚上10點自動存檔，總分 ' + record.total,
+          undoable: false
+        });
+      }
+    }
+    room.students.forEach(function (s) {
+      s.score = 0;
+    });
+    autoPlace(room);
+    room.updatedAt = nowIso();
+    store.classes[className] = room;
+  }
+
+  function ensureRolledScores_(store) {
+    var active = scoreDateFromNow_();
+    if (!store.scoreDate) store.scoreDate = inferScoreDate_(store);
+    if (store.scoreDate === active) return false;
+    var closed = store.scoreDate;
+    Object.keys(store.classes || {}).forEach(function (cn) {
+      settleClassDate_(store, cn, closed);
+    });
+    store.scoreDate = active;
+    rollNotice = { rolled: true, closedDate: closed, activeDate: active };
+    return true;
+  }
+
+  function summarizeStudents_(students) {
   var total = 0;
   var plusCount = 0;
   var minusCount = 0;
@@ -57,6 +166,7 @@ function summarizeStudents_(students) {
         if (parsed && parsed.classes) {
           if (!parsed.daily) parsed.daily = {};
           if (!parsed.history) parsed.history = [];
+          if (ensureRolledScores_(parsed)) saveStore(parsed);
           return parsed;
         }
       }
@@ -65,7 +175,12 @@ function summarizeStudents_(students) {
   }
 
   function saveStore(store) {
-    localStorage.setItem(KEY, JSON.stringify(store));
+    localStorage.setItem(KEY, JSON.stringify({
+      classes: store.classes,
+      history: store.history || [],
+      daily: store.daily || {},
+      scoreDate: store.scoreDate || scoreDateFromNow_()
+    }));
   }
 
   function seedStore() {
@@ -92,7 +207,8 @@ function summarizeStudents_(students) {
         }
       },
       history: [],
-      daily: {}
+      daily: {},
+      scoreDate: scoreDateFromNow_()
     };
     saveStore(store);
     return store;
@@ -154,11 +270,11 @@ function summarizeStudents_(students) {
   function payload(store, className) {
     var room = ensureClass(store, className);
     autoPlace(room);
-    return {
+    return withRoll_({
       ok: true,
       classNames: classNames(store),
       classroom: clone(room)
-    };
+    }, store);
   }
 
   function persistRoom(store, classroom, bump) {
@@ -392,7 +508,7 @@ function summarizeStudents_(students) {
           });
         });
       });
-      return wrap({ ok: true, rows: rows, classNames: classNames(store) });
+      return wrap(withRoll_({ ok: true, rows: rows, classNames: classNames(store) }, store));
     },
     saveRecords: function (body) {
       var store = loadStore();
@@ -457,67 +573,35 @@ function summarizeStudents_(students) {
     listDaily: function (className) {
       var store = loadStore();
       className = String(className || '').trim();
-      var days = ((store.daily || {})[className] || []).slice().sort(function (a, b) {
+      var room = ensureClass(store, className);
+      var active = store.scoreDate || scoreDateFromNow_();
+      var days = ((store.daily || {})[className] || []).slice();
+      var live = makeDayRecord_(room, active, true);
+      live.count = room.students.length;
+      var hasActive = days.some(function (item) { return item.date === active; });
+      if (!hasActive) days.push(live);
+      days.sort(function (a, b) {
         return String(b.date).localeCompare(String(a.date));
       });
-      var room = ensureClass(store, className);
-      var today = summarizeStudents_(room.students);
-      today.date = todayKey_();
-      today.count = room.students.length;
-      return wrap({
+      return wrap(withRoll_({
         ok: true,
         className: className,
-        today: today,
+        activeDate: active,
+        today: live,
         days: days
-      });
+      }, store));
     },
     settleToday: function (className) {
       var store = loadStore();
       className = String(className || '').trim();
       if (!className) throw new Error('缺少班級名稱');
-      var room = ensureClass(store, className);
-      var summary = summarizeStudents_(room.students);
-      var record = {
-        date: todayKey_(),
-        settledAt: nowIso(),
-        students: room.students.map(function (s) {
-          return { seatNo: s.seatNo, name: s.name, score: Number(s.score) || 0 };
-        }),
-        total: summary.total,
-        plusCount: summary.plusCount,
-        minusCount: summary.minusCount,
-        zeroCount: summary.zeroCount,
-        average: summary.average
-      };
-      store.daily = store.daily || {};
-      store.daily[className] = store.daily[className] || [];
-      store.daily[className] = store.daily[className].filter(function (item) {
-        return item.date !== record.date;
-      });
-      store.daily[className].push(record);
-      room.students.forEach(function (s) {
-        s.score = 0;
-      });
-      persistRoom(store, room, true);
-      addHistory(store, {
-        className: className,
-        type: '每日結算',
-        seatNo: '',
-        name: '',
-        delta: 0,
-        newScore: 0,
-        detail: record.date + ' 結算總分 ' + record.total,
-        undoable: false
-      });
-      saveStore(store);
-      var data = payload(store, className);
-      data.settled = record;
-      return wrap(data);
+      return wrap(withRoll_(payload(store, className), store));
     },
     getClassStats: function (className) {
       var store = loadStore();
       className = String(className || '').trim();
       var room = ensureClass(store, className);
+      var active = store.scoreDate || scoreDateFromNow_();
       var days = ((store.daily || {})[className] || []).slice().sort(function (a, b) {
         return String(a.date).localeCompare(String(b.date));
       });
@@ -550,11 +634,13 @@ function summarizeStudents_(students) {
         return b.grand - a.grand;
       });
       var today = summarizeStudents_(room.students);
+      today.date = active;
       var settledTotal = days.reduce(function (sum, day) { return sum + (Number(day.total) || 0); }, 0);
       var recentDays = days.slice(-7).reverse();
-      return wrap({
+      return wrap(withRoll_({
         ok: true,
         className: className,
+        activeDate: active,
         today: today,
         settledDays: days.length,
         settledTotal: settledTotal,
@@ -562,7 +648,7 @@ function summarizeStudents_(students) {
         studentCount: room.students.length,
         recentDays: recentDays,
         students: students
-      });
+      }, store));
     },
     exportJSON: function () {
       return localStorage.getItem(KEY) || JSON.stringify(loadStore());

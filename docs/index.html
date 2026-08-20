@@ -78,7 +78,7 @@
 
       <nav class="toolbar teacher-tabs" role="tablist" aria-label="教師功能">
         <button type="button" class="tool tab-on" data-teacher-tab="roster">名單</button>
-        <button type="button" class="tool" data-teacher-tab="daily">每日結算</button>
+        <button type="button" class="tool" data-teacher-tab="daily">每日紀錄</button>
         <button type="button" class="tool" data-teacher-tab="stats">統計</button>
         <button type="button" class="tool" data-teacher-tab="settings">設定與上傳</button>
         <button type="button" class="tool" id="btnExport">下載備份</button>
@@ -92,14 +92,22 @@
           <label>班級
             <select id="dbClassFilter" aria-label="篩選班級"></select>
           </label>
+          <div class="date-picker teacher-date-only">
+            <span>日期</span>
+            <span class="date-nav">
+              <button type="button" class="tool" id="btnDayPrev" aria-label="前一天">前一天</button>
+              <input id="dbDateFilter" type="date" aria-label="查看哪一天的加扣分" />
+              <button type="button" class="tool" id="btnDayNext" aria-label="後一天">後一天</button>
+            </span>
+          </div>
+          <p id="scoreDayLabel" class="score-day-label teacher-date-only">正在看今天的加扣分</p>
           <button type="button" class="tool teacher-tab-only" data-for-tab="roster" id="btnDbAdd">新增一列</button>
-          <button type="button" class="tool accent teacher-tab-only" data-for-tab="daily" id="btnSettleToday" hidden>結算今日分數</button>
           <button type="button" class="tool teacher-tab-only" data-for-tab="settings" id="btnUpload" hidden>選擇名單檔</button>
         </div>
 
         <div class="teacher-body">
           <div id="tabRoster" class="teacher-panel">
-            <p class="hint">直接改班級、座號、姓名、今日分數。改完按「儲存名單」。</p>
+            <p class="hint" id="rosterHint">直接改班級、座號、姓名與這一天的分數。改完按「儲存名單」。</p>
             <div class="db-table-wrap">
               <table class="db-table">
                 <thead>
@@ -107,7 +115,7 @@
                     <th>班級</th>
                     <th>座號</th>
                     <th>姓名</th>
-                    <th>今日分數</th>
+                    <th id="dbScoreHead">分數</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -117,9 +125,22 @@
           </div>
 
           <div id="tabDaily" class="teacher-panel" hidden>
-            <p class="hint">把今天的加扣分存成當日紀錄，並把今日分數歸零，方便明天重新計分。</p>
+            <p class="hint">每天晚上 10 點會自動把當天加扣分存下來，隔天從 0 開始。選上面的日期就能看那一天。</p>
             <div id="dailyToday" class="stat-cards"></div>
-            <h3 class="subhead">已結算日期</h3>
+            <h3 class="subhead" id="dailyDayTitle">這天的學生加扣分</h3>
+            <div class="db-table-wrap">
+              <table class="db-table">
+                <thead>
+                  <tr>
+                    <th>座號</th>
+                    <th>姓名</th>
+                    <th>加扣分</th>
+                  </tr>
+                </thead>
+                <tbody id="dailyStudents"></tbody>
+              </table>
+            </div>
+            <h3 class="subhead">所有日期</h3>
             <div class="db-table-wrap">
               <table class="db-table">
                 <thead>
@@ -137,7 +158,7 @@
           </div>
 
           <div id="tabStats" class="teacher-panel" hidden>
-            <p class="hint">含已結算累計與今天尚未結算的分數。</p>
+            <p class="hint">含已存檔的每一天，以及目前正在計分的這一天。</p>
             <div id="statsCards" class="stat-cards"></div>
             <h3 class="subhead">學生累計排行</h3>
             <div class="db-table-wrap">
@@ -148,7 +169,7 @@
                     <th>座號</th>
                     <th>姓名</th>
                     <th>已結算</th>
-                    <th>今日</th>
+                    <th>進行中</th>
                     <th>合計</th>
                   </tr>
                 </thead>
