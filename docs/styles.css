@@ -1211,7 +1211,11 @@
     background: #fff4e4;
   }
 
-  .upload-box a { color: var(--primary); }
+  .roster-upload-actions {
+    justify-content: center;
+    flex-wrap: wrap;
+    margin-top: 10px;
+  }
   .upload-box p { margin: 0 0 6px; }
   .upload-preview {
     margin-top: 8px !important;

@@ -299,7 +299,8 @@
                 <button type="button" class="tool primary" id="btnCloudConnect">連上雲端</button>
               </div>
             </div>
-            <p class="hint">上傳 CSV／Excel，或直接貼上。儲存後立刻可用。</p>
+            <h3 class="subhead">新增班級與學生</h3>
+            <p class="hint">用 Excel 一次匯入一個班或多個班。第一列請用：班級、座號、姓名。不同班級只要「班級」欄寫不同名稱即可。</p>
             <div class="form-grid">
               <label>班級名稱
                 <input id="settingClassName" type="text" maxlength="40" placeholder="例如 301" />
@@ -313,9 +314,13 @@
             </div>
             <div id="uploadBox" class="upload-box">
               <input id="settingFile" type="file" accept=".csv,.txt,.xlsx,.xls" hidden />
-              <p><strong>把名單檔拖到這裡</strong>，或按上方「選擇名單檔」。</p>
-              <p class="hint">欄位：班級、座號、姓名（分數可有可無）。Excel 請用第一個工作表。</p>
-              <p><a href="學生名單範本.csv" download>下載 CSV 範本</a></p>
+              <p><strong>把 Excel 或 CSV 拖到這裡</strong></p>
+              <p class="hint">欄位：班級、座號、姓名。一個檔案可以有很多班。</p>
+              <div class="modal-actions roster-upload-actions">
+                <button type="button" class="tool" id="btnRosterTemplate">下載 Excel 範本</button>
+                <button type="button" class="tool" id="btnPickRoster">選擇 Excel 檔</button>
+                <button type="button" class="tool primary" id="btnImportRoster">匯入名單</button>
+              </div>
               <p id="uploadPreview" class="upload-preview" hidden></p>
             </div>
             <label class="check left">
@@ -326,7 +331,7 @@
               <textarea id="settingStudents" rows="10" placeholder="301,01,陳安安&#10;301,02,林冠宇"></textarea>
             </label>
             <div class="modal-actions">
-              <button type="button" class="tool" id="btnExportCsv">下載本班 CSV</button>
+              <button type="button" class="tool" id="btnExportCsv">下載本班 Excel</button>
               <button type="button" class="tool primary" id="btnSettingsSave">儲存設定</button>
             </div>
           </div>

@@ -336,7 +336,17 @@
     });
   }
   var csvBtn = document.getElementById('btnExportCsv');
-  if (csvBtn) csvBtn.addEventListener('click', downloadClassCsv);
+  if (csvBtn) csvBtn.addEventListener('click', downloadClassExcel);
+  var rosterTpl = document.getElementById('btnRosterTemplate');
+  if (rosterTpl) rosterTpl.addEventListener('click', downloadRosterExcel);
+  var pickRoster = document.getElementById('btnPickRoster');
+  if (pickRoster) {
+    pickRoster.addEventListener('click', function () {
+      if (els.settingFile) els.settingFile.click();
+    });
+  }
+  var importRosterBtn = document.getElementById('btnImportRoster');
+  if (importRosterBtn) importRosterBtn.addEventListener('click', importPendingRoster);
   var cloudBtn = document.getElementById('btnCloudConnect');
   if (cloudBtn) cloudBtn.addEventListener('click', connectCloud);
   var cloudUrl = document.getElementById('cloudApiUrl');
@@ -3335,12 +3345,80 @@
   }
 
   function downloadClassCsv() {
-    if (!App.classroom || typeof SeatDB === 'undefined' || !SeatDB.exportCSV) {
+    downloadClassExcel();
+  }
+
+  function downloadRosterExcel() {
+    withXlsx(function (X) {
+      var wb = X.utils.book_new();
+      var data = [
+        ['班級', '座號', '姓名'],
+        ['301', '01', '陳安安'],
+        ['301', '02', '林冠宇'],
+        ['301', '03', '黃詩涵'],
+        ['302', '01', '吳品萱'],
+        ['302', '02', '劉子豪']
+      ];
+      var sheet = X.utils.aoa_to_sheet(data);
+      sheet['!cols'] = [{ wch: 10 }, { wch: 8 }, { wch: 14 }];
+      X.utils.book_append_sheet(wb, sheet, '學生名單');
+      var help = X.utils.aoa_to_sheet([
+        ['使用說明'],
+        ['1. 在「學生名單」工作表填班級、座號、姓名。'],
+        ['2. 一個檔案可以有多個班級，只要班級欄填不同名稱。'],
+        ['3. 座號建議兩位數，例如 01、02。'],
+        ['4. 存檔後回到座位表 → 教師模式 → 設定與上傳 → 選擇 Excel 檔 → 匯入名單。'],
+        ['5. 若只要新增一個班，班級欄全部填同一個名稱即可。'],
+        ['6. 分數欄可以沒有。']
+      ]);
+      help['!cols'] = [{ wch: 70 }];
+      X.utils.book_append_sheet(wb, help, '說明');
+      X.writeFile(wb, '學生名單範本.xlsx');
+      toast('已下載 Excel 範本，用 Excel 打開改成你的學生後再上傳');
+    });
+  }
+
+  function downloadClassExcel() {
+    if (!App.classroom || !App.classroom.students) {
       toast('沒有可下載的名單');
       return;
     }
-    downloadText(App.classroom.className + '-學生名單.csv', SeatDB.exportCSV(App.classroom.className), 'text/csv;charset=utf-8');
-    toast('已下載本班 CSV，可用 Excel 打開修改後再上傳');
+    withXlsx(function (X) {
+      var rows = [['班級', '座號', '姓名']];
+      App.classroom.students.forEach(function (s) {
+        rows.push([App.classroom.className, s.seatNo, s.name]);
+      });
+      if (rows.length === 1) {
+        toast('這個班還沒有學生');
+        return;
+      }
+      var wb = X.utils.book_new();
+      var sheet = X.utils.aoa_to_sheet(rows);
+      sheet['!cols'] = [{ wch: 10 }, { wch: 8 }, { wch: 14 }];
+      X.utils.book_append_sheet(wb, sheet, '學生名單');
+      X.writeFile(wb, App.classroom.className + '-學生名單.xlsx');
+      toast('已下載本班 Excel，改完後可再上傳匯入');
+    });
+  }
+
+  function importPendingRoster() {
+    var className = els.settingClassName.value.trim();
+    var pasted = parseRosterText(els.settingStudents.value, className);
+    var replace = !!(els.settingReplace && els.settingReplace.checked);
+    if (!pasted.length) {
+      toast('請先上傳 Excel，或在下方貼上名單');
+      return;
+    }
+    if (App.busy) return;
+    App.busy = true;
+    importRoster(pasted, replace, className)
+      .then(function () {
+        App.busy = false;
+      })
+      .catch(function (error) {
+        App.busy = false;
+        toast(error && error.message ? error.message : '匯入失敗，請再試一次');
+      });
   }
 
   function restoreBackup(file) {
@@ -3472,23 +3550,21 @@
   function readRosterFile(file) {
     const name = String(file && file.name || '').toLowerCase();
     if (/\.xlsx?$/.test(name)) {
-      if (typeof XLSX === 'undefined') {
-        toast('無法讀取 Excel，請另存成 CSV UTF-8 再上傳');
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = function (event) {
-        try {
-          const workbook = XLSX.read(event.target.result, { type: 'array' });
-          const sheet = workbook.Sheets[workbook.SheetNames[0]];
-          const table = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
-          App.pendingImport = parseRosterTable(table, els.settingClassName.value.trim());
-          afterFileParsed(file.name);
-        } catch (err) {
-          toast('Excel 讀取失敗，請改用 CSV 範本');
-        }
-      };
-      reader.readAsArrayBuffer(file);
+      withXlsx(function (X) {
+        const reader = new FileReader();
+        reader.onload = function (event) {
+          try {
+            const workbook = X.read(event.target.result, { type: 'array' });
+            const sheet = workbook.Sheets[workbook.SheetNames[0]];
+            const table = X.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
+            App.pendingImport = parseRosterTable(table, els.settingClassName.value.trim());
+            afterFileParsed(file.name);
+          } catch (err) {
+            toast('Excel 讀取失敗，請確認第一個工作表有班級、座號、姓名');
+          }
+        };
+        reader.readAsArrayBuffer(file);
+      });
       return;
     }
     const reader = new FileReader();
@@ -3518,7 +3594,7 @@
     if (App.pendingImport[0].className) {
       els.settingClassName.value = App.pendingImport[0].className;
     }
-    toast('已讀取 ' + App.pendingImport.length + ' 位學生，按儲存即可');
+    toast('已讀取 ' + App.pendingImport.length + ' 位學生，請按「匯入名單」');
   }
 
   function renderUploadPreview(fileName) {
@@ -3624,7 +3700,8 @@
   }
 
   function normalizeStudent(row, fallbackClass) {
-    const seatNo = String(row.seatNo || '').trim();
+    var seatNo = String(row.seatNo || '').trim();
+    if (/^\d+$/.test(seatNo) && seatNo.length < 2) seatNo = ('0' + seatNo).slice(-2);
     const name = String(row.name || '').trim();
     const className = String(row.className || fallbackClass || '').trim();
     const item = { className: className, seatNo: seatNo, name: name };
