@@ -17,7 +17,10 @@
     pendingImport: null,
     activeDate: '',
     viewDate: '',
-    dailyDays: []
+    dailyDays: [],
+    gradeView: 'term',
+    gradebook: null,
+    weekKey: ''
   };
 
   const els = {
@@ -60,9 +63,18 @@
     chartRank: document.getElementById('chartRank'),
     chartPlusMinus: document.getElementById('chartPlusMinus'),
     chartDist: document.getElementById('chartDist'),
-    reportTitle: document.getElementById('reportTitle'),
-    reportClassBody: document.getElementById('reportClassBody'),
-    reportBody: document.getElementById('reportBody'),
+    gradeTermHead: document.getElementById('gradeTermHead'),
+    gradeTermBody: document.getElementById('gradeTermBody'),
+    gradeWeekHead: document.getElementById('gradeWeekHead'),
+    gradeWeekBody: document.getElementById('gradeWeekBody'),
+    gradeRuleBox: document.getElementById('gradeRuleBox'),
+    weekSelect: document.getElementById('weekSelect'),
+    gradeColName: document.getElementById('gradeColName'),
+    gradeColDate: document.getElementById('gradeColDate'),
+    ruleBase: document.getElementById('ruleBase'),
+    ruleClassW: document.getElementById('ruleClassW'),
+    ruleQuizW: document.getElementById('ruleQuizW'),
+    ruleExamW: document.getElementById('ruleExamW'),
     authModal: document.getElementById('authModal'),
     authTitle: document.getElementById('authTitle'),
     authHint: document.getElementById('authHint'),
@@ -182,6 +194,33 @@
   if (exportSheet) exportSheet.addEventListener('click', downloadScoreSheet);
   var exportReport = document.getElementById('btnExportReport');
   if (exportReport) exportReport.addEventListener('click', downloadScoreReport);
+  document.querySelectorAll('[data-grade-view]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      switchGradeView(btn.getAttribute('data-grade-view'));
+    });
+  });
+  var addQuiz = document.getElementById('btnAddQuiz');
+  if (addQuiz) addQuiz.addEventListener('click', function () { addGradeColumn('quiz'); });
+  var addExam = document.getElementById('btnAddExam');
+  if (addExam) addExam.addEventListener('click', function () { addGradeColumn('exam'); });
+  var saveGrades = document.getElementById('btnSaveGrades');
+  if (saveGrades) saveGrades.addEventListener('click', function () { saveGradebookFromTable(true); });
+  var saveRules = document.getElementById('btnSaveRules');
+  if (saveRules) saveRules.addEventListener('click', saveGradeRules);
+  if (els.weekSelect) {
+    els.weekSelect.addEventListener('change', function () {
+      App.weekKey = els.weekSelect.value;
+      renderWeekGrades();
+    });
+  }
+  var gradeTermTable = document.getElementById('gradeTermTable');
+  if (gradeTermTable) {
+    gradeTermTable.addEventListener('click', function (event) {
+      var btn = event.target.closest('[data-del-grade]');
+      if (!btn) return;
+      deleteGradeColumn(btn.getAttribute('data-kind'), btn.getAttribute('data-id'));
+    });
+  }
   if (els.dbBody) {
     els.dbBody.addEventListener('click', function (event) {
       var btn = event.target.closest('[data-del]');
@@ -787,6 +826,10 @@
       noteScoreRoll(data);
       renderDailyPanel(data);
       renderDatabaseTable(App.dbRows || []);
+      return api('getGradebook', [className]);
+    }).then(function (data) {
+      applyGradebook(data);
+      renderGradebook();
     }).catch(function () {});
   }
 
@@ -1037,8 +1080,8 @@
     var model = buildSheetModel();
     App.sheetModel = model;
     renderScoreSheet(model);
-    renderScoreReport(model);
     renderStatsDashboard(model);
+    renderGradebook();
   }
 
   function renderScoreSheet(model) {
@@ -1103,65 +1146,395 @@
       '</tr>';
   }
 
-  function renderScoreReport(model) {
-    model = model || App.sheetModel || buildSheetModel();
-    var ranked = (model.ranked || []).slice();
-    var totals = ranked.map(function (row) { return row.total; });
-    var top = ranked[0];
-    var bottom = ranked.length ? ranked[ranked.length - 1] : null;
-    var avg = model.classAvg || 0;
-    if (els.reportTitle) {
-      els.reportTitle.textContent = (model.className || '') + ' 成績統計表（全部日期合計）';
+  function defaultGradeRules() {
+    return { base: 60, classWeight: 40, quizWeight: 30, examWeight: 30, min: 0, max: 100 };
+  }
+
+  function gradeRules() {
+    return (App.gradebook && App.gradebook.rules) || defaultGradeRules();
+  }
+
+  function round1(n) {
+    return Math.round(Number(n) * 10) / 10;
+  }
+
+  function usualFromRaw(raw) {
+    var rules = gradeRules();
+    var n = (Number(rules.base) || 0) + (Number(raw) || 0);
+    return Math.max(rules.min || 0, Math.min(rules.max || 100, n));
+  }
+
+  function columnScore100(col, seatNo) {
+    if (!col || !col.scores) return null;
+    if (col.scores[seatNo] === '' || col.scores[seatNo] == null) return null;
+    var n = Number(col.scores[seatNo]);
+    if (!isFinite(n)) return null;
+    var max = Number(col.max) || 100;
+    return round1(n / max * 100);
+  }
+
+  function average100(cols, seatNo) {
+    var vals = [];
+    (cols || []).forEach(function (col) {
+      var v = columnScore100(col, seatNo);
+      if (v != null) vals.push(v);
+    });
+    if (!vals.length) return null;
+    return round1(vals.reduce(function (sum, n) { return sum + n; }, 0) / vals.length);
+  }
+
+  function weightedScore(usual, quiz, exam) {
+    var rules = gradeRules();
+    var parts = [];
+    if (usual != null) parts.push({ v: usual, w: Number(rules.classWeight) || 0 });
+    if (quiz != null) parts.push({ v: quiz, w: Number(rules.quizWeight) || 0 });
+    if (exam != null) parts.push({ v: exam, w: Number(rules.examWeight) || 0 });
+    var wsum = parts.reduce(function (sum, p) { return sum + p.w; }, 0);
+    if (!wsum) return null;
+    return round1(parts.reduce(function (sum, p) { return sum + p.v * p.w; }, 0) / wsum);
+  }
+
+  function scoreFormula(usual, quiz, exam) {
+    var rules = gradeRules();
+    var bits = [];
+    if (usual != null) bits.push('平時 ' + usual + '×' + rules.classWeight + '%');
+    else bits.push('平時 無');
+    if (quiz != null) bits.push('小考 ' + quiz + '×' + rules.quizWeight + '%');
+    else bits.push('小考 無');
+    if (exam != null) bits.push('段考 ' + exam + '×' + rules.examWeight + '%');
+    else bits.push('段考 無');
+    var total = weightedScore(usual, quiz, exam);
+    return bits.join(' ＋ ') + ' → ' + (total == null ? '—' : total);
+  }
+
+  function mondayOf(dateKey) {
+    var d = parseDateKey(dateKey);
+    var day = d.getDay();
+    d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+    return formatDateKey(d);
+  }
+
+  function sundayOf(mondayKey) {
+    var d = parseDateKey(mondayKey);
+    d.setDate(d.getDate() + 6);
+    return formatDateKey(d);
+  }
+
+  function inWeek(dateKey, mondayKey) {
+    return dateKey >= mondayKey && dateKey <= sundayOf(mondayKey);
+  }
+
+  function applyGradebook(data) {
+    if (!data) return;
+    App.gradebook = {
+      quizzes: data.quizzes || [],
+      exams: data.exams || [],
+      rules: Object.assign(defaultGradeRules(), data.rules || {})
+    };
+    fillRuleInputs();
+  }
+
+  function fillRuleInputs() {
+    var rules = gradeRules();
+    if (els.ruleBase) els.ruleBase.value = rules.base;
+    if (els.ruleClassW) els.ruleClassW.value = rules.classWeight;
+    if (els.ruleQuizW) els.ruleQuizW.value = rules.quizWeight;
+    if (els.ruleExamW) els.ruleExamW.value = rules.examWeight;
+  }
+
+  function switchGradeView(view) {
+    App.gradeView = view === 'week' ? 'week' : 'term';
+    document.querySelectorAll('[data-grade-view]').forEach(function (btn) {
+      btn.classList.toggle('tab-on', btn.getAttribute('data-grade-view') === App.gradeView);
+    });
+    var term = document.getElementById('gradeTermView');
+    var week = document.getElementById('gradeWeekView');
+    if (term) term.hidden = App.gradeView !== 'term';
+    if (week) week.hidden = App.gradeView !== 'week';
+    renderGradebook();
+  }
+
+  function renderGradebook() {
+    if (!App.gradebook) {
+      App.gradebook = { quizzes: [], exams: [], rules: defaultGradeRules() };
+      fillRuleInputs();
     }
-    if (els.reportClassBody) {
-      if (!ranked.length) {
-        els.reportClassBody.innerHTML = '<tr><td colspan="12">這個班還沒有統計資料</td></tr>';
-      } else {
-        els.reportClassBody.innerHTML = '<tr>' +
-          '<td>' + ranked.length + '</td>' +
-          '<td class="' + scoreCellClass(model.grand) + '">' + scoreCellText(model.grand) + '</td>' +
-          '<td>' + avg + '</td>' +
-          '<td>' + model.median + '</td>' +
-          '<td class="' + scoreCellClass(top.total) + '">' + scoreCellText(top.total) + '</td>' +
-          '<td class="' + scoreCellClass(bottom.total) + '">' + scoreCellText(bottom.total) + '</td>' +
-          '<td>' + stdevOf(totals) + '</td>' +
-          '<td>' + (model.plusPeople || 0) + '</td>' +
-          '<td>' + (model.zeroPeople || 0) + '</td>' +
-          '<td>' + (model.minusPeople || 0) + '</td>' +
-          '<td class="day-plus">+' + (model.plusTotal || 0) + '</td>' +
-          '<td class="day-minus">' + (model.minusTotal || 0) + '</td>' +
-          '</tr>';
-      }
+    if (els.gradeColDate && !els.gradeColDate.value && App.activeDate) {
+      els.gradeColDate.value = App.activeDate;
     }
-    if (!els.reportBody) return;
-    if (!ranked.length) {
-      els.reportBody.innerHTML = '<tr><td colspan="11">這個班還沒有學生</td></tr>';
+    renderTermGrades();
+    renderWeekGrades();
+  }
+
+  function renderTermGrades() {
+    if (!els.gradeTermHead || !els.gradeTermBody) return;
+    var model = App.sheetModel || buildSheetModel();
+    var book = App.gradebook || { quizzes: [], exams: [] };
+    var quizzes = book.quizzes || [];
+    var exams = book.exams || [];
+    var students = (model.rows || []).slice().sort(seatOrder);
+    var quizHeads = quizzes.map(function (col) {
+      return '<th>' + escapeHtml(col.title) + '<br><small>' + escapeHtml(shortDate(col.date)) +
+        '</small><br><button type="button" class="col-del-mini" data-del-grade data-kind="quiz" data-id="' +
+        escapeHtml(col.id) + '">刪</button></th>';
+    }).join('');
+    var examHeads = exams.map(function (col) {
+      return '<th>' + escapeHtml(col.title) + '<br><small>' + escapeHtml(shortDate(col.date)) +
+        '</small><br><button type="button" class="col-del-mini" data-del-grade data-kind="exam" data-id="' +
+        escapeHtml(col.id) + '">刪</button></th>';
+    }).join('');
+    els.gradeTermHead.innerHTML =
+      '<tr>' +
+      '<th rowspan="2" class="sticky-1">座號</th>' +
+      '<th rowspan="2" class="sticky-2">姓名</th>' +
+      '<th colspan="2">平時表現（上課成績併入）</th>' +
+      (quizzes.length ? '<th colspan="' + (quizzes.length + 1) + '">小考成績</th>' : '<th>小考成績</th>') +
+      (exams.length ? '<th colspan="' + (exams.length + 1) + '">段考成績</th>' : '<th>段考成績</th>') +
+      '<th colspan="2">學期成績</th>' +
+      '</tr><tr>' +
+      '<th>上課加扣</th><th>換算分</th>' +
+      quizHeads + '<th>小考平均</th>' +
+      examHeads + '<th>段考平均</th>' +
+      '<th>加權總分</th><th>名次</th>' +
+      '</tr>';
+    if (!students.length) {
+      els.gradeTermBody.innerHTML = '<tr><td class="sticky-1" colspan="8">這個班還沒有學生</td></tr>';
       return;
     }
+    var rows = students.map(function (stu) {
+      var quizAvg = average100(quizzes, stu.seatNo);
+      var examAvg = average100(exams, stu.seatNo);
+      var usual = usualFromRaw(stu.total);
+      var total = weightedScore(usual, quizAvg, examAvg);
+      return {
+        seatNo: stu.seatNo,
+        name: stu.name,
+        classRaw: stu.total,
+        usual: usual,
+        quizAvg: quizAvg,
+        examAvg: examAvg,
+        total: total
+      };
+    }).sort(function (a, b) {
+      return (b.total == null ? -999 : b.total) - (a.total == null ? -999 : a.total);
+    });
     var lastTotal = null;
     var lastRank = 0;
-    els.reportBody.innerHTML = ranked.map(function (row, index) {
+    els.gradeTermBody.innerHTML = rows.map(function (row, index) {
       if (lastTotal === null || row.total !== lastTotal) {
         lastRank = index + 1;
         lastTotal = row.total;
       }
-      var diff = Math.round((row.total - avg) * 10) / 10;
-      var mark = diff > 0 ? '優於平均' : (diff < 0 ? '低於平均' : '符合平均');
-      var markCls = diff > 0 ? 'day-plus' : (diff < 0 ? 'day-minus' : '');
+      var quizCells = quizzes.map(function (col) {
+        var v = col.scores && col.scores[row.seatNo];
+        var shown = v === '' || v == null ? '' : v;
+        return '<td><input data-grade-score data-kind="quiz" data-id="' + escapeHtml(col.id) +
+          '" data-seat="' + escapeHtml(row.seatNo) + '" type="number" min="0" max="' + (col.max || 100) +
+          '" value="' + escapeHtml(String(shown)) + '" /></td>';
+      }).join('');
+      var examCells = exams.map(function (col) {
+        var v = col.scores && col.scores[row.seatNo];
+        var shown = v === '' || v == null ? '' : v;
+        return '<td><input data-grade-score data-kind="exam" data-id="' + escapeHtml(col.id) +
+          '" data-seat="' + escapeHtml(row.seatNo) + '" type="number" min="0" max="' + (col.max || 100) +
+          '" value="' + escapeHtml(String(shown)) + '" /></td>';
+      }).join('');
       return '<tr>' +
+        '<td class="sticky-1">' + escapeHtml(row.seatNo) + '</td>' +
+        '<td class="sticky-2 name-col">' + escapeHtml(row.name) + '</td>' +
+        '<td class="' + scoreCellClass(row.classRaw) + '">' + scoreCellText(row.classRaw) + '</td>' +
+        '<td>' + row.usual + '</td>' +
+        quizCells +
+        '<td>' + (row.quizAvg == null ? '—' : row.quizAvg) + '</td>' +
+        examCells +
+        '<td>' + (row.examAvg == null ? '—' : row.examAvg) + '</td>' +
+        '<td class="col-total">' + (row.total == null ? '—' : row.total) + '</td>' +
         '<td>' + lastRank + '</td>' +
-        '<td>' + escapeHtml(row.seatNo) + '</td>' +
-        '<td class="name-col">' + escapeHtml(row.name) + '</td>' +
-        '<td class="' + scoreCellClass(row.total) + '">' + scoreCellText(row.total) + '</td>' +
-        '<td>' + row.avg + '</td>' +
-        '<td class="day-plus">+' + (row.plusSum || 0) + '</td>' +
-        '<td class="day-minus">' + (row.minusSum || 0) + '</td>' +
-        '<td>' + (row.plusDays || 0) + '</td>' +
-        '<td>' + (row.minusDays || 0) + '</td>' +
-        '<td class="' + scoreCellClass(diff) + '">' + scoreCellText(diff) + '</td>' +
-        '<td class="' + markCls + '">' + mark + '</td>' +
         '</tr>';
     }).join('');
+  }
+
+  function classRawInWeek(seatNo, mondayKey) {
+    var sum = 0;
+    (App.dailyDays || []).forEach(function (day) {
+      if (!inWeek(day.date, mondayKey)) return;
+      (day.students || []).forEach(function (s) {
+        if (String(s.seatNo) === String(seatNo)) sum += Number(s.score) || 0;
+      });
+    });
+    return sum;
+  }
+
+  function columnsInWeek(cols, mondayKey) {
+    return (cols || []).filter(function (col) { return inWeek(col.date, mondayKey); });
+  }
+
+  function listWeekKeys() {
+    var keys = {};
+    (App.dailyDays || []).forEach(function (day) {
+      if (day.date) keys[mondayOf(day.date)] = true;
+    });
+    ((App.gradebook && App.gradebook.quizzes) || []).forEach(function (col) {
+      if (col.date) keys[mondayOf(col.date)] = true;
+    });
+    ((App.gradebook && App.gradebook.exams) || []).forEach(function (col) {
+      if (col.date) keys[mondayOf(col.date)] = true;
+    });
+    var today = App.activeDate || formatDateKey(new Date());
+    keys[mondayOf(today)] = true;
+    return Object.keys(keys).sort().reverse();
+  }
+
+  function renderWeekGrades() {
+    renderGradeRules();
+    if (!els.gradeWeekHead || !els.gradeWeekBody) return;
+    var weeks = listWeekKeys();
+    if (!App.weekKey || weeks.indexOf(App.weekKey) < 0) App.weekKey = weeks[0] || mondayOf(formatDateKey(new Date()));
+    if (els.weekSelect) {
+      els.weekSelect.innerHTML = weeks.map(function (key) {
+        return '<option value="' + escapeHtml(key) + '"' + (key === App.weekKey ? ' selected' : '') + '>' +
+          escapeHtml(formatZhDate(key) + '～' + formatZhDate(sundayOf(key))) + '</option>';
+      }).join('');
+    }
+    var model = App.sheetModel || buildSheetModel();
+    var students = (model.rows || []).slice().sort(seatOrder);
+    var quizzes = columnsInWeek((App.gradebook && App.gradebook.quizzes) || [], App.weekKey);
+    var exams = columnsInWeek((App.gradebook && App.gradebook.exams) || [], App.weekKey);
+    els.gradeWeekHead.innerHTML = '<tr>' +
+      '<th class="sticky-1">座號</th><th class="sticky-2">姓名</th>' +
+      '<th>該週上課加扣</th><th>平時表現</th><th>小考平均</th><th>段考平均</th>' +
+      '<th class="col-total">每週成績</th><th>計算過程</th>' +
+      '</tr>';
+    if (!students.length) {
+      els.gradeWeekBody.innerHTML = '<tr><td colspan="8">這個班還沒有學生</td></tr>';
+      return;
+    }
+    els.gradeWeekBody.innerHTML = students.map(function (stu) {
+      var raw = classRawInWeek(stu.seatNo, App.weekKey);
+      var usual = usualFromRaw(raw);
+      var quizAvg = average100(quizzes, stu.seatNo);
+      var examAvg = average100(exams, stu.seatNo);
+      var total = weightedScore(usual, quizAvg, examAvg);
+      return '<tr>' +
+        '<td class="sticky-1">' + escapeHtml(stu.seatNo) + '</td>' +
+        '<td class="sticky-2 name-col">' + escapeHtml(stu.name) + '</td>' +
+        '<td class="' + scoreCellClass(raw) + '">' + scoreCellText(raw) + '</td>' +
+        '<td>' + usual + '</td>' +
+        '<td>' + (quizAvg == null ? '無' : quizAvg) + '</td>' +
+        '<td>' + (examAvg == null ? '無' : examAvg) + '</td>' +
+        '<td class="col-total">' + (total == null ? '—' : total) + '</td>' +
+        '<td class="name-col">' + escapeHtml(scoreFormula(usual, quizAvg, examAvg)) + '</td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  function renderGradeRules() {
+    if (!els.gradeRuleBox) return;
+    var rules = gradeRules();
+    els.gradeRuleBox.innerHTML =
+      '<h3>每週成績計算規則</h3>' +
+      '<ol>' +
+      '<li>上課加扣分（座位表的加分／扣分）先加總，再併入平時表現。</li>' +
+      '<li>平時表現 ＝ 底分 ' + rules.base + ' ＋ 該週上課加扣分合計，最低 ' + rules.min + ' 分、最高 ' + rules.max + ' 分。</li>' +
+      '<li>小考 ＝ 該週所有小考平均（依滿分換算成 100 分制）。</li>' +
+      '<li>段考 ＝ 該週所有段考平均（依滿分換算成 100 分制）。</li>' +
+      '<li>每週成績 ＝ 平時×' + rules.classWeight + '% ＋ 小考×' + rules.quizWeight + '% ＋ 段考×' + rules.examWeight + '%。</li>' +
+      '<li>若該週沒有小考或段考，該項不計，其餘比重按比例重算。</li>' +
+      '</ol>' +
+      '<p class="rule-note">學期成績也用同一套規則，只是改成「全部日期／全部小考／全部段考」。</p>';
+  }
+
+  function collectGradebookFromTable() {
+    var book = App.gradebook || { quizzes: [], exams: [], rules: defaultGradeRules() };
+    var quizzes = (book.quizzes || []).map(function (col) {
+      return { id: col.id, title: col.title, date: col.date, max: col.max, scores: Object.assign({}, col.scores || {}) };
+    });
+    var exams = (book.exams || []).map(function (col) {
+      return { id: col.id, title: col.title, date: col.date, max: col.max, scores: Object.assign({}, col.scores || {}) };
+    });
+    document.querySelectorAll('[data-grade-score]').forEach(function (input) {
+      var kind = input.getAttribute('data-kind');
+      var id = input.getAttribute('data-id');
+      var seat = input.getAttribute('data-seat');
+      var list = kind === 'exam' ? exams : quizzes;
+      var col = null;
+      list.forEach(function (item) { if (item.id === id) col = item; });
+      if (!col) return;
+      if (input.value === '') delete col.scores[seat];
+      else col.scores[seat] = Number(input.value);
+    });
+    return {
+      className: teacherTargetClass(),
+      rules: gradeRules(),
+      quizzes: quizzes,
+      exams: exams
+    };
+  }
+
+  function saveGradebookFromTable(showToast) {
+    var body = collectGradebookFromTable();
+    if (!body.className) {
+      toast('請先選擇班級');
+      return;
+    }
+    api('saveGradebook', [body]).then(function (data) {
+      applyGradebook(data);
+      renderGradebook();
+      if (showToast) toast('成績已儲存');
+    }).catch(function (error) {
+      toast(error && error.message ? error.message : '儲存成績失敗');
+    });
+  }
+
+  function addGradeColumn(type) {
+    var className = teacherTargetClass();
+    if (!className) {
+      toast('請先選擇班級');
+      return;
+    }
+    var title = els.gradeColName ? els.gradeColName.value.trim() : '';
+    var date = els.gradeColDate ? els.gradeColDate.value : (App.activeDate || formatDateKey(new Date()));
+    var body = collectGradebookFromTable();
+    api('saveGradebook', [body]).then(function () {
+      return api('addGradeColumn', [{ className: className, type: type, title: title, date: date, max: 100 }]);
+    }).then(function (data) {
+      applyGradebook(data);
+      if (els.gradeColName) els.gradeColName.value = '';
+      renderGradebook();
+      toast(type === 'exam' ? '已新增段考欄' : '已新增小考欄');
+    }).catch(function (error) {
+      toast(error && error.message ? error.message : '新增失敗');
+    });
+  }
+
+  function deleteGradeColumn(kind, id) {
+    if (!window.confirm('要刪掉這一欄成績嗎？分數也會一起刪除。')) return;
+    api('deleteGradeColumn', [{ className: teacherTargetClass(), type: kind, id: id }]).then(function (data) {
+      applyGradebook(data);
+      renderGradebook();
+      toast('已刪除');
+    }).catch(function () {
+      toast('刪除失敗');
+    });
+  }
+
+  function saveGradeRules() {
+    var className = teacherTargetClass();
+    if (!className) return;
+    var body = collectGradebookFromTable();
+    body.rules = {
+      base: Number(els.ruleBase && els.ruleBase.value),
+      classWeight: Number(els.ruleClassW && els.ruleClassW.value),
+      quizWeight: Number(els.ruleQuizW && els.ruleQuizW.value),
+      examWeight: Number(els.ruleExamW && els.ruleExamW.value)
+    };
+    api('saveGradebook', [body]).then(function (data) {
+      applyGradebook(data);
+      renderGradebook();
+      toast('已套用計算規則');
+    }).catch(function (error) {
+      toast(error && error.message ? error.message : '儲存規則失敗');
+    });
   }
 
   function renderStatsDashboard(model) {
@@ -1346,31 +1719,74 @@
   }
 
   function downloadScoreReport() {
+    if (App.gradeView === 'week') {
+      downloadWeekReport();
+      return;
+    }
     var model = App.sheetModel || buildSheetModel();
-    var ranked = model.ranked || [];
-    if (!ranked.length) {
+    var book = App.gradebook || { quizzes: [], exams: [] };
+    var quizzes = book.quizzes || [];
+    var exams = book.exams || [];
+    var students = (model.rows || []).slice().sort(seatOrder);
+    if (!students.length) {
       toast('目前沒有成績統計表可以下載');
       return;
     }
-    var avg = model.classAvg || 0;
-    var lines = ['名次,座號,姓名,合計,平均,加分總和,扣分總和,加分次數,扣分次數,與平均差,表現'];
-    var lastTotal = null;
-    var lastRank = 0;
-    ranked.forEach(function (row, index) {
-      if (lastTotal === null || row.total !== lastTotal) {
-        lastRank = index + 1;
-        lastTotal = row.total;
-      }
-      var diff = Math.round((row.total - avg) * 10) / 10;
-      var mark = diff > 0 ? '優於平均' : (diff < 0 ? '低於平均' : '符合平均');
+    var header = ['座號', '姓名', '上課加扣', '平時表現'];
+    quizzes.forEach(function (col) { header.push(col.title); });
+    header.push('小考平均');
+    exams.forEach(function (col) { header.push(col.title); });
+    header.push('段考平均', '加權總分');
+    var lines = [header.join(',')];
+    students.forEach(function (stu) {
+      var usual = usualFromRaw(stu.total);
+      var quizAvg = average100(quizzes, stu.seatNo);
+      var examAvg = average100(exams, stu.seatNo);
+      var total = weightedScore(usual, quizAvg, examAvg);
+      var row = [stu.seatNo, stu.name, stu.total, usual];
+      quizzes.forEach(function (col) {
+        var v = col.scores && col.scores[stu.seatNo];
+        row.push(v == null || v === '' ? '' : v);
+      });
+      row.push(quizAvg == null ? '' : quizAvg);
+      exams.forEach(function (col) {
+        var v = col.scores && col.scores[stu.seatNo];
+        row.push(v == null || v === '' ? '' : v);
+      });
+      row.push(examAvg == null ? '' : examAvg, total == null ? '' : total);
+      lines.push(row.join(','));
+    });
+    downloadText((teacherTargetClass() || '成績') + '-成績統計表.csv', '\uFEFF' + lines.join('\r\n'), 'text/csv;charset=utf-8');
+    toast('已下載成績統計表，可用 Excel 打開');
+  }
+
+  function downloadWeekReport() {
+    var model = App.sheetModel || buildSheetModel();
+    var students = (model.rows || []).slice().sort(seatOrder);
+    if (!students.length) {
+      toast('目前沒有每週成績可以下載');
+      return;
+    }
+    var monday = App.weekKey || mondayOf(formatDateKey(new Date()));
+    var quizzes = columnsInWeek((App.gradebook && App.gradebook.quizzes) || [], monday);
+    var exams = columnsInWeek((App.gradebook && App.gradebook.exams) || [], monday);
+    var lines = ['座號,姓名,該週上課加扣,平時表現,小考平均,段考平均,每週成績,計算過程'];
+    students.forEach(function (stu) {
+      var raw = classRawInWeek(stu.seatNo, monday);
+      var usual = usualFromRaw(raw);
+      var quizAvg = average100(quizzes, stu.seatNo);
+      var examAvg = average100(exams, stu.seatNo);
+      var total = weightedScore(usual, quizAvg, examAvg);
       lines.push([
-        lastRank, row.seatNo, row.name, row.total, row.avg,
-        row.plusSum || 0, row.minusSum || 0, row.plusDays || 0, row.minusDays || 0,
-        diff, mark
+        stu.seatNo, stu.name, raw, usual,
+        quizAvg == null ? '無' : quizAvg,
+        examAvg == null ? '無' : examAvg,
+        total == null ? '' : total,
+        '"' + scoreFormula(usual, quizAvg, examAvg) + '"'
       ].join(','));
     });
-    downloadText((model.className || '成績') + '-成績統計表.csv', '\uFEFF' + lines.join('\r\n'), 'text/csv;charset=utf-8');
-    toast('已下載成績統計表，可用 Excel 打開');
+    downloadText((teacherTargetClass() || '成績') + '-每週成績.csv', '\uFEFF' + lines.join('\r\n'), 'text/csv;charset=utf-8');
+    toast('已下載每週成績，可用 Excel 打開');
   }
 
   function mergeVisibleDatabaseRows() {

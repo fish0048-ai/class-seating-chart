@@ -154,6 +154,49 @@
   };
 }
 
+  function defaultGradeRules_() {
+    return {
+      base: 60,
+      classWeight: 40,
+      quizWeight: 30,
+      examWeight: 30,
+      min: 0,
+      max: 100
+    };
+  }
+
+  function ensureGrades_(store, className) {
+    store.grades = store.grades || {};
+    if (!store.grades[className]) {
+      store.grades[className] = {
+        quizzes: [],
+        exams: [],
+        rules: defaultGradeRules_()
+      };
+    }
+    if (!store.grades[className].rules) store.grades[className].rules = defaultGradeRules_();
+    if (!store.grades[className].quizzes) store.grades[className].quizzes = [];
+    if (!store.grades[className].exams) store.grades[className].exams = [];
+    return store.grades[className];
+  }
+
+  function normalizeGradeColumns_(list) {
+    return (list || []).map(function (raw) {
+      var scores = {};
+      Object.keys(raw.scores || {}).forEach(function (seatNo) {
+        var n = Number(raw.scores[seatNo]);
+        if (isFinite(n)) scores[String(seatNo)] = n;
+      });
+      return {
+        id: String(raw.id || ('g' + Date.now())),
+        title: String(raw.title || '').trim() || '未命名',
+        date: String(raw.date || todayKey_()),
+        max: clampInt(raw.max, 1, 200, 100),
+        scores: scores
+      };
+    });
+  }
+
   function wrap(result) {
     return Promise.resolve(result);
   }
@@ -166,6 +209,7 @@
         if (parsed && parsed.classes) {
           if (!parsed.daily) parsed.daily = {};
           if (!parsed.history) parsed.history = [];
+          if (!parsed.grades) parsed.grades = {};
           if (ensureRolledScores_(parsed)) saveStore(parsed);
           return parsed;
         }
@@ -179,6 +223,7 @@
       classes: store.classes,
       history: store.history || [],
       daily: store.daily || {},
+      grades: store.grades || {},
       scoreDate: store.scoreDate || scoreDateFromNow_()
     }));
   }
@@ -208,6 +253,7 @@
       },
       history: [],
       daily: {},
+      grades: {},
       scoreDate: scoreDateFromNow_()
     };
     saveStore(store);
@@ -649,6 +695,70 @@
         recentDays: recentDays,
         students: students
       }, store));
+    },
+    getGradebook: function (className) {
+      var store = loadStore();
+      className = String(className || '').trim();
+      var book = ensureGrades_(store, className);
+      return wrap(withRoll_({
+        ok: true,
+        className: className,
+        rules: clone(book.rules),
+        quizzes: clone(book.quizzes || []),
+        exams: clone(book.exams || [])
+      }, store));
+    },
+    addGradeColumn: function (body) {
+      var store = loadStore();
+      var className = String((body && body.className) || '').trim();
+      var type = (body && body.type) === 'exam' ? 'exam' : 'quiz';
+      if (!className) throw new Error('缺少班級名稱');
+      var book = ensureGrades_(store, className);
+      var item = {
+        id: 'g' + Date.now() + Math.floor(Math.random() * 1000),
+        title: String((body && body.title) || (type === 'exam' ? '段考' : '小考')).trim() || (type === 'exam' ? '段考' : '小考'),
+        date: String((body && body.date) || todayKey_()),
+        max: clampInt((body && body.max) || 100, 1, 200, 100),
+        scores: {}
+      };
+      if (type === 'exam') book.exams.push(item);
+      else book.quizzes.push(item);
+      saveStore(store);
+      return wrap({ ok: true, className: className, rules: book.rules, quizzes: clone(book.quizzes), exams: clone(book.exams) });
+    },
+    deleteGradeColumn: function (body) {
+      var store = loadStore();
+      var className = String((body && body.className) || '').trim();
+      var type = (body && body.type) === 'exam' ? 'exam' : 'quiz';
+      var id = String((body && body.id) || '');
+      var book = ensureGrades_(store, className);
+      if (type === 'exam') {
+        book.exams = (book.exams || []).filter(function (item) { return item.id !== id; });
+      } else {
+        book.quizzes = (book.quizzes || []).filter(function (item) { return item.id !== id; });
+      }
+      saveStore(store);
+      return wrap({ ok: true, className: className, rules: book.rules, quizzes: clone(book.quizzes), exams: clone(book.exams) });
+    },
+    saveGradebook: function (body) {
+      var store = loadStore();
+      var className = String((body && body.className) || '').trim();
+      if (!className) throw new Error('缺少班級名稱');
+      var book = ensureGrades_(store, className);
+      if (body.rules) {
+        book.rules = Object.assign({}, defaultGradeRules_(), {
+          base: clampInt(body.rules.base, 0, 100, 60),
+          classWeight: clampInt(body.rules.classWeight, 0, 100, 40),
+          quizWeight: clampInt(body.rules.quizWeight, 0, 100, 30),
+          examWeight: clampInt(body.rules.examWeight, 0, 100, 30),
+          min: 0,
+          max: 100
+        });
+      }
+      if (body.quizzes) book.quizzes = normalizeGradeColumns_(body.quizzes);
+      if (body.exams) book.exams = normalizeGradeColumns_(body.exams);
+      saveStore(store);
+      return wrap({ ok: true, className: className, rules: clone(book.rules), quizzes: clone(book.quizzes), exams: clone(book.exams) });
     },
     exportJSON: function () {
       return localStorage.getItem(KEY) || JSON.stringify(loadStore());

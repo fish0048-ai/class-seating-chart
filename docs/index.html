@@ -140,49 +140,58 @@
           </div>
 
           <div id="tabSummary" class="teacher-panel" hidden>
-            <p class="hint">把全部日期的加扣分加總，做成全班成績統計表，可下載到 Excel。</p>
-            <h3 class="subhead" id="reportTitle">成績統計表</h3>
-            <div class="db-table-wrap report-summary-wrap">
-              <table class="db-table report-table">
-                <thead>
-                  <tr>
-                    <th>人數</th>
-                    <th>全班合計</th>
-                    <th>全班平均</th>
-                    <th>中位數</th>
-                    <th>最高分</th>
-                    <th>最低分</th>
-                    <th>標準差</th>
-                    <th>正分</th>
-                    <th>零分</th>
-                    <th>負分</th>
-                    <th>加分總和</th>
-                    <th>扣分總和</th>
-                  </tr>
-                </thead>
-                <tbody id="reportClassBody"></tbody>
-              </table>
+            <p class="hint">上課加扣分會自動併入平時表現。這裡再登錄小考、段考，並計算每週成績。</p>
+            <div class="grade-subtabs" role="tablist" aria-label="成績統計表切換">
+              <button type="button" class="tool tab-on" data-grade-view="term">學期成績</button>
+              <button type="button" class="tool" data-grade-view="week">每週成績表現</button>
             </div>
-            <h3 class="subhead">學生成績</h3>
-            <div class="db-table-wrap">
-              <table class="db-table report-table">
-                <thead>
-                  <tr>
-                    <th>名次</th>
-                    <th>座號</th>
-                    <th>姓名</th>
-                    <th>合計</th>
-                    <th>平均</th>
-                    <th>加分總和</th>
-                    <th>扣分總和</th>
-                    <th>加分次數</th>
-                    <th>扣分次數</th>
-                    <th>與平均差</th>
-                    <th>表現</th>
-                  </tr>
-                </thead>
-                <tbody id="reportBody"></tbody>
-              </table>
+
+            <div id="gradeTermView" class="grade-view">
+              <div class="grade-toolbar">
+                <label>名稱
+                  <input id="gradeColName" type="text" maxlength="20" placeholder="例如 第一次小考" />
+                </label>
+                <label>日期
+                  <input id="gradeColDate" type="date" />
+                </label>
+                <button type="button" class="tool" id="btnAddQuiz">新增小考</button>
+                <button type="button" class="tool" id="btnAddExam">新增段考</button>
+                <button type="button" class="tool primary" id="btnSaveGrades">儲存成績</button>
+              </div>
+              <div id="gradeTermWrap" class="sheet-wrap">
+                <table class="sheet-table report-table" id="gradeTermTable">
+                  <thead id="gradeTermHead"></thead>
+                  <tbody id="gradeTermBody"></tbody>
+                </table>
+              </div>
+            </div>
+
+            <div id="gradeWeekView" class="grade-view" hidden>
+              <div id="gradeRuleBox" class="rule-box"></div>
+              <div class="grade-toolbar">
+                <label>底分
+                  <input id="ruleBase" type="number" min="0" max="100" />
+                </label>
+                <label>平時％
+                  <input id="ruleClassW" type="number" min="0" max="100" />
+                </label>
+                <label>小考％
+                  <input id="ruleQuizW" type="number" min="0" max="100" />
+                </label>
+                <label>段考％
+                  <input id="ruleExamW" type="number" min="0" max="100" />
+                </label>
+                <button type="button" class="tool primary" id="btnSaveRules">套用規則</button>
+                <label>週次
+                  <select id="weekSelect" aria-label="選擇週次"></select>
+                </label>
+              </div>
+              <div id="gradeWeekWrap" class="sheet-wrap">
+                <table class="sheet-table report-table" id="gradeWeekTable">
+                  <thead id="gradeWeekHead"></thead>
+                  <tbody id="gradeWeekBody"></tbody>
+                </table>
+              </div>
             </div>
           </div>
 
