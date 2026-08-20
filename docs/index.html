@@ -93,9 +93,10 @@
             <select id="dbClassFilter" aria-label="篩選班級"></select>
           </label>
           <button type="button" class="tool teacher-tab-only" data-for-tab="roster" id="btnDbAdd">新增一列</button>
-          <button type="button" class="tool accent teacher-tab-only" data-for-tab="daily" id="btnSettleToday">結算今日分數</button>
+          <button type="button" class="tool accent teacher-tab-only" data-for-tab="daily" id="btnSettleToday" hidden>結算今日分數</button>
         </div>
 
+        <div class="teacher-body">
         <div id="tabRoster" class="teacher-panel">
           <p class="hint">直接改班級、座號、姓名、今日分數。改完按「儲存名單」。</p>
           <div class="db-table-wrap">
@@ -153,6 +154,7 @@
               <tbody id="statsBody"></tbody>
             </table>
           </div>
+        </div>
         </div>
 
         <div class="modal-actions">

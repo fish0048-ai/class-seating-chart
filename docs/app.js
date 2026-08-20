@@ -686,6 +686,8 @@
     document.querySelectorAll('.teacher-tab-only').forEach(function (btn) {
       btn.hidden = btn.getAttribute('data-for-tab') !== App.teacherTab;
     });
+    var saveBtn = document.getElementById('btnDatabaseSave');
+    if (saveBtn) saveBtn.hidden = App.teacherTab !== 'roster';
     if (App.teacherTab !== 'roster') refreshTeacherExtras();
   }
 

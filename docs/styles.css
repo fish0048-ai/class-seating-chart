@@ -362,7 +362,7 @@
     z-index: 40;
   }
 
-  .modal[hidden], .toast[hidden] {
+  .modal[hidden], .toast[hidden], [hidden] {
     display: none !important;
   }
 
@@ -396,11 +396,41 @@
     border-color: var(--primary);
   }
 
+  .database-card {
+    width: min(860px, 100%);
+    min-height: min(62vh, 520px);
+    max-height: min(88vh, 820px);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .database-card > h2,
+  .database-card .teacher-tabs,
+  .database-card .db-toolbar,
+  .database-card .modal-actions {
+    flex-shrink: 0;
+  }
+
+  .teacher-body {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
   .teacher-panel {
+    flex: 1;
     min-height: 0;
     overflow: auto;
-    display: grid;
+    display: flex;
+    flex-direction: column;
     gap: 10px;
+  }
+
+  .teacher-panel .db-table-wrap {
+    flex: 1;
   }
 
   .subhead {
@@ -431,23 +461,16 @@
     font-size: 22px;
   }
 
-  .database-card {
-    width: min(860px, 100%);
-    max-height: min(92vh, 920px);
-    overflow: hidden;
-    grid-template-rows: auto auto auto 1fr auto;
-  }
-
   .db-toolbar {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
     align-items: end;
-    justify-content: space-between;
   }
 
   .db-toolbar label {
-    min-width: 180px;
+    min-width: 160px;
+    flex: 1;
   }
 
   .db-table-wrap {
