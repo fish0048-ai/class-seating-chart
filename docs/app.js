@@ -21,7 +21,9 @@
     gradeView: 'term',
     gradeOpen: { usual: true, quiz: false, exam: false, sum: false },
     gradebook: null,
-    weekKey: ''
+    weekKey: '',
+    statsView: 'class',
+    statsSeatNo: ''
   };
 
   const els = {
@@ -69,6 +71,16 @@
     chartRank: document.getElementById('chartRank'),
     chartPlusMinus: document.getElementById('chartPlusMinus'),
     chartDist: document.getElementById('chartDist'),
+    statsPersonSelect: document.getElementById('statsPersonSelect'),
+    personCards: document.getElementById('personCards'),
+    personWatch: document.getElementById('personWatch'),
+    chartPersonRadar: document.getElementById('chartPersonRadar'),
+    chartPersonVsClass: document.getElementById('chartPersonVsClass'),
+    chartPersonTrend: document.getElementById('chartPersonTrend'),
+    chartPersonPlusMinus: document.getElementById('chartPersonPlusMinus'),
+    chartPersonHw: document.getElementById('chartPersonHw'),
+    chartPersonAssess: document.getElementById('chartPersonAssess'),
+    personAssessTable: document.getElementById('personAssessTable'),
     gradeTermWrap: document.getElementById('gradeTermWrap'),
     gradeWeekHead: document.getElementById('gradeWeekHead'),
     gradeWeekBody: document.getElementById('gradeWeekBody'),
@@ -133,6 +145,29 @@
       showClassView();
     });
   });
+  document.querySelectorAll('[data-stats-view]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      setStatsView(btn.getAttribute('data-stats-view'));
+    });
+  });
+  if (els.statsPersonSelect) {
+    els.statsPersonSelect.addEventListener('change', function () {
+      App.statsSeatNo = els.statsPersonSelect.value;
+      renderPersonStats();
+    });
+  }
+  var prevPerson = document.getElementById('btnPersonPrev');
+  var nextPerson = document.getElementById('btnPersonNext');
+  if (prevPerson) prevPerson.addEventListener('click', function () { shiftStatsPerson(-1); });
+  if (nextPerson) nextPerson.addEventListener('click', function () { shiftStatsPerson(1); });
+  if (els.statsBody) {
+    els.statsBody.addEventListener('click', function (event) {
+      var row = event.target.closest('tr[data-seat]');
+      if (!row) return;
+      App.statsSeatNo = row.getAttribute('data-seat');
+      setStatsView('person');
+    });
+  }
   var lockBtn = document.getElementById('btnTeacherLock');
   if (lockBtn) {
     lockBtn.addEventListener('click', lockTeacher);
@@ -2342,7 +2377,7 @@
         els.statsBody.innerHTML = '<tr><td colspan="13">尚無統計資料</td></tr>';
       } else {
         els.statsBody.innerHTML = rankedTerm.map(function (row, index) {
-          return '<tr>' +
+          return '<tr data-seat="' + escapeHtml(String(row.seatNo)) + '">' +
             '<td>' + (index + 1) + '</td>' +
             '<td>' + escapeHtml(row.seatNo) + '</td>' +
             '<td>' + escapeHtml(row.name) + '</td>' +
@@ -2361,6 +2396,225 @@
       }
     }
     renderCharts(model, people);
+    App.statsPeople = people;
+    App.statsModel = model;
+    fillPersonSelect(people);
+    renderPersonStats();
+    applyStatsView();
+  }
+
+  function applyStatsView() {
+    var mode = App.statsView === 'person' ? 'person' : 'class';
+    var classView = document.getElementById('statsClassView');
+    var personView = document.getElementById('statsPersonView');
+    if (classView) classView.hidden = mode !== 'class';
+    if (personView) personView.hidden = mode !== 'person';
+    document.querySelectorAll('[data-stats-view]').forEach(function (btn) {
+      btn.classList.toggle('tab-on', btn.getAttribute('data-stats-view') === mode);
+    });
+    var hint = document.getElementById('statsHint');
+    if (hint) {
+      hint.textContent = mode === 'person'
+        ? '看單一學生的走勢、與全班比較，以及每一次考卷／作業。可用上一位／下一位切換。'
+        : '把上課加扣、考卷、作業、段考放在一起看，方便立刻看出亮點與需要關心的學生。';
+    }
+  }
+
+  function setStatsView(mode) {
+    App.statsView = mode === 'person' ? 'person' : 'class';
+    applyStatsView();
+    if (App.statsView === 'person') renderPersonStats();
+  }
+
+  function fillPersonSelect(people) {
+    if (!els.statsPersonSelect) return;
+    var list = people || App.statsPeople || [];
+    if (!list.length) {
+      els.statsPersonSelect.innerHTML = '<option value="">這個班還沒有學生</option>';
+      return;
+    }
+    if (!App.statsSeatNo || !list.filter(function (row) { return String(row.seatNo) === String(App.statsSeatNo); }).length) {
+      App.statsSeatNo = list[0].seatNo;
+    }
+    els.statsPersonSelect.innerHTML = list.slice().sort(seatOrder).map(function (row) {
+      return '<option value="' + escapeHtml(String(row.seatNo)) + '"' +
+        (String(row.seatNo) === String(App.statsSeatNo) ? ' selected' : '') + '>' +
+        escapeHtml(row.seatNo + '　' + row.name) + '</option>';
+    }).join('');
+  }
+
+  function shiftStatsPerson(dir) {
+    var list = (App.statsPeople || []).slice().sort(seatOrder);
+    if (!list.length) return;
+    var i = 0;
+    list.forEach(function (row, idx) {
+      if (String(row.seatNo) === String(App.statsSeatNo)) i = idx;
+    });
+    i = (i + dir + list.length) % list.length;
+    App.statsSeatNo = list[i].seatNo;
+    fillPersonSelect(list);
+    renderPersonStats();
+  }
+
+  function vsClassText(mine, avg) {
+    if (mine == null || avg == null) return '尚無資料可比較';
+    var d = round1(mine - avg);
+    if (d > 0) return '高於全班平均 ' + d + ' 分';
+    if (d < 0) return '低於全班平均 ' + Math.abs(d) + ' 分';
+    return '與全班平均相同';
+  }
+
+  function personAssessItems(people, person) {
+    var book = App.gradebook || emptyGradebook();
+    var items = [];
+    function addScore(group, cols) {
+      (cols || []).forEach(function (col) {
+        var leave = isLeaveScore(col.scores && col.scores[person.seatNo]);
+        var mine = leave ? null : columnScore100(col, person.seatNo);
+        var info = analyzeScoreColumn(col, people);
+        items.push({
+          group: group,
+          title: col.title || group,
+          mine: mine,
+          classAvg: info.avg,
+          note: leave ? '請假' : (mine == null ? '未填' : '')
+        });
+      });
+    }
+    addScore('黃卷', book.yellow);
+    addScore('早自習', book.morning);
+    addScore('段考', book.exams);
+    addScore('實作評量', book.labs);
+    addScore('實作成績', book.practicals);
+    (book.homeworks || []).forEach(function (col) {
+      var result = homeworkResult(col, person.seatNo);
+      var info = analyzeHomeworkColumn(col, people);
+      var mine = result.status === 'missing' ? 0 : result.final;
+      items.push({
+        group: '作業',
+        title: col.title || '作業',
+        mine: mine,
+        classAvg: info.avg,
+        note: result.status === 'missing' ? '未繳' : (result.late ? '遲交' : (result.final == null ? '已繳未評' : ''))
+      });
+    });
+    return items;
+  }
+
+  function renderPersonStats() {
+    var model = App.statsModel || App.sheetModel || buildSheetModel();
+    var people = App.statsPeople || enrichStatsRows(model);
+    if (!people.length) return;
+    var person = people.filter(function (row) {
+      return String(row.seatNo) === String(App.statsSeatNo);
+    })[0] || people[0];
+    App.statsSeatNo = person.seatNo;
+    if (els.statsPersonSelect) els.statsPersonSelect.value = String(person.seatNo);
+
+    var termScores = people.map(function (row) { return row.total; }).filter(function (n) { return n != null; });
+    var usualAvg = meanOf(people.map(function (row) { return row.usual; }));
+    var quizAvg = meanOf(people.map(function (row) { return row.quiz; }));
+    var examAvg = meanOf(people.map(function (row) { return row.exam; }));
+    var classRawAvg = meanOf(people.map(function (row) { return row.classRaw; }));
+    var ranked = people.slice().sort(function (a, b) {
+      var av = a.total == null ? -999 : a.total;
+      var bv = b.total == null ? -999 : b.total;
+      if (bv !== av) return bv - av;
+      return b.classRaw - a.classRaw;
+    });
+    var rank = 1;
+    ranked.forEach(function (row, i) {
+      if (String(row.seatNo) === String(person.seatNo)) rank = i + 1;
+    });
+    var items = personAssessItems(people, person);
+
+    if (els.personCards) {
+      els.personCards.innerHTML =
+        statCard('學生', person.seatNo + ' ' + person.name) +
+        statCard('班排名', rank + ' / ' + people.length) +
+        statCard('學期總分', fmtMaybe(person.total)) +
+        statCard('平時', fmtMaybe(person.usual)) +
+        statCard('平時考試', fmtMaybe(person.quiz)) +
+        statCard('段考', fmtMaybe(person.exam)) +
+        statCard('加扣合計', scoreCellText(person.classRaw)) +
+        statCard('有紀錄天數', person.activeDays + ' / ' + (model.dates || []).length);
+    }
+    if (els.personWatch) {
+      var cards = [];
+      cards.push(watchCard(person.total != null && termScores.length && person.total >= meanOf(termScores) ? 'good' : 'info',
+        '學期表現', vsClassText(person.total, meanOf(termScores))));
+      cards.push(watchCard(person.trend != null && person.trend >= 1 ? 'good' : (person.trend != null && person.trend <= -1 ? 'warn' : 'info'),
+        '加扣走勢', person.trend == null ? '紀錄天數還少，還看不出前後半段變化' : (person.trend >= 0 ? '後半段比前半段 +' + person.trend : '後半段比前半段 ' + person.trend)));
+      cards.push(watchCard(person.hwMissing ? 'alert' : 'good',
+        '作業', person.hwMissing ? '未繳 ' + person.hwMissing + ' 次' + (person.hwLate ? '，遲交 ' + person.hwLate + ' 次' : '') : '目前沒有未繳作業'));
+      cards.push(watchCard(person.leaveCount ? 'warn' : 'info',
+        '請假', person.leaveCount ? '考試請假 ' + person.leaveCount + ' 次' : '沒有請假紀錄'));
+      if (!person.activeDays) cards.push(watchCard('warn', '上課參與', '還沒有加扣分紀錄'));
+      els.personWatch.innerHTML = cards.join('');
+    }
+
+    var radarMine = [person.usual, person.quiz, person.exam].map(function (n) { return n == null ? 0 : n; });
+    var radarClass = [usualAvg, quizAvg, examAvg].map(function (n) { return n == null ? 0 : n; });
+    var hasRadar = person.usual != null || person.quiz != null || person.exam != null;
+    if (els.chartPersonRadar) {
+      els.chartPersonRadar.innerHTML = hasRadar
+        ? svgRadar(['平時', '平時考試', '段考'], [
+          { label: '自己', color: '#2f6f8f', fill: 'rgba(47,111,143,0.22)', values: radarMine },
+          { label: '全班平均', color: '#9aa8b0', fill: 'rgba(154,168,176,0.12)', values: radarClass }
+        ])
+        : chartEmpty('有平時或考試成績後，這裡會出現雷達圖');
+    }
+    if (els.chartPersonVsClass) {
+      els.chartPersonVsClass.innerHTML = svgPairBars(
+        ['平時', '平時考試', '段考', '加扣合計'],
+        [person.usual, person.quiz, person.exam, person.classRaw],
+        [usualAvg, quizAvg, examAvg, classRawAvg],
+        ['自己', '全班平均']
+      );
+    }
+    if (els.chartPersonTrend) {
+      var labels = (model.dates || []).map(function (day) { return shortDate(day.date); });
+      els.chartPersonTrend.innerHTML = labels.length
+        ? svgLine(labels, person.cells || [], { compare: model.dayAvgs || [], compareColor: '#9aa8b0' })
+        : chartEmpty('有上課加扣後，這裡會出現個人走勢');
+    }
+    if (els.chartPersonPlusMinus) {
+      els.chartPersonPlusMinus.innerHTML = svgBars(
+        ['加分總和', '扣分總和'],
+        [person.plusSum || 0, person.minusSum || 0],
+        { zeroLine: true }
+      );
+    }
+    if (els.chartPersonHw) {
+      var hwTotal = ((App.gradebook && App.gradebook.homeworks) || []).length;
+      els.chartPersonHw.innerHTML = svgBars(
+        ['已繳作業', '未繳作業', '遲交', '請假'],
+        [Math.max(0, hwTotal - (person.hwMissing || 0)), person.hwMissing || 0, person.hwLate || 0, person.leaveCount || 0],
+        { zeroLine: false, barColors: ['#2c7a4b', '#b4413c', '#d9852b', '#7eb6d6'] }
+      );
+    }
+    if (els.chartPersonAssess) {
+      var shown = items.filter(function (it) { return it.mine != null || it.classAvg != null; });
+      els.chartPersonAssess.innerHTML = shown.length
+        ? svgPairBars(
+          shown.map(function (it) { return it.title; }),
+          shown.map(function (it) { return it.mine; }),
+          shown.map(function (it) { return it.classAvg; }),
+          ['自己', '全班平均']
+        )
+        : chartEmpty('輸入考卷或作業後，這裡會比較每一次成績');
+    }
+    if (els.personAssessTable) {
+      els.personAssessTable.innerHTML = items.length
+        ? '<table class="assess-table"><thead><tr><th>類型</th><th>名稱</th><th>自己</th><th>全班平均</th><th>比較</th><th>備註</th></tr></thead><tbody>' +
+          items.map(function (it) {
+            return '<tr><td>' + escapeHtml(it.group) + '</td><td>' + escapeHtml(it.title) + '</td><td>' +
+              fmtMaybe(it.mine) + '</td><td>' + fmtMaybe(it.classAvg) + '</td><td>' +
+              escapeHtml(vsClassText(it.mine, it.classAvg)) + '</td><td>' +
+              escapeHtml(it.note || '') + '</td></tr>';
+          }).join('') + '</tbody></table>'
+        : '<p class="chart-empty">還沒有個人考卷或作業紀錄。</p>';
+    }
   }
 
   function renderAssessStats(people) {
@@ -2566,7 +2820,9 @@
     return '<svg viewBox="0 0 ' + w + ' ' + h + '" class="chart-svg" role="img">' + bars + '</svg>';
   }
 
-  function svgLine(labels, values) {
+  function svgLine(labels, values, opts) {
+    opts = opts || {};
+    var compare = opts.compare || null;
     var w = 640;
     var h = 220;
     var l = 36;
@@ -2577,36 +2833,129 @@
     var ih = h - t - b;
     var max = 1;
     var min = 0;
-    values.forEach(function (v) {
+    function scan(list) {
+      (list || []).forEach(function (v) {
+        if (v == null || !isFinite(v)) return;
+        if (v > max) max = v;
+        if (v < min) min = v;
+      });
+    }
+    scan(values);
+    scan(compare);
+    if (max === min) max = min + 1;
+    var span = max - min;
+    function xOf(i, len) {
+      return l + (len <= 1 ? iw / 2 : i * iw / (len - 1));
+    }
+    function yOf(v) {
+      return t + ih - ((v - min) / span) * ih;
+    }
+    function series(list, color, filled) {
+      if (!list || !list.length) return '';
+      var pts = list.map(function (v, i) { return xOf(i, list.length) + ',' + yOf(Number(v) || 0); }).join(' ');
+      var dots = list.map(function (v, i) {
+        return '<circle cx="' + xOf(i, list.length) + '" cy="' + yOf(Number(v) || 0) + '" r="3.5" fill="' +
+          (filled ? color : '#fff') + '" stroke="' + color + '" stroke-width="2">' +
+          '<title>' + escapeHtml(labels[i] + '：' + (v == null ? '—' : v)) + '</title></circle>';
+      }).join('');
+      return '<polyline fill="none" stroke="' + color + '" stroke-width="2.5" points="' + pts + '"/>' + dots;
+    }
+    var zeroY = yOf(0);
+    var step = Math.max(1, Math.ceil(labels.length / 8));
+    var xlabels = labels.map(function (lb, i) {
+      if (i % step && i !== labels.length - 1) return '';
+      return '<text x="' + xOf(i, labels.length) + '" y="' + (h - 16) + '" text-anchor="middle" font-size="11" fill="#5b7380">' +
+        escapeHtml(lb) + '</text>';
+    }).join('');
+    return '<svg viewBox="0 0 ' + w + ' ' + h + '" class="chart-svg" role="img">' +
+      '<line x1="' + l + '" y1="' + zeroY + '" x2="' + (w - r) + '" y2="' + zeroY + '" stroke="#d9d0c1"/>' +
+      series(compare, opts.compareColor || '#9aa8b0', false) +
+      series(values, '#2f6f8f', true) +
+      xlabels +
+      '<text x="8" y="' + (t + 10) + '" font-size="11" fill="#5b7380">' + max + '</text>' +
+      '</svg>';
+  }
+
+  function svgRadar(labels, series) {
+    var w = 420;
+    var h = 280;
+    var cx = 210;
+    var cy = 138;
+    var R = 92;
+    var n = Math.max(labels.length, 3);
+    function pt(i, ratio) {
+      var ang = -Math.PI / 2 + (Math.PI * 2 * i) / n;
+      return [cx + R * ratio * Math.cos(ang), cy + R * ratio * Math.sin(ang)];
+    }
+    var rings = [0.25, 0.5, 0.75, 1].map(function (ratio) {
+      var pts = [];
+      var i;
+      for (i = 0; i < n; i++) pts.push(pt(i, ratio).join(','));
+      return '<polygon points="' + pts.join(' ') + '" fill="none" stroke="#e4dbcc"/>';
+    }).join('');
+    var spokes = labels.map(function (lb, i) {
+      var p = pt(i, 1);
+      var lp = pt(i, 1.18);
+      return '<line x1="' + cx + '" y1="' + cy + '" x2="' + p[0] + '" y2="' + p[1] + '" stroke="#e4dbcc"/>' +
+        '<text x="' + lp[0] + '" y="' + (lp[1] + 4) + '" text-anchor="middle" font-size="12" fill="#16303c">' +
+        escapeHtml(lb) + '</text>';
+    }).join('');
+    var shapes = (series || []).map(function (item) {
+      var pts = (item.values || []).map(function (v, i) {
+        return pt(i, Math.max(0, Math.min(1, (Number(v) || 0) / 100))).join(',');
+      }).join(' ');
+      return '<polygon points="' + pts + '" fill="' + (item.fill || 'none') + '" stroke="' +
+        (item.color || '#2f6f8f') + '" stroke-width="2"></polygon>';
+    }).join('');
+    var legend = (series || []).map(function (item, i) {
+      var x = 24 + i * 150;
+      return '<rect x="' + x + '" y="' + (h - 22) + '" width="12" height="12" fill="' + (item.color || '#2f6f8f') + '"/>' +
+        '<text x="' + (x + 18) + '" y="' + (h - 12) + '" font-size="12" fill="#5b7380">' + escapeHtml(item.label || '') + '</text>';
+    }).join('');
+    return '<svg viewBox="0 0 ' + w + ' ' + h + '" class="chart-svg" role="img">' + rings + spokes + shapes + legend + '</svg>';
+  }
+
+  function svgPairBars(labels, mine, klass, legends) {
+    var w = 640;
+    var h = Math.max(200, 56 + labels.length * 28);
+    var l = 96;
+    var r = 16;
+    var t = 12;
+    var b = 28;
+    var iw = w - l - r;
+    var all = (mine || []).concat(klass || []);
+    var max = 1;
+    var min = 0;
+    all.forEach(function (v) {
+      if (v == null || !isFinite(v)) return;
       if (v > max) max = v;
       if (v < min) min = v;
     });
     if (max === min) max = min + 1;
     var span = max - min;
-    function xOf(i) {
-      return l + (values.length <= 1 ? iw / 2 : i * iw / (values.length - 1));
+    function xOf(v) {
+      return l + ((Number(v) || 0) - min) / span * iw;
     }
-    function yOf(v) {
-      return t + ih - ((v - min) / span) * ih;
-    }
-    var zeroY = yOf(0);
-    var pts = values.map(function (v, i) { return xOf(i) + ',' + yOf(v); }).join(' ');
-    var dots = values.map(function (v, i) {
-      return '<circle cx="' + xOf(i) + '" cy="' + yOf(v) + '" r="3.5" fill="#1b3a4b">' +
-        '<title>' + escapeHtml(labels[i] + '：' + v) + '</title></circle>';
+    var zeroX = xOf(0);
+    var rows = labels.map(function (lb, i) {
+      var y = t + i * 28;
+      var a = mine[i];
+      var b = klass[i];
+      var barH = 8;
+      var aRect = a == null ? '' : '<rect x="' + Math.min(zeroX, xOf(a)) + '" y="' + (y + 2) + '" width="' +
+        Math.max(2, Math.abs(xOf(a) - zeroX)) + '" height="' + barH + '" fill="#2f6f8f"></rect>';
+      var bRect = b == null ? '' : '<rect x="' + Math.min(zeroX, xOf(b)) + '" y="' + (y + 12) + '" width="' +
+        Math.max(2, Math.abs(xOf(b) - zeroX)) + '" height="' + barH + '" fill="#c5d0d6"></rect>';
+      return '<text x="8" y="' + (y + 14) + '" font-size="11" fill="#16303c">' + escapeHtml(lb) + '</text>' + aRect + bRect;
     }).join('');
-    var step = Math.max(1, Math.ceil(labels.length / 8));
-    var xlabels = labels.map(function (lb, i) {
-      if (i % step && i !== labels.length - 1) return '';
-      return '<text x="' + xOf(i) + '" y="' + (h - 16) + '" text-anchor="middle" font-size="11" fill="#5b7380">' +
-        escapeHtml(lb) + '</text>';
-    }).join('');
+    var names = legends || ['自己', '全班平均'];
+    var legend = '<rect x="' + l + '" y="' + (h - 18) + '" width="12" height="12" fill="#2f6f8f"/>' +
+      '<text x="' + (l + 16) + '" y="' + (h - 8) + '" font-size="11" fill="#5b7380">' + escapeHtml(names[0]) + '</text>' +
+      '<rect x="' + (l + 90) + '" y="' + (h - 18) + '" width="12" height="12" fill="#c5d0d6"/>' +
+      '<text x="' + (l + 106) + '" y="' + (h - 8) + '" font-size="11" fill="#5b7380">' + escapeHtml(names[1] || '') + '</text>';
     return '<svg viewBox="0 0 ' + w + ' ' + h + '" class="chart-svg" role="img">' +
-      '<line x1="' + l + '" y1="' + zeroY + '" x2="' + (w - r) + '" y2="' + zeroY + '" stroke="#d9d0c1"/>' +
-      '<polyline fill="none" stroke="#2f6f8f" stroke-width="2.5" points="' + pts + '"/>' +
-      dots + xlabels +
-      '<text x="8" y="' + (t + 10) + '" font-size="11" fill="#5b7380">' + max + '</text>' +
-      '</svg>';
+      '<line x1="' + zeroX + '" y1="' + t + '" x2="' + zeroX + '" y2="' + (h - b) + '" stroke="#d9d0c1"/>' +
+      rows + legend + '</svg>';
   }
 
   function downloadScoreSheet() {

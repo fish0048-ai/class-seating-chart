@@ -209,7 +209,13 @@
           </div>
 
           <div id="tabStats" class="teacher-panel stats-panel" hidden>
-            <p class="hint">把上課加扣、考卷、作業、段考放在一起看，方便立刻看出亮點與需要關心的學生。</p>
+            <div class="stats-switch" role="tablist" aria-label="統計範圍">
+              <button type="button" class="tool tab-on" data-stats-view="class">班級分析</button>
+              <button type="button" class="tool" data-stats-view="person">個人分析</button>
+            </div>
+            <p class="hint" id="statsHint">把上課加扣、考卷、作業、段考放在一起看，方便立刻看出亮點與需要關心的學生。</p>
+
+            <div id="statsClassView">
             <div id="statsCards" class="stat-cards stats-hero"></div>
             <div id="statsWatch" class="stats-watch"></div>
             <div id="statsInsights" class="insight-list"></div>
@@ -256,6 +262,7 @@
             </section>
 
             <h3 class="subhead">學生總覽（加扣＋成績簿）</h3>
+            <p class="hint">點姓名可改看這位學生的個人分析圖表。</p>
             <div class="db-table-wrap stats-table-wrap">
               <table class="db-table stats-wide">
                 <thead>
@@ -277,6 +284,59 @@
                 </thead>
                 <tbody id="statsBody"></tbody>
               </table>
+            </div>
+            </div>
+
+            <div id="statsPersonView" hidden>
+              <div class="person-toolbar">
+                <label>選擇學生
+                  <select id="statsPersonSelect" aria-label="選擇要分析的學生"></select>
+                </label>
+                <div class="person-nav">
+                  <button type="button" class="tool" id="btnPersonPrev">上一位</button>
+                  <button type="button" class="tool" id="btnPersonNext">下一位</button>
+                </div>
+              </div>
+              <div id="personCards" class="stat-cards stats-hero"></div>
+              <div id="personWatch" class="stats-watch"></div>
+              <section class="stats-block">
+                <h3>能力比較</h3>
+                <div class="chart-grid">
+                  <figure class="chart-card">
+                    <figcaption>平時／考試／段考（藍：自己，灰：全班平均）</figcaption>
+                    <div id="chartPersonRadar"></div>
+                  </figure>
+                  <figure class="chart-card">
+                    <figcaption>各項與全班平均比較</figcaption>
+                    <div id="chartPersonVsClass"></div>
+                  </figure>
+                </div>
+              </section>
+              <section class="stats-block">
+                <h3>上課加扣</h3>
+                <figure class="chart-card chart-wide">
+                  <figcaption>每天加扣分走勢（藍：自己，灰：全班平均）</figcaption>
+                  <div id="chartPersonTrend"></div>
+                </figure>
+                <div class="chart-grid">
+                  <figure class="chart-card">
+                    <figcaption>加分／扣分總和</figcaption>
+                    <div id="chartPersonPlusMinus"></div>
+                  </figure>
+                  <figure class="chart-card">
+                    <figcaption>作業與請假</figcaption>
+                    <div id="chartPersonHw"></div>
+                  </figure>
+                </div>
+              </section>
+              <section class="stats-block">
+                <h3>各次成績</h3>
+                <figure class="chart-card chart-wide">
+                  <figcaption>每一次考卷／作業（實心：自己，空心：全班平均）</figcaption>
+                  <div id="chartPersonAssess"></div>
+                </figure>
+                <div id="personAssessTable" class="assess-wrap"></div>
+              </section>
             </div>
           </div>
 

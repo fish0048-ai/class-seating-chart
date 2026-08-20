@@ -779,8 +779,51 @@
     overflow: auto;
   }
 
-  .stats-hero .stat-card strong {
-    font-size: 22px;
+  .stats-switch {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
+  .stats-wide tbody tr[data-seat] {
+    cursor: pointer;
+  }
+
+  .stats-wide tbody tr[data-seat]:hover td {
+    background: #eef6fb;
+  }
+
+  .person-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: end;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 10px 12px;
+  }
+
+  .person-toolbar label {
+    min-width: 220px;
+    flex: 1;
+  }
+
+  .person-nav {
+    display: flex;
+    gap: 8px;
+  }
+
+  #statsClassView,
+  #statsPersonView {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  #statsClassView[hidden],
+  #statsPersonView[hidden] {
+    display: none !important;
   }
 
   .stats-watch {
