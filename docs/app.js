@@ -941,12 +941,20 @@
       var total = 0;
       var plusDays = 0;
       var minusDays = 0;
+      var plusSum = 0;
+      var minusSum = 0;
       var max = null;
       var min = null;
       cells.forEach(function (n) {
         total += n;
-        if (n > 0) plusDays += 1;
-        if (n < 0) minusDays += 1;
+        if (n > 0) {
+          plusDays += 1;
+          plusSum += n;
+        }
+        if (n < 0) {
+          minusDays += 1;
+          minusSum += n;
+        }
         if (max == null || n > max) max = n;
         if (min == null || n < min) min = n;
       });
@@ -959,6 +967,8 @@
         avg: avg,
         plusDays: plusDays,
         minusDays: minusDays,
+        plusSum: plusSum,
+        minusSum: minusSum,
         max: max == null ? 0 : max,
         min: min == null ? 0 : min
       };
@@ -978,6 +988,11 @@
       return rows.filter(function (row) { return row.cells[i] < 0; }).length;
     });
     var grand = rows.reduce(function (sum, row) { return sum + row.total; }, 0);
+    var plusTotal = rows.reduce(function (sum, row) { return sum + row.plusSum; }, 0);
+    var minusTotal = rows.reduce(function (sum, row) { return sum + row.minusSum; }, 0);
+    var plusPeople = rows.filter(function (row) { return row.total > 0; }).length;
+    var minusPeople = rows.filter(function (row) { return row.total < 0; }).length;
+    var zeroPeople = rows.filter(function (row) { return row.total === 0; }).length;
     var classAvg = rows.length ? Math.round((grand / rows.length) * 10) / 10 : 0;
     var ranked = rows.slice().sort(function (a, b) { return b.total - a.total; });
     return {
@@ -990,6 +1005,11 @@
       plusCounts: plusCounts,
       minusCounts: minusCounts,
       grand: grand,
+      plusTotal: plusTotal,
+      minusTotal: minusTotal,
+      plusPeople: plusPeople,
+      minusPeople: minusPeople,
+      zeroPeople: zeroPeople,
       classAvg: classAvg,
       median: medianOf(rows.map(function (row) { return row.total; }))
     };
@@ -1071,22 +1091,17 @@
     var ranked = model.ranked || [];
     var top = ranked[0];
     var bottom = ranked.length ? ranked[ranked.length - 1] : null;
-    var mostPlus = ranked.slice().sort(function (a, b) { return b.plusDays - a.plusDays || b.total - a.total; })[0];
-    var mostMinus = ranked.slice().sort(function (a, b) { return b.minusDays - a.minusDays || a.total - b.total; })[0];
-    var lastTotal = model.dayTotals.length ? model.dayTotals[model.dayTotals.length - 1] : 0;
-    var prevTotal = model.dayTotals.length > 1 ? model.dayTotals[model.dayTotals.length - 2] : null;
-    var trend = '尚無比較';
-    if (prevTotal != null) {
-      var diff = lastTotal - prevTotal;
-      trend = diff > 0 ? '比前一天高 ' + diff + ' 分' : (diff < 0 ? '比前一天低 ' + Math.abs(diff) + ' 分' : '與前一天相同');
-    }
+    var mostPlus = ranked.slice().sort(function (a, b) { return b.plusSum - a.plusSum || b.total - a.total; })[0];
+    var mostMinus = ranked.slice().sort(function (a, b) { return a.minusSum - b.minusSum || a.total - b.total; })[0];
     if (els.statsCards) {
       els.statsCards.innerHTML =
         statCard('學生人數', model.rows.length) +
-        statCard('紀錄天數', model.dates.length) +
         statCard('全班合計', model.grand) +
         statCard('全班平均', model.classAvg) +
         statCard('中位數', model.median) +
+        statCard('正分人數', model.plusPeople || 0) +
+        statCard('零分人數', model.zeroPeople || 0) +
+        statCard('負分人數', model.minusPeople || 0) +
         statCard('目前第一', top ? top.name + '（' + top.total + '）' : '—');
     }
     if (els.statsInsights) {
@@ -1095,27 +1110,25 @@
       if (bottom && (!top || bottom.seatNo !== top.seatNo)) {
         items.push(insightItem('最低合計', bottom.seatNo + ' ' + bottom.name + '　' + bottom.total + ' 分'));
       }
-      if (mostPlus && mostPlus.plusDays) {
-        items.push(insightItem('加分天數最多', mostPlus.name + '　' + mostPlus.plusDays + ' 天'));
+      if (mostPlus && mostPlus.plusSum) {
+        items.push(insightItem('加分總和最多', mostPlus.name + '　+' + mostPlus.plusSum));
       }
-      if (mostMinus && mostMinus.minusDays) {
-        items.push(insightItem('扣分天數最多', mostMinus.name + '　' + mostMinus.minusDays + ' 天'));
+      if (mostMinus && mostMinus.minusSum) {
+        items.push(insightItem('扣分總和最多', mostMinus.name + '　' + mostMinus.minusSum));
       }
-      items.push(insightItem('最近一天趨勢', trend));
-      items.push(insightItem('計分規則', '每天晚上 10 點自動存檔'));
+      items.push(insightItem('全班加分總和', '+' + (model.plusTotal || 0)));
+      items.push(insightItem('全班扣分總和', String(model.minusTotal || 0)));
       els.statsInsights.innerHTML = items.join('');
     }
     if (els.statsBody) {
       if (!ranked.length) {
-        els.statsBody.innerHTML = '<tr><td colspan="9">尚無統計資料</td></tr>';
+        els.statsBody.innerHTML = '<tr><td colspan="6">尚無統計資料</td></tr>';
       } else {
         els.statsBody.innerHTML = ranked.map(function (row, index) {
           return '<tr><td>' + (index + 1) + '</td><td>' + escapeHtml(row.seatNo) + '</td><td>' +
             escapeHtml(row.name) + '</td><td class="' + scoreCellClass(row.total) + '">' +
-            scoreCellText(row.total) + '</td><td>' + row.avg + '</td><td>' + row.plusDays +
-            '</td><td>' + row.minusDays + '</td><td class="' + scoreCellClass(row.max) + '">' +
-            scoreCellText(row.max) + '</td><td class="' + scoreCellClass(row.min) + '">' +
-            scoreCellText(row.min) + '</td></tr>';
+            scoreCellText(row.total) + '</td><td class="day-plus">+' + (row.plusSum || 0) +
+            '</td><td class="day-minus">' + (row.minusSum || 0) + '</td></tr>';
         }).join('');
       }
     }
@@ -1127,25 +1140,11 @@
   }
 
   function renderCharts(model) {
-    if (els.chartDaily) {
-      els.chartDaily.innerHTML = model.dates.length
-        ? svgBars(model.dates.map(function (d) { return shortDate(d.date); }), model.dayTotals, { zeroLine: true })
-        : chartEmpty('有加扣分之後，這裡會出現每天總分圖');
-    }
     if (els.chartRank) {
       var top10 = (model.ranked || []).slice(0, 10);
       els.chartRank.innerHTML = top10.length
         ? svgHBars(top10.map(function (row) { return row.seatNo + ' ' + row.name; }), top10.map(function (row) { return row.total; }))
         : chartEmpty('有學生分數之後，這裡會出現排行圖');
-    }
-    if (els.chartPlusMinus) {
-      els.chartPlusMinus.innerHTML = model.dates.length
-        ? svgGroupBars(
-          model.dates.map(function (d) { return shortDate(d.date); }),
-          model.plusCounts,
-          model.minusCounts
-        )
-        : chartEmpty('有加扣分之後，這裡會出現人數圖');
     }
     if (els.chartDist) {
       var buckets = [
@@ -1166,8 +1165,21 @@
         else buckets[5].count += 1;
       });
       els.chartDist.innerHTML = model.rows.length
-        ? svgBars(buckets.map(function (b) { return b.label; }), buckets.map(function (b) { return b.count; }), { zeroLine: false, colors: 'mix' })
+        ? svgBars(buckets.map(function (b) { return b.label; }), buckets.map(function (b) { return b.count; }), { zeroLine: false })
         : chartEmpty('有學生之後，這裡會出現分布圖');
+    }
+    if (els.chartDaily) {
+      els.chartDaily.innerHTML = model.rows.length
+        ? svgBars(['正分', '零分', '負分'], [model.plusPeople || 0, model.zeroPeople || 0, model.minusPeople || 0], {
+          zeroLine: false,
+          barColors: ['#2c7a4b', '#9aa8b0', '#b4413c']
+        })
+        : chartEmpty('有學生之後，這裡會出現正負分人數');
+    }
+    if (els.chartPlusMinus) {
+      els.chartPlusMinus.innerHTML = model.rows.length
+        ? svgBars(['加分總和', '扣分總和'], [model.plusTotal || 0, model.minusTotal || 0], { zeroLine: true })
+        : chartEmpty('有加扣分之後，這裡會出現加扣分總和');
     }
   }
 
@@ -1198,7 +1210,9 @@
       var y1 = yOf(v);
       var top = Math.min(y1, zeroY);
       var height = Math.max(2, Math.abs(y1 - zeroY));
-      var color = v > 0 ? '#2c7a4b' : (v < 0 ? '#b4413c' : '#9aa8b0');
+      var color = (opts.barColors && opts.barColors[i])
+        ? opts.barColors[i]
+        : (v > 0 ? '#2c7a4b' : (v < 0 ? '#b4413c' : '#9aa8b0'));
       return '<rect x="' + x + '" y="' + top + '" width="' + bw + '" height="' + height +
         '" fill="' + color + '"><title>' + escapeHtml(labels[i] + '：' + v) + '</title></rect>';
     }).join('');
@@ -1236,44 +1250,6 @@
         '<text x="' + (l + iw + 6) + '" y="' + (y + 16) + '" font-size="12" fill="#5b7380">' + v + '</text>';
     }).join('');
     return '<svg viewBox="0 0 ' + w + ' ' + h + '" class="chart-svg" role="img">' + bars + '</svg>';
-  }
-
-  function svgGroupBars(labels, plusVals, minusVals) {
-    var w = 640;
-    var h = 220;
-    var l = 36;
-    var r = 12;
-    var t = 12;
-    var b = 44;
-    var iw = w - l - r;
-    var ih = h - t - b;
-    var max = 1;
-    plusVals.concat(minusVals).forEach(function (v) {
-      if (v > max) max = v;
-    });
-    var group = iw / Math.max(labels.length, 1);
-    var bw = Math.max(4, group / 3);
-    var bars = labels.map(function (lb, i) {
-      var cx = l + (i + 0.5) * group;
-      var ph = Math.max(2, (plusVals[i] / max) * ih);
-      var mh = Math.max(2, (minusVals[i] / max) * ih);
-      return '<rect x="' + (cx - bw - 1) + '" y="' + (t + ih - ph) + '" width="' + bw + '" height="' + ph +
-        '" fill="#2c7a4b"><title>' + escapeHtml(lb + ' 加分 ' + plusVals[i] + ' 人') + '</title></rect>' +
-        '<rect x="' + (cx + 1) + '" y="' + (t + ih - mh) + '" width="' + bw + '" height="' + mh +
-        '" fill="#b4413c"><title>' + escapeHtml(lb + ' 扣分 ' + minusVals[i] + ' 人') + '</title></rect>';
-    }).join('');
-    var step = Math.max(1, Math.ceil(labels.length / 8));
-    var xlabels = labels.map(function (lb, i) {
-      if (i % step && i !== labels.length - 1) return '';
-      var x = l + (i + 0.5) * group;
-      return '<text x="' + x + '" y="' + (h - 16) + '" text-anchor="middle" font-size="11" fill="#5b7380">' +
-        escapeHtml(lb) + '</text>';
-    }).join('');
-    var legend = '<rect x="' + l + '" y="2" width="10" height="10" fill="#2c7a4b"></rect>' +
-      '<text x="' + (l + 14) + '" y="11" font-size="11" fill="#5b7380">加分人數</text>' +
-      '<rect x="' + (l + 86) + '" y="2" width="10" height="10" fill="#b4413c"></rect>' +
-      '<text x="' + (l + 100) + '" y="11" font-size="11" fill="#5b7380">扣分人數</text>';
-    return '<svg viewBox="0 0 ' + w + ' ' + h + '" class="chart-svg" role="img">' + legend + bars + xlabels + '</svg>';
   }
 
   function downloadScoreSheet() {
