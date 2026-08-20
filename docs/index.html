@@ -140,7 +140,7 @@
           </div>
 
           <div id="tabSummary" class="teacher-panel" hidden>
-            <p class="hint">上課加扣分會自動併入平時表現。這裡再登錄小考、段考，並計算每週成績。</p>
+            <p class="hint">上課加扣、實作評量、實作成績與作業會併入平時表現。課堂考卷（黃卷）與早自習小考算平時考試。考試可選請假；本週若完全沒有平時成績，每週成績只算平時考試。</p>
             <div class="grade-subtabs" role="tablist" aria-label="成績統計表切換">
               <button type="button" class="tool tab-on" data-grade-view="term">學期成績</button>
               <button type="button" class="tool" data-grade-view="week">每週成績表現</button>
@@ -148,14 +148,26 @@
 
             <div id="gradeTermView" class="grade-view">
               <div class="grade-toolbar">
+                <label>類型
+                  <select id="gradeColType" aria-label="成績欄類型">
+                    <option value="yellow">課堂考卷（黃卷）</option>
+                    <option value="morning">早自習小考</option>
+                    <option value="exam">段考</option>
+                    <option value="lab">實作評量（實驗室）</option>
+                    <option value="practical">實作成績（回家做）</option>
+                    <option value="homework">作業</option>
+                  </select>
+                </label>
                 <label>名稱
-                  <input id="gradeColName" type="text" maxlength="20" placeholder="例如 第一次小考" />
+                  <input id="gradeColName" type="text" maxlength="20" placeholder="例如 第一次黃卷" />
                 </label>
                 <label>日期
                   <input id="gradeColDate" type="date" />
                 </label>
-                <button type="button" class="tool" id="btnAddQuiz">新增小考</button>
-                <button type="button" class="tool" id="btnAddExam">新增段考</button>
+                <label id="gradeDueWrap" hidden>繳交期限
+                  <input id="gradeColDue" type="date" />
+                </label>
+                <button type="button" class="tool" id="btnAddGradeCol">新增這一欄</button>
                 <button type="button" class="tool primary" id="btnSaveGrades">儲存成績</button>
               </div>
               <div id="gradeTermWrap" class="sheet-wrap">
@@ -175,11 +187,14 @@
                 <label>平時％
                   <input id="ruleClassW" type="number" min="0" max="100" />
                 </label>
-                <label>小考％
+                <label>平時考試％
                   <input id="ruleQuizW" type="number" min="0" max="100" />
                 </label>
                 <label>段考％
                   <input id="ruleExamW" type="number" min="0" max="100" />
+                </label>
+                <label>額外假日
+                  <input id="ruleHolidays" type="text" placeholder="2026-10-10，用逗號分隔" />
                 </label>
                 <button type="button" class="tool primary" id="btnSaveRules">套用規則</button>
                 <label>週次

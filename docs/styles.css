@@ -515,6 +515,10 @@
     min-width: 110px;
   }
 
+  .grade-toolbar select {
+    min-width: 160px;
+  }
+
   .rule-box {
     flex-shrink: 0;
     background: #fff;
@@ -551,6 +555,41 @@
     padding: 0 4px;
     min-height: 0;
     min-width: 0;
+  }
+
+  .grade-cell,
+  .hw-cell {
+    min-width: 108px;
+    vertical-align: top;
+  }
+
+  .grade-cell,
+  .hw-cell {
+    display: table-cell;
+  }
+
+  .grade-cell select,
+  .hw-cell select,
+  .hw-cell input[type="date"] {
+    width: 100%;
+    min-height: 32px;
+    margin-bottom: 4px;
+    font-size: 13px;
+  }
+
+  .hw-cell input[type="number"] {
+    width: 100%;
+  }
+
+  .hw-final {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .hw-final.is-late {
+    color: var(--minus);
+    font-weight: 700;
   }
 
   .sheet-table input[type="number"] {

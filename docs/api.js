@@ -154,12 +154,24 @@
   };
 }
 
+  var GRADE_LISTS_ = {
+    yellow: { key: 'yellow', title: '課堂考卷' },
+    morning: { key: 'morning', title: '早自習小考' },
+    exam: { key: 'exams', title: '段考' },
+    lab: { key: 'labs', title: '實作評量' },
+    practical: { key: 'practicals', title: '實作成績' },
+    homework: { key: 'homeworks', title: '作業' }
+  };
+
   function defaultGradeRules_() {
     return {
       base: 60,
       classWeight: 40,
       quizWeight: 30,
       examWeight: 30,
+      latePenalty: 10,
+      lateWorkDays: 1,
+      holidays: [],
       min: 0,
       max: 100
     };
@@ -167,33 +179,92 @@
 
   function ensureGrades_(store, className) {
     store.grades = store.grades || {};
-    if (!store.grades[className]) {
-      store.grades[className] = {
-        quizzes: [],
-        exams: [],
-        rules: defaultGradeRules_()
-      };
+    if (!store.grades[className]) store.grades[className] = {};
+    var book = store.grades[className];
+    book.rules = Object.assign({}, defaultGradeRules_(), book.rules || {});
+    if (!Array.isArray(book.yellow) || (!book.yellow.length && Array.isArray(book.quizzes) && book.quizzes.length)) {
+      book.yellow = Array.isArray(book.quizzes) ? book.quizzes : [];
     }
-    if (!store.grades[className].rules) store.grades[className].rules = defaultGradeRules_();
-    if (!store.grades[className].quizzes) store.grades[className].quizzes = [];
-    if (!store.grades[className].exams) store.grades[className].exams = [];
-    return store.grades[className];
+    if (!Array.isArray(book.morning)) book.morning = [];
+    if (!Array.isArray(book.exams)) book.exams = [];
+    if (!Array.isArray(book.labs)) book.labs = [];
+    if (!Array.isArray(book.practicals)) book.practicals = [];
+    if (!Array.isArray(book.homeworks)) book.homeworks = [];
+    return book;
+  }
+
+  function normalizeScoreMap_(raw) {
+    var scores = {};
+    Object.keys(raw || {}).forEach(function (seatNo) {
+      var v = raw[seatNo];
+      if (v === 'leave' || v === '請假') {
+        scores[String(seatNo)] = 'leave';
+        return;
+      }
+      var n = Number(v);
+      if (isFinite(n)) scores[String(seatNo)] = n;
+    });
+    return scores;
   }
 
   function normalizeGradeColumns_(list) {
     return (list || []).map(function (raw) {
-      var scores = {};
-      Object.keys(raw.scores || {}).forEach(function (seatNo) {
-        var n = Number(raw.scores[seatNo]);
-        if (isFinite(n)) scores[String(seatNo)] = n;
-      });
       return {
         id: String(raw.id || ('g' + Date.now())),
         title: String(raw.title || '').trim() || '未命名',
         date: String(raw.date || todayKey_()),
         max: clampInt(raw.max, 1, 200, 100),
-        scores: scores
+        scores: normalizeScoreMap_(raw.scores)
       };
+    });
+  }
+
+  function normalizeHolidayList_(value) {
+    var text = Array.isArray(value) ? value.join(',') : String(value || '');
+    var out = [];
+    text.split(/[,\s;]+/).forEach(function (item) {
+      var key = String(item || '').trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(key) && out.indexOf(key) < 0) out.push(key);
+    });
+    return out;
+  }
+
+  function normalizeHomeworkColumns_(list) {
+    return (list || []).map(function (raw) {
+      var records = {};
+      Object.keys(raw.records || {}).forEach(function (seatNo) {
+        var rec = raw.records[seatNo] || {};
+        var item = { status: rec.status === 'submitted' ? 'submitted' : 'missing' };
+        if (item.status === 'submitted') {
+          if (rec.score !== '' && rec.score != null && isFinite(Number(rec.score))) {
+            item.score = Number(rec.score);
+          }
+          if (rec.submittedAt) item.submittedAt = String(rec.submittedAt);
+        }
+        records[String(seatNo)] = item;
+      });
+      return {
+        id: String(raw.id || ('h' + Date.now())),
+        title: String(raw.title || '').trim() || '作業',
+        date: String(raw.date || todayKey_()),
+        dueDate: String(raw.dueDate || raw.date || todayKey_()),
+        max: clampInt(raw.max, 1, 200, 100),
+        records: records
+      };
+    });
+  }
+
+  function gradebookResult_(className, book) {
+    return wrap({
+      ok: true,
+      className: className,
+      rules: clone(book.rules),
+      yellow: clone(book.yellow || []),
+      morning: clone(book.morning || []),
+      exams: clone(book.exams || []),
+      labs: clone(book.labs || []),
+      practicals: clone(book.practicals || []),
+      homeworks: clone(book.homeworks || [])
     });
   }
 
@@ -700,45 +771,44 @@
       var store = loadStore();
       className = String(className || '').trim();
       var book = ensureGrades_(store, className);
-      return wrap(withRoll_({
-        ok: true,
-        className: className,
-        rules: clone(book.rules),
-        quizzes: clone(book.quizzes || []),
-        exams: clone(book.exams || [])
-      }, store));
+      return gradebookResult_(className, book);
     },
     addGradeColumn: function (body) {
       var store = loadStore();
       var className = String((body && body.className) || '').trim();
-      var type = (body && body.type) === 'exam' ? 'exam' : 'quiz';
+      var type = String((body && body.type) || 'yellow');
+      if (!GRADE_LISTS_[type]) type = 'yellow';
       if (!className) throw new Error('缺少班級名稱');
       var book = ensureGrades_(store, className);
+      var meta = GRADE_LISTS_[type];
       var item = {
         id: 'g' + Date.now() + Math.floor(Math.random() * 1000),
-        title: String((body && body.title) || (type === 'exam' ? '段考' : '小考')).trim() || (type === 'exam' ? '段考' : '小考'),
+        title: String((body && body.title) || meta.title).trim() || meta.title,
         date: String((body && body.date) || todayKey_()),
-        max: clampInt((body && body.max) || 100, 1, 200, 100),
-        scores: {}
+        max: clampInt((body && body.max) || 100, 1, 200, 100)
       };
-      if (type === 'exam') book.exams.push(item);
-      else book.quizzes.push(item);
+      if (type === 'homework') {
+        item.dueDate = String((body && body.dueDate) || item.date);
+        item.records = {};
+        book.homeworks.push(item);
+      } else {
+        item.scores = {};
+        book[meta.key].push(item);
+      }
       saveStore(store);
-      return wrap({ ok: true, className: className, rules: book.rules, quizzes: clone(book.quizzes), exams: clone(book.exams) });
+      return gradebookResult_(className, book);
     },
     deleteGradeColumn: function (body) {
       var store = loadStore();
       var className = String((body && body.className) || '').trim();
-      var type = (body && body.type) === 'exam' ? 'exam' : 'quiz';
+      var type = String((body && body.type) || 'yellow');
+      if (!GRADE_LISTS_[type]) type = 'yellow';
       var id = String((body && body.id) || '');
       var book = ensureGrades_(store, className);
-      if (type === 'exam') {
-        book.exams = (book.exams || []).filter(function (item) { return item.id !== id; });
-      } else {
-        book.quizzes = (book.quizzes || []).filter(function (item) { return item.id !== id; });
-      }
+      var key = GRADE_LISTS_[type].key;
+      book[key] = (book[key] || []).filter(function (item) { return item.id !== id; });
       saveStore(store);
-      return wrap({ ok: true, className: className, rules: book.rules, quizzes: clone(book.quizzes), exams: clone(book.exams) });
+      return gradebookResult_(className, book);
     },
     saveGradebook: function (body) {
       var store = loadStore();
@@ -751,14 +821,21 @@
           classWeight: clampInt(body.rules.classWeight, 0, 100, 40),
           quizWeight: clampInt(body.rules.quizWeight, 0, 100, 30),
           examWeight: clampInt(body.rules.examWeight, 0, 100, 30),
+          latePenalty: clampInt(body.rules.latePenalty, 0, 100, 10),
+          lateWorkDays: clampInt(body.rules.lateWorkDays, 0, 10, 1),
+          holidays: normalizeHolidayList_(body.rules.holidays),
           min: 0,
           max: 100
         });
       }
-      if (body.quizzes) book.quizzes = normalizeGradeColumns_(body.quizzes);
+      if (body.yellow) book.yellow = normalizeGradeColumns_(body.yellow);
+      if (body.morning) book.morning = normalizeGradeColumns_(body.morning);
       if (body.exams) book.exams = normalizeGradeColumns_(body.exams);
+      if (body.labs) book.labs = normalizeGradeColumns_(body.labs);
+      if (body.practicals) book.practicals = normalizeGradeColumns_(body.practicals);
+      if (body.homeworks) book.homeworks = normalizeHomeworkColumns_(body.homeworks);
       saveStore(store);
-      return wrap({ ok: true, className: className, rules: clone(book.rules), quizzes: clone(book.quizzes), exams: clone(book.exams) });
+      return gradebookResult_(className, book);
     },
     exportJSON: function () {
       return localStorage.getItem(KEY) || JSON.stringify(loadStore());
