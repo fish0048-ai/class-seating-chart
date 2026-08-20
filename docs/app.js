@@ -58,7 +58,12 @@
     sheetBody: document.getElementById('sheetBody'),
     sheetFoot: document.getElementById('sheetFoot'),
     statsCards: document.getElementById('statsCards'),
+    statsWatch: document.getElementById('statsWatch'),
     statsInsights: document.getElementById('statsInsights'),
+    statsAssess: document.getElementById('statsAssess'),
+    chartTrend: document.getElementById('chartTrend'),
+    chartAssess: document.getElementById('chartAssess'),
+    chartTerm: document.getElementById('chartTerm'),
     statsBody: document.getElementById('statsBody'),
     chartDaily: document.getElementById('chartDaily'),
     chartRank: document.getElementById('chartRank'),
@@ -2102,64 +2107,322 @@
     });
   }
 
+  function meanOf(nums) {
+    var list = (nums || []).filter(function (n) { return n != null && isFinite(n); });
+    if (!list.length) return null;
+    return round1(list.reduce(function (sum, n) { return sum + n; }, 0) / list.length);
+  }
+
+  function fmtMaybe(v, suffix) {
+    if (v == null || v === '') return '—';
+    return suffix ? v + suffix : String(v);
+  }
+
+  function peopleText(list, limit) {
+    limit = limit || 4;
+    if (!list || !list.length) return '目前沒有';
+    var names = list.slice(0, limit).map(function (row) {
+      return row.seatNo + ' ' + row.name;
+    });
+    var extra = list.length > limit ? ' 等 ' + list.length + ' 人' : '';
+    return names.join('、') + extra;
+  }
+
+  function countLeaves(seatNo) {
+    var book = App.gradebook || emptyGradebook();
+    var n = 0;
+    [book.yellow, book.morning, book.exams].forEach(function (cols) {
+      (cols || []).forEach(function (col) {
+        if (isLeaveScore(col.scores && col.scores[seatNo])) n += 1;
+      });
+    });
+    return n;
+  }
+
+  function homeworkFlags(seatNo) {
+    var missing = 0;
+    var late = 0;
+    ((App.gradebook && App.gradebook.homeworks) || []).forEach(function (col) {
+      var result = homeworkResult(col, seatNo);
+      if (result.status === 'missing') missing += 1;
+      if (result.late) late += 1;
+    });
+    return { missing: missing, late: late };
+  }
+
+  function analyzeScoreColumn(col, students) {
+    var scores = [];
+    var leave = 0;
+    var missing = 0;
+    (students || []).forEach(function (stu) {
+      var raw = col.scores && col.scores[stu.seatNo];
+      if (isLeaveScore(raw)) {
+        leave += 1;
+        return;
+      }
+      var n = columnScore100(col, stu.seatNo);
+      if (n == null) {
+        missing += 1;
+        return;
+      }
+      scores.push(n);
+    });
+    var below = scores.filter(function (n) { return n < 60; }).length;
+    return {
+      title: col.title || '未命名',
+      date: col.date || '',
+      avg: meanOf(scores),
+      max: scores.length ? Math.max.apply(null, scores) : null,
+      min: scores.length ? Math.min.apply(null, scores) : null,
+      n: scores.length,
+      leave: leave,
+      missing: missing,
+      below: below,
+      passRate: scores.length ? round1((scores.length - below) / scores.length * 100) : null
+    };
+  }
+
+  function analyzeHomeworkColumn(col, students) {
+    var submitted = 0;
+    var missing = 0;
+    var late = 0;
+    var scores = [];
+    (students || []).forEach(function (stu) {
+      var result = homeworkResult(col, stu.seatNo);
+      if (result.status === 'missing') {
+        missing += 1;
+        return;
+      }
+      submitted += 1;
+      if (result.late) late += 1;
+      if (result.final != null) scores.push(result.final);
+    });
+    var total = students.length || 1;
+    return {
+      title: col.title || '作業',
+      date: col.dueDate || col.date || '',
+      avg: meanOf(scores),
+      submitted: submitted,
+      missing: missing,
+      late: late,
+      submitRate: round1(submitted / total * 100)
+    };
+  }
+
+  function watchCard(tone, title, body) {
+    return '<article class="watch-card tone-' + tone + '"><h4>' + escapeHtml(title) +
+      '</h4><p>' + escapeHtml(body) + '</p></article>';
+  }
+
+  function enrichStatsRows(model) {
+    return (model.rows || []).map(function (row) {
+      var parts = studentGradeParts(row, '');
+      var hw = homeworkFlags(row.seatNo);
+      var activeDays = (row.cells || []).filter(function (n) { return Number(n) !== 0; }).length;
+      var delta = null;
+      if ((row.cells || []).length >= 4) {
+        var mid = Math.floor(row.cells.length / 2);
+        var first = meanOf(row.cells.slice(0, mid));
+        var second = meanOf(row.cells.slice(mid));
+        if (first != null && second != null) delta = round1(second - first);
+      }
+      return Object.assign({}, row, parts, {
+        leaveCount: countLeaves(row.seatNo),
+        hwMissing: hw.missing,
+        hwLate: hw.late,
+        activeDays: activeDays,
+        trend: delta
+      });
+    });
+  }
+
   function renderStatsDashboard(model) {
     model = model || App.sheetModel || buildSheetModel();
-    var ranked = model.ranked || [];
-    var top = ranked[0];
-    var bottom = ranked.length ? ranked[ranked.length - 1] : null;
-    var mostPlus = ranked.slice().sort(function (a, b) { return b.plusSum - a.plusSum || b.total - a.total; })[0];
-    var mostMinus = ranked.slice().sort(function (a, b) { return a.minusSum - b.minusSum || a.total - b.total; })[0];
+    var people = enrichStatsRows(model);
+    var rankedClass = people.slice().sort(function (a, b) { return b.total - a.total; });
+    var rankedTerm = people.slice().sort(function (a, b) {
+      var av = a.total == null ? -999 : a.total;
+      var bv = b.total == null ? -999 : b.total;
+      if (bv !== av) return bv - av;
+      return b.classRaw - a.classRaw;
+    });
+    var termScores = people.map(function (row) { return row.total; }).filter(function (n) { return n != null; });
+    var usualScores = people.map(function (row) { return row.usual; }).filter(function (n) { return n != null; });
+    var quizScores = people.map(function (row) { return row.quiz; }).filter(function (n) { return n != null; });
+    var examScores = people.map(function (row) { return row.exam; }).filter(function (n) { return n != null; });
+    var pass60 = termScores.filter(function (n) { return n >= 60; }).length;
+    var topTerm = rankedTerm[0] && rankedTerm[0].total != null ? rankedTerm[0] : null;
+    var mostPlus = people.slice().sort(function (a, b) { return b.plusSum - a.plusSum; })[0];
+    var mostMinus = people.slice().sort(function (a, b) { return a.minusSum - b.minusSum; })[0];
+    var silent = people.filter(function (row) { return !row.activeDays; });
+    var needHelp = people.filter(function (row) {
+      return (row.total != null && row.total < 60) || row.hwMissing > 0 || (row.minusSum || 0) <= -5;
+    }).sort(function (a, b) {
+      return (a.total == null ? 0 : a.total) - (b.total == null ? 0 : b.total) || b.hwMissing - a.hwMissing;
+    });
+    var improved = people.filter(function (row) { return row.trend != null && row.trend >= 1; })
+      .sort(function (a, b) { return b.trend - a.trend; });
+    var slipped = people.filter(function (row) { return row.trend != null && row.trend <= -1; })
+      .sort(function (a, b) { return a.trend - b.trend; });
+    var lateHw = people.filter(function (row) { return row.hwLate > 0; });
+    var dayBest = null;
+    var dayWorst = null;
+    (model.dates || []).forEach(function (day, i) {
+      var avg = model.dayAvgs[i];
+      if (dayBest == null || avg > dayBest.avg) dayBest = { date: day.date, avg: avg };
+      if (dayWorst == null || avg < dayWorst.avg) dayWorst = { date: day.date, avg: avg };
+    });
+
     if (els.statsCards) {
       els.statsCards.innerHTML =
-        statCard('學生人數', model.rows.length) +
-        statCard('全班合計', model.grand) +
-        statCard('全班平均', model.classAvg) +
-        statCard('中位數', model.median) +
-        statCard('正分人數', model.plusPeople || 0) +
-        statCard('零分人數', model.zeroPeople || 0) +
-        statCard('負分人數', model.minusPeople || 0) +
-        statCard('目前第一', top ? top.name + '（' + top.total + '）' : '—');
+        statCard('學生人數', people.length) +
+        statCard('紀錄天數', model.dates.length) +
+        statCard('學期平均', fmtMaybe(meanOf(termScores))) +
+        statCard('及格率（60分）', termScores.length ? round1(pass60 / termScores.length * 100) + '%' : '尚無學期成績') +
+        statCard('上課平均加扣', model.classAvg) +
+        statCard('分數標準差', stdevOf(people.map(function (row) { return row.classRaw; }))) +
+        statCard('有加扣紀錄', people.length - silent.length + ' / ' + people.length) +
+        statCard('目前第一', topTerm ? topTerm.name + '（' + topTerm.total + '）' : (rankedClass[0] ? rankedClass[0].name + '（' + rankedClass[0].classRaw + '）' : '—'));
     }
+
+    if (els.statsWatch) {
+      var cards = [];
+      cards.push(watchCard('good', '表現亮點', topTerm
+        ? topTerm.seatNo + ' ' + topTerm.name + ' 學期 ' + topTerm.total + ' 分'
+        : (mostPlus && mostPlus.plusSum ? mostPlus.name + ' 加分最多 +' + mostPlus.plusSum : '再多一些成績就會出現亮點')));
+      cards.push(watchCard('alert', '需要關心', needHelp.length
+        ? peopleText(needHelp, 3)
+        : '目前沒有明顯低分或未繳作業'));
+      cards.push(watchCard('info', '還沒有加扣分', silent.length ? peopleText(silent, 4) : '每位同學都有上課紀錄'));
+      cards.push(watchCard('warn', '作業未繳／遲交', (function () {
+        var missingPeople = people.filter(function (row) { return row.hwMissing > 0; });
+        if (!missingPeople.length && !lateHw.length) {
+          return ((App.gradebook && App.gradebook.homeworks) || []).length ? '作業都有繳交' : '還沒有登記作業';
+        }
+        var bits = [];
+        if (missingPeople.length) bits.push('未繳 ' + peopleText(missingPeople, 3));
+        if (lateHw.length) bits.push('遲交 ' + peopleText(lateHw, 2));
+        return bits.join('；');
+      })()));
+      if (improved.length) cards.push(watchCard('good', '後段表現進步', peopleText(improved, 3) + '（後半段加扣比前半段高）'));
+      if (slipped.length) cards.push(watchCard('warn', '後半段加扣下滑', peopleText(slipped, 3)));
+      els.statsWatch.innerHTML = cards.join('');
+    }
+
     if (els.statsInsights) {
       var items = [];
-      if (top) items.push(insightItem('最高合計', top.seatNo + ' ' + top.name + '　' + top.total + ' 分'));
-      if (bottom && (!top || bottom.seatNo !== top.seatNo)) {
-        items.push(insightItem('最低合計', bottom.seatNo + ' ' + bottom.name + '　' + bottom.total + ' 分'));
-      }
-      if (mostPlus && mostPlus.plusSum) {
-        items.push(insightItem('加分總和最多', mostPlus.name + '　+' + mostPlus.plusSum));
-      }
-      if (mostMinus && mostMinus.minusSum) {
-        items.push(insightItem('扣分總和最多', mostMinus.name + '　' + mostMinus.minusSum));
-      }
+      if (mostPlus && mostPlus.plusSum) items.push(insightItem('加分總和最多', mostPlus.seatNo + ' ' + mostPlus.name + '　+' + mostPlus.plusSum));
+      if (mostMinus && mostMinus.minusSum) items.push(insightItem('扣分總和最多', mostMinus.seatNo + ' ' + mostMinus.name + '　' + mostMinus.minusSum));
       items.push(insightItem('全班加分總和', '+' + (model.plusTotal || 0)));
       items.push(insightItem('全班扣分總和', String(model.minusTotal || 0)));
+      if (dayBest) items.push(insightItem('全班最好的一天', formatZhDate(dayBest.date) + '　平均 ' + dayBest.avg));
+      if (dayWorst && (!dayBest || dayWorst.date !== dayBest.date)) {
+        items.push(insightItem('全班最低的一天', formatZhDate(dayWorst.date) + '　平均 ' + dayWorst.avg));
+      }
+      if (usualScores.length) items.push(insightItem('平時平均', meanOf(usualScores)));
+      if (quizScores.length) items.push(insightItem('平時考試平均', meanOf(quizScores)));
+      if (examScores.length) items.push(insightItem('段考平均', meanOf(examScores)));
+      items.push(insightItem('學期中位數', fmtMaybe(termScores.length ? medianOf(termScores) : null)));
       els.statsInsights.innerHTML = items.join('');
     }
+
+    renderAssessStats(people);
     if (els.statsBody) {
-      if (!ranked.length) {
-        els.statsBody.innerHTML = '<tr><td colspan="6">尚無統計資料</td></tr>';
+      if (!people.length) {
+        els.statsBody.innerHTML = '<tr><td colspan="13">尚無統計資料</td></tr>';
       } else {
-        els.statsBody.innerHTML = ranked.map(function (row, index) {
-          return '<tr><td>' + (index + 1) + '</td><td>' + escapeHtml(row.seatNo) + '</td><td>' +
-            escapeHtml(row.name) + '</td><td class="' + scoreCellClass(row.total) + '">' +
-            scoreCellText(row.total) + '</td><td class="day-plus">+' + (row.plusSum || 0) +
-            '</td><td class="day-minus">' + (row.minusSum || 0) + '</td></tr>';
+        els.statsBody.innerHTML = rankedTerm.map(function (row, index) {
+          return '<tr>' +
+            '<td>' + (index + 1) + '</td>' +
+            '<td>' + escapeHtml(row.seatNo) + '</td>' +
+            '<td>' + escapeHtml(row.name) + '</td>' +
+            '<td class="col-total">' + fmtMaybe(row.total) + '</td>' +
+            '<td>' + fmtMaybe(row.usual) + '</td>' +
+            '<td>' + fmtMaybe(row.quiz) + '</td>' +
+            '<td>' + fmtMaybe(row.exam) + '</td>' +
+            '<td class="' + scoreCellClass(row.classRaw) + '">' + scoreCellText(row.classRaw) + '</td>' +
+            '<td class="day-plus">+' + (row.plusSum || 0) + '</td>' +
+            '<td class="day-minus">' + (row.minusSum || 0) + '</td>' +
+            '<td>' + row.activeDays + '</td>' +
+            '<td>' + (row.hwMissing || 0) + '</td>' +
+            '<td>' + (row.leaveCount || 0) + '</td>' +
+            '</tr>';
         }).join('');
       }
     }
-    renderCharts(model);
+    renderCharts(model, people);
+  }
+
+  function renderAssessStats(people) {
+    var wrap = els.statsAssess;
+    var block = document.getElementById('statsGradeBlock');
+    var book = App.gradebook || emptyGradebook();
+    var groups = [
+      { label: '黃卷', cols: book.yellow || [], homework: false },
+      { label: '早自習', cols: book.morning || [], homework: false },
+      { label: '段考', cols: book.exams || [], homework: false },
+      { label: '實作評量', cols: book.labs || [], homework: false },
+      { label: '實作成績', cols: book.practicals || [], homework: false },
+      { label: '作業', cols: book.homeworks || [], homework: true }
+    ];
+    var rows = [];
+    var chartLabels = [];
+    var chartValues = [];
+    groups.forEach(function (group) {
+      group.cols.forEach(function (col) {
+        if (group.homework) {
+          var hw = analyzeHomeworkColumn(col, people);
+          rows.push('<tr><td>' + escapeHtml(group.label) + '</td><td>' + escapeHtml(hw.title) + '</td><td>' +
+            escapeHtml(shortDate(hw.date)) + '</td><td>' + fmtMaybe(hw.avg) + '</td><td>' +
+            hw.submitRate + '%（' + hw.submitted + '/' + people.length + '）</td><td>遲交 ' + hw.late +
+            '　未繳 ' + hw.missing + '</td></tr>');
+          if (hw.avg != null) {
+            chartLabels.push(hw.title);
+            chartValues.push(hw.avg);
+          }
+        } else {
+          var info = analyzeScoreColumn(col, people);
+          rows.push('<tr><td>' + escapeHtml(group.label) + '</td><td>' + escapeHtml(info.title) + '</td><td>' +
+            escapeHtml(shortDate(info.date)) + '</td><td>' + fmtMaybe(info.avg) + '</td><td>' +
+            fmtMaybe(info.passRate, '%') + '</td><td>請假 ' + info.leave + '　未填 ' + info.missing +
+            '　低於60分 ' + info.below + '</td></tr>');
+          if (info.avg != null) {
+            chartLabels.push(info.title);
+            chartValues.push(info.avg);
+          }
+        }
+      });
+    });
+    if (block) block.hidden = !rows.length;
+    if (wrap) {
+      wrap.innerHTML = rows.length
+        ? '<table class="assess-table"><thead><tr><th>類型</th><th>名稱</th><th>日期</th><th>全班平均</th><th>繳交／及格</th><th>提醒</th></tr></thead><tbody>' +
+          rows.join('') + '</tbody></table>'
+        : '<p class="chart-empty">成績統計表還沒有考卷或作業時，這裡會顯示每一次的全班平均、請假與未繳。</p>';
+    }
+    if (els.chartAssess) {
+      els.chartAssess.innerHTML = chartLabels.length
+        ? svgBars(chartLabels, chartValues, { zeroLine: false })
+        : chartEmpty('輸入考卷或作業成績後，這裡會比較每一次的全班平均');
+    }
   }
 
   function chartEmpty(text) {
     return '<p class="chart-empty">' + escapeHtml(text) + '</p>';
   }
 
-  function renderCharts(model) {
+  function renderCharts(model, people) {
+    people = people || enrichStatsRows(model);
+    if (els.chartTrend) {
+      var labels = (model.dates || []).map(function (day) { return shortDate(day.date); });
+      els.chartTrend.innerHTML = labels.length
+        ? svgLine(labels, model.dayAvgs || [])
+        : chartEmpty('有上課加扣紀錄之後，這裡會出現每天全班平均走勢');
+    }
     if (els.chartRank) {
       var top10 = (model.ranked || []).slice(0, 10);
       els.chartRank.innerHTML = top10.length
-        ? svgHBars(top10.map(function (row) { return row.seatNo + ' ' + row.name; }), top10.map(function (row) { return row.total; }))
+        ? svgHBars(top10.map(function (row) { return row.seatNo + ' ' + row.name; }), top10.map(function (row) { return row.classRaw != null ? row.classRaw : row.total; }))
         : chartEmpty('有學生分數之後，這裡會出現排行圖');
     }
     if (els.chartDist) {
@@ -2196,6 +2459,31 @@
       els.chartPlusMinus.innerHTML = model.rows.length
         ? svgBars(['加分總和', '扣分總和'], [model.plusTotal || 0, model.minusTotal || 0], { zeroLine: true })
         : chartEmpty('有加扣分之後，這裡會出現加扣分總和');
+    }
+    if (els.chartTerm) {
+      var bands = [
+        { label: '90↑', count: 0 },
+        { label: '80–89', count: 0 },
+        { label: '70–79', count: 0 },
+        { label: '60–69', count: 0 },
+        { label: '未滿60', count: 0 }
+      ];
+      var hasTerm = 0;
+      people.forEach(function (row) {
+        if (row.total == null) return;
+        hasTerm += 1;
+        if (row.total >= 90) bands[0].count += 1;
+        else if (row.total >= 80) bands[1].count += 1;
+        else if (row.total >= 70) bands[2].count += 1;
+        else if (row.total >= 60) bands[3].count += 1;
+        else bands[4].count += 1;
+      });
+      els.chartTerm.innerHTML = hasTerm
+        ? svgBars(bands.map(function (b) { return b.label; }), bands.map(function (b) { return b.count; }), {
+          zeroLine: false,
+          barColors: ['#2c7a4b', '#5aa576', '#d9a441', '#d9852b', '#b4413c']
+        })
+        : chartEmpty('有學期總分之後，這裡會顯示 90／80／70／60 分段人數');
     }
   }
 
@@ -2266,6 +2554,49 @@
         '<text x="' + (l + iw + 6) + '" y="' + (y + 16) + '" font-size="12" fill="#5b7380">' + v + '</text>';
     }).join('');
     return '<svg viewBox="0 0 ' + w + ' ' + h + '" class="chart-svg" role="img">' + bars + '</svg>';
+  }
+
+  function svgLine(labels, values) {
+    var w = 640;
+    var h = 220;
+    var l = 36;
+    var r = 16;
+    var t = 16;
+    var b = 44;
+    var iw = w - l - r;
+    var ih = h - t - b;
+    var max = 1;
+    var min = 0;
+    values.forEach(function (v) {
+      if (v > max) max = v;
+      if (v < min) min = v;
+    });
+    if (max === min) max = min + 1;
+    var span = max - min;
+    function xOf(i) {
+      return l + (values.length <= 1 ? iw / 2 : i * iw / (values.length - 1));
+    }
+    function yOf(v) {
+      return t + ih - ((v - min) / span) * ih;
+    }
+    var zeroY = yOf(0);
+    var pts = values.map(function (v, i) { return xOf(i) + ',' + yOf(v); }).join(' ');
+    var dots = values.map(function (v, i) {
+      return '<circle cx="' + xOf(i) + '" cy="' + yOf(v) + '" r="3.5" fill="#1b3a4b">' +
+        '<title>' + escapeHtml(labels[i] + '：' + v) + '</title></circle>';
+    }).join('');
+    var step = Math.max(1, Math.ceil(labels.length / 8));
+    var xlabels = labels.map(function (lb, i) {
+      if (i % step && i !== labels.length - 1) return '';
+      return '<text x="' + xOf(i) + '" y="' + (h - 16) + '" text-anchor="middle" font-size="11" fill="#5b7380">' +
+        escapeHtml(lb) + '</text>';
+    }).join('');
+    return '<svg viewBox="0 0 ' + w + ' ' + h + '" class="chart-svg" role="img">' +
+      '<line x1="' + l + '" y1="' + zeroY + '" x2="' + (w - r) + '" y2="' + zeroY + '" stroke="#d9d0c1"/>' +
+      '<polyline fill="none" stroke="#2f6f8f" stroke-width="2.5" points="' + pts + '"/>' +
+      dots + xlabels +
+      '<text x="8" y="' + (t + 10) + '" font-size="11" fill="#5b7380">' + max + '</text>' +
+      '</svg>';
   }
 
   function downloadScoreSheet() {

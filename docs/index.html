@@ -209,38 +209,70 @@
           </div>
 
           <div id="tabStats" class="teacher-panel stats-panel" hidden>
-            <p class="hint">用全部日期的分數合計來統計，不是只看某一天。</p>
-            <div id="statsCards" class="stat-cards"></div>
+            <p class="hint">把上課加扣、考卷、作業、段考放在一起看，方便立刻看出亮點與需要關心的學生。</p>
+            <div id="statsCards" class="stat-cards stats-hero"></div>
+            <div id="statsWatch" class="stats-watch"></div>
             <div id="statsInsights" class="insight-list"></div>
-            <div class="chart-grid">
-              <figure class="chart-card">
-                <figcaption>學生合計排行（前 10 名）</figcaption>
-                <div id="chartRank"></div>
+
+            <section class="stats-block">
+              <h3>上課加扣表現</h3>
+              <figure class="chart-card chart-wide">
+                <figcaption>每天全班平均加扣分</figcaption>
+                <div id="chartTrend"></div>
               </figure>
-              <figure class="chart-card">
-                <figcaption>合計分數分布</figcaption>
-                <div id="chartDist"></div>
-              </figure>
-              <figure class="chart-card">
-                <figcaption>正分／零分／負分人數</figcaption>
-                <div id="chartDaily"></div>
-              </figure>
-              <figure class="chart-card">
-                <figcaption>全班加分總和／扣分總和</figcaption>
-                <div id="chartPlusMinus"></div>
-              </figure>
-            </div>
-            <h3 class="subhead">學生統計明細（全部資料合計）</h3>
-            <div class="db-table-wrap">
-              <table class="db-table">
+              <div class="chart-grid">
+                <figure class="chart-card">
+                  <figcaption>學生合計排行（前 10 名）</figcaption>
+                  <div id="chartRank"></div>
+                </figure>
+                <figure class="chart-card">
+                  <figcaption>加扣合計分布</figcaption>
+                  <div id="chartDist"></div>
+                </figure>
+                <figure class="chart-card">
+                  <figcaption>正分／零分／負分人數</figcaption>
+                  <div id="chartDaily"></div>
+                </figure>
+                <figure class="chart-card">
+                  <figcaption>全班加分總和／扣分總和</figcaption>
+                  <div id="chartPlusMinus"></div>
+                </figure>
+              </div>
+            </section>
+
+            <section class="stats-block" id="statsGradeBlock">
+              <h3>考卷、實作與作業</h3>
+              <div id="statsAssess" class="assess-wrap"></div>
+              <div class="chart-grid">
+                <figure class="chart-card">
+                  <figcaption>各次成績全班平均（百分制）</figcaption>
+                  <div id="chartAssess"></div>
+                </figure>
+                <figure class="chart-card">
+                  <figcaption>學期總分分布</figcaption>
+                  <div id="chartTerm"></div>
+                </figure>
+              </div>
+            </section>
+
+            <h3 class="subhead">學生總覽（加扣＋成績簿）</h3>
+            <div class="db-table-wrap stats-table-wrap">
+              <table class="db-table stats-wide">
                 <thead>
                   <tr>
                     <th>名次</th>
                     <th>座號</th>
                     <th>姓名</th>
-                    <th>合計</th>
-                    <th>加分總和</th>
-                    <th>扣分總和</th>
+                    <th>學期總分</th>
+                    <th>平時</th>
+                    <th>平時考試</th>
+                    <th>段考</th>
+                    <th>加扣合計</th>
+                    <th>加分</th>
+                    <th>扣分</th>
+                    <th>有紀錄天數</th>
+                    <th>未繳作業</th>
+                    <th>請假</th>
                   </tr>
                 </thead>
                 <tbody id="statsBody"></tbody>

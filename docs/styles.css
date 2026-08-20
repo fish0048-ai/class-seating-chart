@@ -775,6 +775,109 @@
     min-height: 40px;
   }
 
+  #tabStats.teacher-panel {
+    overflow: auto;
+  }
+
+  .stats-hero .stat-card strong {
+    font-size: 22px;
+  }
+
+  .stats-watch {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 10px;
+  }
+
+  .watch-card {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 12px 14px;
+  }
+
+  .watch-card h4 {
+    margin: 0 0 6px;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+  }
+
+  .watch-card p {
+    margin: 0;
+    font-size: 15px;
+    line-height: 1.45;
+  }
+
+  .watch-card.tone-good {
+    background: #f1f8f3;
+    border-color: #cfe6d6;
+  }
+
+  .watch-card.tone-warn {
+    background: #fff7ec;
+    border-color: #f0d7b0;
+  }
+
+  .watch-card.tone-alert {
+    background: #fdf2f1;
+    border-color: #f0c7c4;
+  }
+
+  .watch-card.tone-info {
+    background: #f3f8fb;
+    border-color: #cfe0ea;
+  }
+
+  .stats-block {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 12px 14px 14px;
+  }
+
+  .stats-block h3 {
+    margin: 0 0 10px;
+    font-size: 16px;
+  }
+
+  .chart-wide {
+    margin-bottom: 10px;
+  }
+
+  .assess-wrap {
+    overflow: auto;
+    margin-bottom: 10px;
+  }
+
+  .assess-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .assess-table th,
+  .assess-table td {
+    border-bottom: 1px solid #eee4d6;
+    padding: 8px 10px;
+    text-align: left;
+    white-space: nowrap;
+  }
+
+  .assess-table th {
+    color: var(--muted);
+    font-weight: 700;
+    background: #f7f3ec;
+  }
+
+  .stats-table-wrap {
+    max-height: min(52vh, 560px) !important;
+  }
+
+  .stats-wide {
+    min-width: 960px;
+  }
+
   .stats-panel .db-table-wrap {
     flex: 0 0 auto;
     max-height: 360px;
