@@ -884,8 +884,20 @@
     font-size: 16px;
   }
 
-  .chart-wide {
-    margin-bottom: 10px;
+  .chart-sub {
+    margin: 14px 0 8px;
+    font-size: 13px;
+    color: #5b7380;
+    font-weight: 700;
+  }
+
+  .heat-wrap {
+    overflow: auto;
+    max-height: 420px;
+  }
+
+  .heat-svg {
+    min-width: 100%;
   }
 
   .assess-wrap {
@@ -1112,6 +1124,10 @@
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
+  }
+
+  .chart-wide {
+    grid-column: 1 / -1;
   }
 
   .chart-card {

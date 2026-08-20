@@ -81,6 +81,19 @@
     chartPersonHw: document.getElementById('chartPersonHw'),
     chartPersonAssess: document.getElementById('chartPersonAssess'),
     personAssessTable: document.getElementById('personAssessTable'),
+    chartBox: document.getElementById('chartBox'),
+    chartKindAvg: document.getElementById('chartKindAvg'),
+    chartScatterExam: document.getElementById('chartScatterExam'),
+    chartScatterQuiz: document.getElementById('chartScatterQuiz'),
+    chartScatterClass: document.getElementById('chartScatterClass'),
+    chartScatterHw: document.getElementById('chartScatterHw'),
+    chartQuartile: document.getElementById('chartQuartile'),
+    chartGrowth: document.getElementById('chartGrowth'),
+    chartMovers: document.getElementById('chartMovers'),
+    chartHeat: document.getElementById('chartHeat'),
+    chartPersonPct: document.getElementById('chartPersonPct'),
+    chartPersonBand: document.getElementById('chartPersonBand'),
+    chartPersonSeries: document.getElementById('chartPersonSeries'),
     gradeTermWrap: document.getElementById('gradeTermWrap'),
     gradeWeekHead: document.getElementById('gradeWeekHead'),
     gradeWeekBody: document.getElementById('gradeWeekBody'),
@@ -2396,6 +2409,7 @@
       }
     }
     renderCharts(model, people);
+    renderAdvancedClassCharts(model, people);
     App.statsPeople = people;
     App.statsModel = model;
     fillPersonSelect(people);
@@ -2604,6 +2618,28 @@
         )
         : chartEmpty('輸入考卷或作業後，這裡會比較每一次成績');
     }
+    if (els.chartPersonPct) {
+      var pct = percentileRank(person.total, termScores);
+      els.chartPersonPct.innerHTML = pct == null
+        ? chartEmpty('有學期總分後，這裡會顯示他贏過全班多少比例')
+        : svgPercentile(pct, person.name + ' 贏過全班 ' + pct + '% 的同學');
+    }
+    if (els.chartPersonBand) {
+      els.chartPersonBand.innerHTML = termScores.length
+        ? svgStrip(termScores, person.total, '學期總分')
+        : chartEmpty('有學期總分後，藍點是這位學生，灰點是全班');
+    }
+    if (els.chartPersonSeries) {
+      var seriesMine = items.map(function (it) { return it.mine; });
+      var seriesAvg = items.map(function (it) { return it.classAvg; });
+      var seriesLabels = items.map(function (it) { return it.title; });
+      els.chartPersonSeries.innerHTML = items.length
+        ? svgLine(seriesLabels, seriesMine, {
+          compare: seriesAvg,
+          compareColor: '#9aa8b0'
+        })
+        : chartEmpty('輸入各次成績後，這裡會出現個人成績折線');
+    }
     if (els.personAssessTable) {
       els.personAssessTable.innerHTML = items.length
         ? '<table class="assess-table"><thead><tr><th>類型</th><th>名稱</th><th>自己</th><th>全班平均</th><th>比較</th><th>備註</th></tr></thead><tbody>' +
@@ -2751,6 +2787,282 @@
     }
   }
 
+  function numsOf(list) {
+    return (list || []).filter(function (n) { return n != null && isFinite(n); });
+  }
+
+  function percentileRank(value, list) {
+    var nums = numsOf(list).slice().sort(function (a, b) { return a - b; });
+    if (value == null || !nums.length) return null;
+    var below = 0;
+    nums.forEach(function (n) { if (n < value) below += 1; });
+    return round1(below / nums.length * 100);
+  }
+
+  function quartilesOf(list) {
+    var nums = numsOf(list).slice().sort(function (a, b) { return a - b; });
+    if (!nums.length) return null;
+    function at(p) {
+      var i = (nums.length - 1) * p;
+      var lo = Math.floor(i);
+      var hi = Math.ceil(i);
+      if (lo === hi) return nums[lo];
+      return nums[lo] + (nums[hi] - nums[lo]) * (i - lo);
+    }
+    return {
+      min: nums[0],
+      q1: round1(at(0.25)),
+      med: round1(at(0.5)),
+      q3: round1(at(0.75)),
+      max: nums[nums.length - 1],
+      n: nums.length
+    };
+  }
+
+  function pearsonOf(points) {
+    var pts = (points || []).filter(function (p) {
+      return p && p.x != null && p.y != null && isFinite(p.x) && isFinite(p.y);
+    });
+    if (pts.length < 3) return null;
+    var mx = meanOf(pts.map(function (p) { return p.x; }));
+    var my = meanOf(pts.map(function (p) { return p.y; }));
+    var num = 0;
+    var dx = 0;
+    var dy = 0;
+    pts.forEach(function (p) {
+      var a = p.x - mx;
+      var b = p.y - my;
+      num += a * b;
+      dx += a * a;
+      dy += b * b;
+    });
+    if (!dx || !dy) return null;
+    return round1(num / Math.sqrt(dx * dy));
+  }
+
+  function listAssessColumns() {
+    var book = App.gradebook || emptyGradebook();
+    var out = [];
+    function push(group, cols, homework) {
+      (cols || []).forEach(function (col) {
+        out.push({ group: group, col: col, homework: !!homework, title: col.title || group });
+      });
+    }
+    push('黃卷', book.yellow);
+    push('早自習', book.morning);
+    push('段考', book.exams);
+    push('實作評量', book.labs);
+    push('實作成績', book.practicals);
+    push('作業', book.homeworks, true);
+    return out;
+  }
+
+  function scoreForColumn(colSpec, seatNo) {
+    if (colSpec.homework) {
+      var result = homeworkResult(colSpec.col, seatNo);
+      if (result.status === 'missing') return 0;
+      return result.final;
+    }
+    if (isLeaveScore(colSpec.col.scores && colSpec.col.scores[seatNo])) return null;
+    return columnScore100(colSpec.col, seatNo);
+  }
+
+  function hwSubmitRateOf(person) {
+    var cols = (App.gradebook && App.gradebook.homeworks) || [];
+    if (!cols.length) return null;
+    var ok = 0;
+    cols.forEach(function (col) {
+      if (homeworkResult(col, person.seatNo).status === 'submitted') ok += 1;
+    });
+    return round1(ok / cols.length * 100);
+  }
+
+  function assessKinds() {
+    var book = App.gradebook || emptyGradebook();
+    return [
+      { key: 'yellow', label: '黃卷', cols: book.yellow || [], homework: false },
+      { key: 'morning', label: '早自習', cols: book.morning || [], homework: false },
+      { key: 'exam', label: '段考', cols: book.exams || [], homework: false },
+      { key: 'lab', label: '實作評量', cols: book.labs || [], homework: false },
+      { key: 'practical', label: '實作成績', cols: book.practicals || [], homework: false },
+      { key: 'homework', label: '作業', cols: book.homeworks || [], homework: true }
+    ];
+  }
+
+  function kindAverage(kind, people) {
+    var scores = [];
+    (people || []).forEach(function (stu) {
+      var vals = [];
+      (kind.cols || []).forEach(function (col) {
+        var v = scoreForColumn({ col: col, homework: kind.homework }, stu.seatNo);
+        if (v != null) vals.push(v);
+      });
+      if (vals.length) scores.push(meanOf(vals));
+    });
+    return meanOf(scores);
+  }
+
+  function growthByKind(people) {
+    var labels = [];
+    var up = [];
+    var down = [];
+    assessKinds().forEach(function (kind) {
+      if (kind.cols.length < 2) return;
+      var first = { col: kind.cols[0], homework: kind.homework };
+      var last = { col: kind.cols[kind.cols.length - 1], homework: kind.homework };
+      var better = 0;
+      var worse = 0;
+      people.forEach(function (stu) {
+        var a = scoreForColumn(first, stu.seatNo);
+        var b = scoreForColumn(last, stu.seatNo);
+        if (a == null || b == null) return;
+        if (b > a + 0.5) better += 1;
+        else if (b < a - 0.5) worse += 1;
+      });
+      labels.push(kind.label);
+      up.push(better);
+      down.push(worse);
+    });
+    return { labels: labels, up: up, down: down };
+  }
+
+  function moversByKind(people) {
+    var best = [];
+    assessKinds().forEach(function (kind) {
+      if (kind.cols.length < 2) return;
+      var first = { col: kind.cols[0], homework: kind.homework };
+      var last = { col: kind.cols[kind.cols.length - 1], homework: kind.homework };
+      people.forEach(function (stu) {
+        var a = scoreForColumn(first, stu.seatNo);
+        var b = scoreForColumn(last, stu.seatNo);
+        if (a == null || b == null) return;
+        var d = round1(b - a);
+        if (Math.abs(d) < 0.5) return;
+        best.push({ name: stu.seatNo + ' ' + stu.name + '（' + kind.label + '）', delta: d });
+      });
+    });
+    best.sort(function (a, b) { return Math.abs(b.delta) - Math.abs(a.delta); });
+    return best.slice(0, 8);
+  }
+
+  function corrCaption(r) {
+    if (r == null) return '';
+    var abs = Math.abs(r);
+    var level = abs >= 0.7 ? '高度相關' : abs >= 0.4 ? '中度相關' : '不太相關';
+    return level + ' ' + r;
+  }
+
+  function renderAdvancedClassCharts(model, people) {
+    var cols = listAssessColumns();
+    if (els.chartKindAvg) {
+      var kindLabels = [];
+      var kindVals = [];
+      assessKinds().forEach(function (kind) {
+        if (!kind.cols.length) return;
+        var avg = kindAverage(kind, people);
+        if (avg == null) return;
+        kindLabels.push(kind.label);
+        kindVals.push(avg);
+      });
+      els.chartKindAvg.innerHTML = kindLabels.length
+        ? svgBars(kindLabels, kindVals, { zeroLine: false, barColors: ['#2f6f8f', '#7eb6d6', '#2c7a4b', '#d9a441', '#d9852b', '#8aa0ad'] })
+        : chartEmpty('黃卷、早自習、段考、實作或作業打進去後，這裡會比較各類型全班平均');
+    }
+    if (els.chartBox) {
+      var boxes = [];
+      cols.forEach(function (spec) {
+        var vals = [];
+        people.forEach(function (stu) {
+          var v = scoreForColumn(spec, stu.seatNo);
+          if (v != null) vals.push(v);
+        });
+        if (vals.length >= 2) boxes.push({ label: spec.title, values: vals });
+      });
+      els.chartBox.innerHTML = boxes.length
+        ? svgBoxPlots(boxes)
+        : chartEmpty('至少兩位學生有同一項成績後，這裡會顯示全班分散程度');
+    }
+    if (els.chartScatterExam) {
+      var examPts = people.map(function (stu) {
+        return { x: stu.usual, y: stu.exam, name: stu.name };
+      }).filter(function (p) { return p.x != null && p.y != null; });
+      els.chartScatterExam.innerHTML = examPts.length >= 3
+        ? svgScatter(examPts, '平時', '段考', corrCaption(pearsonOf(examPts)))
+        : chartEmpty('同時有平時與段考後，這裡會看出兩者是否一起變高');
+    }
+    if (els.chartScatterQuiz) {
+      var quizPts = people.map(function (stu) {
+        return { x: stu.quiz, y: stu.exam, name: stu.name };
+      }).filter(function (p) { return p.x != null && p.y != null; });
+      els.chartScatterQuiz.innerHTML = quizPts.length >= 3
+        ? svgScatter(quizPts, '平時考試', '段考', corrCaption(pearsonOf(quizPts)))
+        : chartEmpty('同時有黃卷／早自習與段考後，這裡會看出小考能不能預測段考');
+    }
+    if (els.chartScatterClass) {
+      var classPts = people.map(function (stu) {
+        return { x: stu.classRaw, y: stu.total, name: stu.name };
+      }).filter(function (p) { return p.x != null && p.y != null; });
+      els.chartScatterClass.innerHTML = classPts.length >= 3
+        ? svgScatter(classPts, '上課加扣', '學期總分', corrCaption(pearsonOf(classPts)))
+        : chartEmpty('有加扣分與學期總分後，這裡會看出上課表現是否反映在總分');
+    }
+    if (els.chartScatterHw) {
+      var hwPts = people.map(function (stu) {
+        return { x: hwSubmitRateOf(stu), y: stu.total, name: stu.name };
+      }).filter(function (p) { return p.x != null && p.y != null; });
+      els.chartScatterHw.innerHTML = hwPts.length >= 3
+        ? svgScatter(hwPts, '作業繳交率％', '學期總分', corrCaption(pearsonOf(hwPts)))
+        : chartEmpty('登記作業並打學期成績後，這裡會看出繳交率與總分的關係');
+    }
+    if (els.chartQuartile) {
+      var terms = numsOf(people.map(function (stu) { return stu.total; })).slice().sort(function (a, b) { return a - b; });
+      if (terms.length >= 4) {
+        var q = quartilesOf(terms);
+        var counts = [0, 0, 0, 0];
+        terms.forEach(function (n) {
+          if (n <= q.q1) counts[0] += 1;
+          else if (n <= q.med) counts[1] += 1;
+          else if (n <= q.q3) counts[2] += 1;
+          else counts[3] += 1;
+        });
+        els.chartQuartile.innerHTML = svgBars(
+          ['後 25%', '中後', '中前', '前 25%'],
+          counts,
+          { zeroLine: false, barColors: ['#b4413c', '#d9852b', '#7eb6d6', '#2c7a4b'] }
+        );
+      } else {
+        els.chartQuartile.innerHTML = chartEmpty('至少 4 位學生有學期總分後，這裡會切成四等份人數');
+      }
+    }
+    if (els.chartGrowth) {
+      var g = growthByKind(people);
+      els.chartGrowth.innerHTML = g.labels.length
+        ? svgPairBars(g.labels, g.up, g.down, ['進步人數', '退步人數'])
+        : chartEmpty('同一類型至少兩次成績後，這裡會顯示進步／退步人數');
+    }
+    if (els.chartMovers) {
+      var movers = moversByKind(people);
+      els.chartMovers.innerHTML = movers.length
+        ? svgHBars(movers.map(function (row) { return row.name; }), movers.map(function (row) { return row.delta; }))
+        : chartEmpty('同一類型打兩次以上後，這裡會列出進步或退步最多的同學');
+    }
+    if (els.chartHeat) {
+      var heatCols = cols.slice(0, 14);
+      if (!heatCols.length || !people.length) {
+        els.chartHeat.innerHTML = chartEmpty('輸入黃卷、作業或段考後，這裡會用顏色看出誰強誰弱');
+      } else {
+        var matrix = people.slice().sort(seatOrder).map(function (stu) {
+          return heatCols.map(function (spec) { return scoreForColumn(spec, stu.seatNo); });
+        });
+        els.chartHeat.innerHTML = svgHeatmap(
+          people.slice().sort(seatOrder).map(function (stu) { return stu.seatNo + ' ' + stu.name; }),
+          heatCols.map(function (spec) { return spec.title; }),
+          matrix
+        );
+      }
+    }
+  }
+
   function svgBars(labels, values, opts) {
     opts = opts || {};
     var w = 640;
@@ -2800,7 +3112,7 @@
     var w = 640;
     var rowH = 28;
     var h = Math.max(120, labels.length * rowH + 16);
-    var l = 108;
+    var l = 128;
     var r = 36;
     var t = 8;
     var iw = w - l - r;
@@ -2852,13 +3164,28 @@
     }
     function series(list, color, filled) {
       if (!list || !list.length) return '';
-      var pts = list.map(function (v, i) { return xOf(i, list.length) + ',' + yOf(Number(v) || 0); }).join(' ');
-      var dots = list.map(function (v, i) {
-        return '<circle cx="' + xOf(i, list.length) + '" cy="' + yOf(Number(v) || 0) + '" r="3.5" fill="' +
-          (filled ? color : '#fff') + '" stroke="' + color + '" stroke-width="2">' +
-          '<title>' + escapeHtml(labels[i] + '：' + (v == null ? '—' : v)) + '</title></circle>';
+      var chunks = [];
+      var cur = [];
+      list.forEach(function (v, i) {
+        if (v == null || !isFinite(Number(v))) {
+          if (cur.length) { chunks.push(cur); cur = []; }
+          return;
+        }
+        cur.push(i);
+      });
+      if (cur.length) chunks.push(cur);
+      var lines = chunks.map(function (idx) {
+        if (idx.length < 2) return '';
+        var pts = idx.map(function (i) { return xOf(i, list.length) + ',' + yOf(Number(list[i])); }).join(' ');
+        return '<polyline fill="none" stroke="' + color + '" stroke-width="2.5" points="' + pts + '"/>';
       }).join('');
-      return '<polyline fill="none" stroke="' + color + '" stroke-width="2.5" points="' + pts + '"/>' + dots;
+      var dots = list.map(function (v, i) {
+        if (v == null || !isFinite(Number(v))) return '';
+        return '<circle cx="' + xOf(i, list.length) + '" cy="' + yOf(Number(v)) + '" r="3.5" fill="' +
+          (filled ? color : '#fff') + '" stroke="' + color + '" stroke-width="2">' +
+          '<title>' + escapeHtml(labels[i] + '：' + v) + '</title></circle>';
+      }).join('');
+      return lines + dots;
     }
     var zeroY = yOf(0);
     var step = Math.max(1, Math.ceil(labels.length / 8));
@@ -2956,6 +3283,155 @@
     return '<svg viewBox="0 0 ' + w + ' ' + h + '" class="chart-svg" role="img">' +
       '<line x1="' + zeroX + '" y1="' + t + '" x2="' + zeroX + '" y2="' + (h - b) + '" stroke="#d9d0c1"/>' +
       rows + legend + '</svg>';
+  }
+
+  function svgBoxPlots(series) {
+    var w = 640;
+    var rowH = 36;
+    var h = Math.max(160, 28 + series.length * rowH);
+    var l = 92;
+    var r = 20;
+    var t = 8;
+    var iw = w - l - r;
+    var all = [];
+    series.forEach(function (s) { all = all.concat(s.values || []); });
+    var min = 0;
+    var max = 100;
+    all.forEach(function (v) {
+      if (v < min) min = v;
+      if (v > max) max = v;
+    });
+    if (max === min) max = min + 1;
+    function xOf(v) { return l + (v - min) / (max - min) * iw; }
+    var rows = series.map(function (s, i) {
+      var q = quartilesOf(s.values);
+      if (!q) return '';
+      var y = t + i * rowH + 10;
+      var x1 = xOf(q.min);
+      var x2 = xOf(q.q1);
+      var x3 = xOf(q.med);
+      var x4 = xOf(q.q3);
+      var x5 = xOf(q.max);
+      return '<text x="8" y="' + (y + 8) + '" font-size="11" fill="#16303c">' + escapeHtml(s.label) + '</text>' +
+        '<line x1="' + x1 + '" y1="' + (y + 6) + '" x2="' + x5 + '" y2="' + (y + 6) + '" stroke="#8aa0ad"/>' +
+        '<rect x="' + x2 + '" y="' + y + '" width="' + Math.max(2, x4 - x2) + '" height="12" fill="#d5eaf6" stroke="#2f6f8f"/>' +
+        '<line x1="' + x3 + '" y1="' + y + '" x2="' + x3 + '" y2="' + (y + 12) + '" stroke="#1b3a4b" stroke-width="2"/>';
+    }).join('');
+    return '<svg viewBox="0 0 ' + w + ' ' + h + '" class="chart-svg" role="img">' + rows +
+      '<text x="' + l + '" y="' + (h - 4) + '" font-size="11" fill="#5b7380">' + min + '</text>' +
+      '<text x="' + (w - r) + '" y="' + (h - 4) + '" text-anchor="end" font-size="11" fill="#5b7380">' + max + '</text></svg>';
+  }
+
+  function svgScatter(points, xLabel, yLabel, r) {
+    var w = 640;
+    var h = 240;
+    var l = 44;
+    var b = 36;
+    var t = 16;
+    var right = 16;
+    var iw = w - l - right;
+    var ih = h - t - b;
+    var xs = points.map(function (p) { return p.x; });
+    var ys = points.map(function (p) { return p.y; });
+    var minX = Math.min.apply(null, xs);
+    var maxX = Math.max.apply(null, xs);
+    var minY = Math.min.apply(null, ys);
+    var maxY = Math.max.apply(null, ys);
+    if (minX === maxX) maxX = minX + 1;
+    if (minY === maxY) maxY = minY + 1;
+    function xOf(v) { return l + (v - minX) / (maxX - minX) * iw; }
+    function yOf(v) { return t + ih - (v - minY) / (maxY - minY) * ih; }
+    var dots = points.map(function (p) {
+      return '<circle cx="' + xOf(p.x) + '" cy="' + yOf(p.y) + '" r="5" fill="#2f6f8f" opacity="0.78">' +
+        '<title>' + escapeHtml((p.name || '') + '　' + xLabel + ' ' + p.x + '／' + yLabel + ' ' + p.y) + '</title></circle>';
+    }).join('');
+    var cap = r == null || r === '' ? '' : String(r);
+    return '<svg viewBox="0 0 ' + w + ' ' + h + '" class="chart-svg" role="img">' +
+      '<line x1="' + l + '" y1="' + (t + ih) + '" x2="' + (w - right) + '" y2="' + (t + ih) + '" stroke="#d9d0c1"/>' +
+      '<line x1="' + l + '" y1="' + t + '" x2="' + l + '" y2="' + (t + ih) + '" stroke="#d9d0c1"/>' +
+      dots +
+      '<text x="' + (w / 2) + '" y="' + (h - 6) + '" text-anchor="middle" font-size="12" fill="#5b7380">' +
+      escapeHtml(xLabel + (cap ? '（' + cap + '）' : '')) + '</text>' +
+      '<text x="12" y="14" font-size="12" fill="#5b7380">' + escapeHtml(yLabel) + '</text></svg>';
+  }
+
+  function svgHeatmap(rows, cols, matrix) {
+    var cw = 46;
+    var rh = 18;
+    var l = 92;
+    var t = 52;
+    var w = Math.max(320, l + cols.length * cw + 8);
+    var h = Math.max(120, t + rows.length * rh + 8);
+    function colorOf(v) {
+      if (v == null || v === '') return '#f4efe6';
+      var t = Math.max(0, Math.min(1, Number(v) / 100));
+      var r = Math.round(180 - t * 140);
+      var g = Math.round(70 + t * 90);
+      var b = Math.round(60 + t * 40);
+      return 'rgb(' + r + ',' + g + ',' + b + ')';
+    }
+    var head = cols.map(function (name, i) {
+      return '<text x="' + (l + i * cw + cw / 2) + '" y="46" text-anchor="end" font-size="10" fill="#5b7380" transform="rotate(-48 ' +
+        (l + i * cw + cw / 2) + ' 46)">' + escapeHtml(name) + '</text>';
+    }).join('');
+    var body = '';
+    matrix.forEach(function (line, r) {
+      body += '<text x="8" y="' + (t + r * rh + 13) + '" font-size="10" fill="#16303c">' + escapeHtml(rows[r]) + '</text>';
+      (line || []).forEach(function (v, c) {
+        body += '<rect x="' + (l + c * cw) + '" y="' + (t + r * rh) + '" width="' + (cw - 2) + '" height="' + (rh - 2) +
+          '" rx="3" fill="' + colorOf(v) + '"><title>' + escapeHtml(rows[r] + '／' + cols[c] + '：' + (v == null ? '無' : v)) +
+          '</title></rect>';
+      });
+    });
+    return '<svg viewBox="0 0 ' + w + ' ' + h + '" class="chart-svg heat-svg" role="img">' +
+      '<rect x="8" y="8" width="14" height="10" fill="rgb(180,70,60)"/>' +
+      '<text x="26" y="17" font-size="10" fill="#5b7380">低</text>' +
+      '<rect x="48" y="8" width="14" height="10" fill="rgb(110,115,80)"/>' +
+      '<text x="66" y="17" font-size="10" fill="#5b7380">中</text>' +
+      '<rect x="88" y="8" width="14" height="10" fill="rgb(40,160,100)"/>' +
+      '<text x="106" y="17" font-size="10" fill="#5b7380">高</text>' +
+      head + body + '</svg>';
+  }
+
+  function svgPercentile(pct, label) {
+    var w = 640;
+    var h = 90;
+    var l = 24;
+    var r = 24;
+    var y = 42;
+    var iw = w - l - r;
+    var x = l + pct / 100 * iw;
+    return '<svg viewBox="0 0 ' + w + ' ' + h + '" class="chart-svg" role="img">' +
+      '<rect x="' + l + '" y="' + (y - 8) + '" width="' + iw + '" height="16" rx="8" fill="#e8eef2"/>' +
+      '<rect x="' + l + '" y="' + (y - 8) + '" width="' + Math.max(8, pct / 100 * iw) + '" height="16" rx="8" fill="#7eb6d6"/>' +
+      '<circle cx="' + x + '" cy="' + y + '" r="9" fill="#1b3a4b"/>' +
+      '<text x="' + (w / 2) + '" y="78" text-anchor="middle" font-size="14" fill="#16303c">' + escapeHtml(label) + '</text>' +
+      '<text x="' + l + '" y="18" font-size="11" fill="#5b7380">0%</text>' +
+      '<text x="' + (w - r) + '" y="18" text-anchor="end" font-size="11" fill="#5b7380">100%</text></svg>';
+  }
+
+  function svgStrip(values, mark, label) {
+    var w = 640;
+    var h = 110;
+    var l = 28;
+    var r = 28;
+    var y = 58;
+    var iw = w - l - r;
+    var min = Math.min.apply(null, values.concat([mark == null ? 0 : mark]));
+    var max = Math.max.apply(null, values.concat([mark == null ? 100 : mark]));
+    if (min === max) max = min + 1;
+    function xOf(v) { return l + (v - min) / (max - min) * iw; }
+    var dots = values.map(function (v) {
+      return '<circle cx="' + xOf(v) + '" cy="' + y + '" r="5" fill="#c5d0d6"></circle>';
+    }).join('');
+    var mine = mark == null ? '' : '<circle cx="' + xOf(mark) + '" cy="' + y + '" r="8" fill="#2f6f8f">' +
+      '<title>' + escapeHtml(label + ' ' + mark) + '</title></circle>';
+    return '<svg viewBox="0 0 ' + w + ' ' + h + '" class="chart-svg" role="img">' +
+      '<line x1="' + l + '" y1="' + y + '" x2="' + (w - r) + '" y2="' + y + '" stroke="#d9d0c1"/>' +
+      dots + mine +
+      '<text x="' + l + '" y="24" font-size="11" fill="#5b7380">' + min + '</text>' +
+      '<text x="' + (w - r) + '" y="24" text-anchor="end" font-size="11" fill="#5b7380">' + max + '</text>' +
+      '<text x="' + (w / 2) + '" y="98" text-anchor="middle" font-size="12" fill="#5b7380">灰點全班，藍點這位學生</text></svg>';
   }
 
   function downloadScoreSheet() {

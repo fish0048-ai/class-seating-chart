@@ -261,6 +261,60 @@
               </div>
             </section>
 
+            <section class="stats-block">
+              <h3>進階分析</h3>
+              <p class="hint">成績一項項打進去，圖就會自己長出來。空著的格子會寫「缺什麼才會出現」，方便對照。</p>
+              <h4 class="chart-sub">全班一眼看</h4>
+              <div class="chart-grid">
+                <figure class="chart-card">
+                  <figcaption>各類型全班平均（黃卷、早自習、段考、實作、作業）</figcaption>
+                  <div id="chartKindAvg"></div>
+                </figure>
+                <figure class="chart-card">
+                  <figcaption>學期四分位人數（前 25%／中間／後 25%）</figcaption>
+                  <div id="chartQuartile"></div>
+                </figure>
+                <figure class="chart-card chart-wide">
+                  <figcaption>各次成績分布（中線是中位數，盒子是中間 50% 的人）</figcaption>
+                  <div id="chartBox" class="heat-wrap"></div>
+                </figure>
+              </div>
+              <h4 class="chart-sub">有沒有一起變好</h4>
+              <div class="chart-grid">
+                <figure class="chart-card">
+                  <figcaption>平時 vs 段考（右上穩，左下要關心）</figcaption>
+                  <div id="chartScatterExam"></div>
+                </figure>
+                <figure class="chart-card">
+                  <figcaption>平時考試 vs 段考</figcaption>
+                  <div id="chartScatterQuiz"></div>
+                </figure>
+                <figure class="chart-card">
+                  <figcaption>上課加扣 vs 學期總分</figcaption>
+                  <div id="chartScatterClass"></div>
+                </figure>
+                <figure class="chart-card">
+                  <figcaption>作業繳交 vs 學期總分</figcaption>
+                  <div id="chartScatterHw"></div>
+                </figure>
+              </div>
+              <h4 class="chart-sub">進步還是退步</h4>
+              <div class="chart-grid">
+                <figure class="chart-card">
+                  <figcaption>同類型第一次→最近一次（進步／退步人數）</figcaption>
+                  <div id="chartGrowth"></div>
+                </figure>
+                <figure class="chart-card">
+                  <figcaption>進步最多／退步最多（同一類型前後兩次）</figcaption>
+                  <div id="chartMovers"></div>
+                </figure>
+              </div>
+              <figure class="chart-card chart-wide">
+                <figcaption>成績熱力圖（一列一位學生，一欄一次評量；顏色越深分數越高）</figcaption>
+                <div id="chartHeat" class="heat-wrap"></div>
+              </figure>
+            </section>
+
             <h3 class="subhead">學生總覽（加扣＋成績簿）</h3>
             <p class="hint">點姓名可改看這位學生的個人分析圖表。</p>
             <div class="db-table-wrap stats-table-wrap">
@@ -328,6 +382,23 @@
                     <div id="chartPersonHw"></div>
                   </figure>
                 </div>
+              </section>
+              <section class="stats-block">
+                <h3>在全班中的位置</h3>
+                <div class="chart-grid">
+                  <figure class="chart-card">
+                    <figcaption>百分位（全班有多少人低於他）</figcaption>
+                    <div id="chartPersonPct"></div>
+                  </figure>
+                  <figure class="chart-card">
+                    <figcaption>學期總分在全班的落點</figcaption>
+                    <div id="chartPersonBand"></div>
+                  </figure>
+                </div>
+                <figure class="chart-card chart-wide">
+                  <figcaption>各次成績折線（藍：自己，灰：全班平均）</figcaption>
+                  <div id="chartPersonSeries"></div>
+                </figure>
               </section>
               <section class="stats-block">
                 <h3>各次成績</h3>
