@@ -3191,7 +3191,7 @@
     var i;
     for (i = 0; i < pool.length; i++) {
       var t = Math.max(0, Math.min(100, Number(usualScoreForDraw(pool[i])) || 60));
-      var w = 0.55 + t / 100 * 1.45;
+      var w = 0.55 + (100 - t) / 100 * 1.45;
       weights.push(w);
       sum += w;
     }
