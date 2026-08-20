@@ -10,6 +10,10 @@
     drawn: {},
     drag: null,
     suppressClick: false,
+    lotteryBusy: false,
+    rankBumpSeat: null,
+    dbRows: [],
+    dbFilter: '__all__',
     pendingImport: null
   };
 
@@ -18,9 +22,11 @@
     syncMeta: document.getElementById('syncMeta'),
     board: document.getElementById('board'),
     roster: document.getElementById('roster'),
+    rankEmpty: document.getElementById('rankEmpty'),
     toast: document.getElementById('toast'),
     lotteryModal: document.getElementById('lotteryModal'),
     lotteryName: document.getElementById('lotteryName'),
+    lotteryStamp: document.getElementById('lotteryStamp'),
     lotteryMeta: document.getElementById('lotteryMeta'),
     lotteryUnique: document.getElementById('lotteryUnique'),
     settingsModal: document.getElementById('settingsModal'),
@@ -31,7 +37,12 @@
     settingFile: document.getElementById('settingFile'),
     settingReplace: document.getElementById('settingReplace'),
     uploadBox: document.getElementById('uploadBox'),
-    uploadPreview: document.getElementById('uploadPreview')
+    uploadPreview: document.getElementById('uploadPreview'),
+    fxLayer: document.getElementById('fxLayer'),
+    lotteryCard: document.getElementById('lotteryCard'),
+    databaseModal: document.getElementById('databaseModal'),
+    dbBody: document.getElementById('dbBody'),
+    dbClassFilter: document.getElementById('dbClassFilter')
   };
 
   document.getElementById('btnPlus').addEventListener('click', function () {
@@ -41,6 +52,8 @@
     setMode(App.mode === 'minus' ? 'select' : 'minus');
   });
   document.getElementById('btnUndo').addEventListener('click', undoLast);
+  var resetScoresBtn = document.getElementById('btnResetScores');
+  if (resetScoresBtn) resetScoresBtn.addEventListener('click', resetAllScores);
   document.getElementById('btnLottery').addEventListener('click', function () {
     openLottery(true);
   });
@@ -49,6 +62,11 @@
   });
   document.getElementById('btnLotteryClose').addEventListener('click', function () {
     els.lotteryModal.hidden = true;
+    App.lotteryBusy = false;
+    if (els.lotteryCard) {
+      els.lotteryCard.classList.remove('rolling', 'revealed');
+    }
+    if (els.lotteryStamp) els.lotteryStamp.hidden = true;
   });
   document.getElementById('btnLotteryReset').addEventListener('click', resetDrawn);
   document.getElementById('btnSave').addEventListener('click', saveAll);
@@ -57,6 +75,40 @@
     els.settingsModal.hidden = true;
   });
   document.getElementById('btnSettingsSave').addEventListener('click', saveSettings);
+  var dbBtn = document.getElementById('btnDatabase');
+  if (dbBtn) dbBtn.addEventListener('click', openDatabase);
+  var dbClose = document.getElementById('btnDatabaseClose');
+  if (dbClose) dbClose.addEventListener('click', function () {
+    if (els.databaseModal) els.databaseModal.hidden = true;
+  });
+  var dbSave = document.getElementById('btnDatabaseSave');
+  if (dbSave) dbSave.addEventListener('click', saveDatabase);
+  var dbAdd = document.getElementById('btnDbAdd');
+  if (dbAdd) dbAdd.addEventListener('click', function () {
+    addDatabaseRow({
+      className: (els.dbClassFilter && els.dbClassFilter.value !== '__all__')
+        ? els.dbClassFilter.value
+        : ((App.classroom && App.classroom.className) || ''),
+      seatNo: '',
+      name: '',
+      score: 0
+    }, true);
+  });
+  if (els.dbClassFilter) {
+    els.dbClassFilter.addEventListener('change', function () {
+      mergeVisibleDatabaseRows();
+      App.dbFilter = els.dbClassFilter.value;
+      renderDatabaseTable(App.dbRows || []);
+    });
+  }
+  if (els.dbBody) {
+    els.dbBody.addEventListener('click', function (event) {
+      var btn = event.target.closest('[data-del]');
+      if (!btn) return;
+      var tr = btn.closest('tr');
+      if (tr) tr.remove();
+    });
+  }
   var uploadBtn = document.getElementById('btnUpload');
   if (uploadBtn) {
     uploadBtn.addEventListener('click', function () {
@@ -364,15 +416,34 @@
   }
 
   function renderRoster() {
-    els.roster.innerHTML = App.classroom.students.map(function (student) {
+    if (!els.roster || !App.classroom) return;
+    const ranked = App.classroom.students.filter(function (student) {
+      return Number(student.score) !== 0;
+    }).sort(function (a, b) {
+      const diff = Number(b.score) - Number(a.score);
+      if (diff) return diff;
+      return String(a.seatNo).localeCompare(String(b.seatNo), 'zh-Hant', { numeric: true });
+    });
+    if (els.rankEmpty) els.rankEmpty.hidden = ranked.length > 0;
+    if (!ranked.length) {
+      els.roster.innerHTML = '';
+      return;
+    }
+    els.roster.innerHTML = ranked.map(function (student, index) {
       const selected = student.seatNo === App.selectedSeatNo ? ' selected' : '';
-      return '<li><button type="button" class="' + selected + '" data-seat="' + escapeHtml(student.seatNo) + '">' +
-        '<span>' + escapeHtml(student.seatNo) + ' ' + escapeHtml(student.name) + '</span>' +
-        '<strong>' + student.score + '</strong></button></li>';
+      const medal = index === 0 ? ' gold' : index === 1 ? ' silver' : index === 2 ? ' bronze' : '';
+      const bump = student.seatNo === App.rankBumpSeat ? ' rank-up' : '';
+      const signed = (student.score > 0 ? '+' : '') + student.score;
+      return '<li><button type="button" class="' + selected + medal + bump + '" data-seat="' + escapeHtml(student.seatNo) + '">' +
+        '<span class="rank-no">' + (index + 1) + '</span>' +
+        '<span class="rank-main"><span class="rank-name">' + escapeHtml(student.name) + '</span>' +
+        '<span class="rank-meta">座號 ' + escapeHtml(student.seatNo) + '</span></span>' +
+        '<strong class="' + scoreClass(student.score) + '">' + signed + '</strong></button></li>';
     }).join('');
     els.roster.querySelectorAll('button').forEach(function (button) {
       button.addEventListener('click', function () {
         const student = findStudent(button.getAttribute('data-seat'));
+        if (!student) return;
         App.selectedSeatNo = student.seatNo;
         if (App.mode === 'plus' || App.mode === 'minus') {
           const sign = App.mode === 'plus' ? 1 : -1;
@@ -412,9 +483,15 @@
     }], function (data) {
       App.classroom = data.classroom;
       App.selectedSeatNo = student.seatNo;
+      App.rankBumpSeat = student.seatNo;
       renderAll();
       flashSeat(student.seatNo, delta > 0 ? 'score-plus' : 'score-minus');
+      spawnScoreFloat(student.seatNo, delta);
+      if (delta > 0) spawnConfetti(18, ['#2c7a4b', '#7dce9a', '#f3c84b']);
       toast(student.name + ' ' + (delta > 0 ? '+' : '') + delta + ' 分');
+      setTimeout(function () {
+        if (App.rankBumpSeat === student.seatNo) App.rankBumpSeat = null;
+      }, 900);
     });
   }
 
@@ -422,12 +499,158 @@
     run('undoLastAction', [App.classroom.className], function (data) {
       App.classroom = data.classroom;
       App.selectedSeatNo = data.undone.seatNo;
+      App.rankBumpSeat = data.undone.seatNo;
       renderAll();
+      flashSeat(data.undone.seatNo, data.undone.reversedDelta > 0 ? 'score-plus' : 'score-minus');
+      spawnScoreFloat(data.undone.seatNo, data.undone.reversedDelta);
       toast('已復原 ' + data.undone.name + ' 的加扣分');
     });
   }
 
+  function resetAllScores() {
+    if (!App.classroom) return;
+    var changed = App.classroom.students.filter(function (s) {
+      return Number(s.score) !== 0;
+    }).length;
+    if (!changed) {
+      toast('目前沒有加扣分可以重製');
+      return;
+    }
+    if (!window.confirm('要把「' + App.classroom.className + '」全班加扣分都歸零嗎？座位不會變。')) {
+      return;
+    }
+    run('resetScores', [App.classroom.className], function (data) {
+      App.classroom = data.classroom;
+      App.rankBumpSeat = null;
+      renderAll();
+      toast('已重製本班加扣分，排行已清空');
+    });
+  }
+
+  function openDatabase() {
+    run('listRecords', [], function (data) {
+      App.dbRows = data.rows || [];
+      App.dbFilter = (App.classroom && App.classroom.className) || '__all__';
+      fillDatabaseFilter(data.classNames || App.classNames || []);
+      if (els.dbClassFilter) els.dbClassFilter.value = App.dbFilter;
+      renderDatabaseTable(App.dbRows);
+      if (els.databaseModal) els.databaseModal.hidden = false;
+    });
+  }
+
+  function mergeVisibleDatabaseRows() {
+    var visible = collectDatabaseRows();
+    var oldFilter = App.dbFilter || '__all__';
+    if (oldFilter === '__all__') {
+      App.dbRows = visible;
+      return;
+    }
+    var kept = (App.dbRows || []).filter(function (row) {
+      return row.className !== oldFilter;
+    });
+    App.dbRows = kept.concat(visible);
+  }
+
+  function fillDatabaseFilter(classNames) {
+    if (!els.dbClassFilter) return;
+    var current = els.dbClassFilter.value || (App.classroom && App.classroom.className) || '__all__';
+    var names = classNames.slice();
+    els.dbClassFilter.innerHTML = '<option value="__all__">全部班級</option>' + names.map(function (name) {
+      return '<option value="' + escapeHtml(name) + '">' + escapeHtml(name) + '</option>';
+    }).join('');
+    if (current && (current === '__all__' || names.indexOf(current) >= 0)) {
+      els.dbClassFilter.value = current;
+    } else if (App.classroom) {
+      els.dbClassFilter.value = App.classroom.className;
+    }
+  }
+
+  function renderDatabaseTable(rows) {
+    if (!els.dbBody) return;
+    var filter = els.dbClassFilter ? els.dbClassFilter.value : '__all__';
+    var list = (rows || []).filter(function (row) {
+      return filter === '__all__' || row.className === filter;
+    });
+    els.dbBody.innerHTML = '';
+    if (!list.length) {
+      addDatabaseRow({
+        className: filter === '__all__' ? ((App.classroom && App.classroom.className) || '') : filter,
+        seatNo: '',
+        name: '',
+        score: 0
+      }, false);
+      return;
+    }
+    list.forEach(function (row) {
+      addDatabaseRow(row, false);
+    });
+  }
+
+  function addDatabaseRow(row, focus) {
+    if (!els.dbBody) return;
+    var tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td class="col-class"><input data-col="className" type="text" maxlength="40" value="' + escapeHtml(row.className || '') + '" /></td>' +
+      '<td class="col-seat"><input data-col="seatNo" type="text" maxlength="12" value="' + escapeHtml(row.seatNo || '') + '" /></td>' +
+      '<td class="col-name"><input data-col="name" type="text" maxlength="40" value="' + escapeHtml(row.name || '') + '" /></td>' +
+      '<td class="col-score"><input data-col="score" type="number" step="1" value="' + (Number(row.score) || 0) + '" /></td>' +
+      '<td class="col-del"><button type="button" class="tool danger" data-del>刪</button></td>';
+    els.dbBody.appendChild(tr);
+    if (focus) {
+      var seat = tr.querySelector('[data-col="seatNo"]');
+      if (seat) seat.focus();
+    }
+  }
+
+  function collectDatabaseRows() {
+    var rows = [];
+    if (!els.dbBody) return rows;
+    els.dbBody.querySelectorAll('tr').forEach(function (tr) {
+      var className = tr.querySelector('[data-col="className"]').value.trim();
+      var seatNo = tr.querySelector('[data-col="seatNo"]').value.trim();
+      var name = tr.querySelector('[data-col="name"]').value.trim();
+      var score = Number(tr.querySelector('[data-col="score"]').value);
+      if (!className && !seatNo && !name) return;
+      rows.push({
+        className: className,
+        seatNo: seatNo,
+        name: name,
+        score: isFinite(score) ? score : 0
+      });
+    });
+    return rows;
+  }
+
+  function saveDatabase() {
+    mergeVisibleDatabaseRows();
+    var filter = els.dbClassFilter ? els.dbClassFilter.value : '__all__';
+    var rows = filter === '__all__' ? (App.dbRows || []) : collectDatabaseRows();
+    var incomplete = rows.filter(function (row) {
+      return !row.className || !row.seatNo || !row.name;
+    });
+    if (incomplete.length) {
+      toast('每一列都要填班級、座號、姓名');
+      return;
+    }
+    if (!rows.length) {
+      toast('請至少保留一位學生');
+      return;
+    }
+    var body = {
+      rows: rows,
+      mode: filter === '__all__' ? 'all' : 'class',
+      className: filter === '__all__' ? '' : filter
+    };
+    run('saveRecords', [body], function (data) {
+      applyPayload(data, true);
+      App.dbRows = null;
+      if (els.databaseModal) els.databaseModal.hidden = true;
+      toast('資料已更改，座位表已更新');
+    });
+  }
+
   function openLottery(fromButton) {
+    if (App.lotteryBusy) return;
     const unique = els.lotteryUnique.checked;
     const drawn = App.drawn[App.classroom.className] || [];
     let pool = App.classroom.students.slice();
@@ -441,14 +664,29 @@
       els.lotteryModal.hidden = false;
       return;
     }
+    App.lotteryBusy = true;
     els.lotteryModal.hidden = false;
-    animateLottery(pool, function (winner) {
+    if (els.lotteryStamp) els.lotteryStamp.hidden = true;
+    if (els.lotteryCard) {
+      els.lotteryCard.classList.remove('revealed');
+      els.lotteryCard.classList.add('rolling');
+    }
+    const winner = pool[Math.floor(Math.random() * pool.length)];
+    animateLottery(pool, winner, function () {
       App.drawn[App.classroom.className] = drawn.concat([winner.seatNo]);
       App.selectedSeatNo = winner.seatNo;
       els.lotteryName.textContent = winner.name;
-      els.lotteryMeta.textContent = '座號 ' + winner.seatNo + ' · 目前 ' + winner.score + ' 分';
+      els.lotteryMeta.textContent = '就是你！座號 ' + winner.seatNo + ' · 目前 ' + winner.score + ' 分';
+      if (els.lotteryStamp) els.lotteryStamp.hidden = false;
+      if (els.lotteryCard) {
+        els.lotteryCard.classList.remove('rolling');
+        els.lotteryCard.classList.add('revealed');
+      }
       renderAll();
       flashSeat(winner.seatNo, 'winner');
+      spawnSparkBurst(els.lotteryCard, 28);
+      spawnSparkBurst(els.board.querySelector('.seat-card[data-seat="' + cssEscape(winner.seatNo) + '"]'), 16);
+      App.lotteryBusy = false;
       run('logLottery', [{
         className: App.classroom.className,
         seatNo: winner.seatNo,
@@ -458,24 +696,30 @@
     });
   }
 
-  function animateLottery(pool, done) {
-    let ticks = 18;
-    const timer = setInterval(function () {
-      const temp = pool[Math.floor(Math.random() * pool.length)];
+  function animateLottery(pool, winner, done) {
+    let i = 0;
+    const steps = 9;
+    function tick() {
+      const temp = i >= steps - 1 ? winner : pool[Math.floor(Math.random() * pool.length)];
       els.lotteryName.textContent = temp.name;
       els.lotteryMeta.textContent = '座號 ' + temp.seatNo;
-      ticks -= 1;
-      if (ticks <= 0) {
-        clearInterval(timer);
-        done(pool[Math.floor(Math.random() * pool.length)]);
+      if (els.lotteryStamp) els.lotteryStamp.hidden = true;
+      i += 1;
+      if (i >= steps) {
+        done();
+        return;
       }
-    }, 70);
+      setTimeout(tick, 35 + i * 12);
+    }
+    tick();
   }
 
   function resetDrawn() {
     App.drawn[App.classroom.className] = [];
     els.lotteryName.textContent = '？';
     els.lotteryMeta.textContent = '已重置，可再抽全部學生';
+    if (els.lotteryStamp) els.lotteryStamp.hidden = true;
+    if (els.lotteryCard) els.lotteryCard.classList.remove('rolling', 'revealed');
     toast('抽籤名單已重置');
   }
 
@@ -848,10 +1092,79 @@
     if (!card) {
       return;
     }
+    card.classList.remove('score-plus', 'score-minus', 'winner');
+    void card.offsetWidth;
     card.classList.add(className);
     setTimeout(function () {
       card.classList.remove(className);
-    }, 1200);
+    }, className === 'winner' ? 1200 : 900);
+  }
+
+  function spawnScoreFloat(seatNo, delta) {
+    const card = els.board.querySelector('.seat-card[data-seat="' + cssEscape(seatNo) + '"]');
+    const node = document.createElement('div');
+    node.className = 'score-float ' + (delta > 0 ? 'plus' : 'minus');
+    node.textContent = (delta > 0 ? '+' : '') + delta;
+    const rect = card ? card.getBoundingClientRect() : { left: window.innerWidth / 2, top: window.innerHeight / 2, width: 0, height: 0 };
+    node.style.left = (rect.left + rect.width / 2) + 'px';
+    node.style.top = (rect.top + Math.max(8, rect.height * 0.15)) + 'px';
+    document.body.appendChild(node);
+    setTimeout(function () {
+      node.remove();
+    }, 1100);
+  }
+
+  function spawnSparkBurst(origin, count) {
+    const layer = els.fxLayer;
+    if (!layer) return;
+    const rect = origin && origin.getBoundingClientRect
+      ? origin.getBoundingClientRect()
+      : { left: window.innerWidth / 2, top: window.innerHeight / 2, width: 0, height: 0 };
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const palette = ['#ffe28a', '#d9852b', '#fff', '#7eb6d6', '#f3c84b'];
+    for (let i = 0; i < count; i++) {
+      const spark = document.createElement('span');
+      const angle = (Math.PI * 2 * i) / count + Math.random() * 0.4;
+      const dist = 70 + Math.random() * 90;
+      spark.className = 'spark';
+      spark.style.left = cx + 'px';
+      spark.style.top = cy + 'px';
+      spark.style.background = palette[i % palette.length];
+      spark.style.setProperty('--dx', Math.cos(angle) * dist + 'px');
+      spark.style.setProperty('--dy', Math.sin(angle) * dist + 'px');
+      layer.appendChild(spark);
+      setTimeout(function () {
+        spark.remove();
+      }, 700);
+    }
+    const ring = document.createElement('span');
+    ring.className = 'spark-ring';
+    ring.style.left = cx + 'px';
+    ring.style.top = cy + 'px';
+    layer.appendChild(ring);
+    setTimeout(function () {
+      ring.remove();
+    }, 650);
+  }
+
+  function spawnConfetti(count, colors) {
+    const layer = els.fxLayer;
+    if (!layer) return;
+    const palette = colors || ['#d9852b', '#f3c84b', '#2c7a4b', '#7eb6d6'];
+    for (let i = 0; i < count; i++) {
+      const bit = document.createElement('span');
+      bit.className = 'confetti';
+      bit.style.left = Math.random() * 100 + 'vw';
+      bit.style.background = palette[i % palette.length];
+      bit.style.animationDuration = (1.1 + Math.random() * 1.4) + 's';
+      bit.style.animationDelay = (Math.random() * 0.18) + 's';
+      bit.style.transform = 'rotate(' + Math.floor(Math.random() * 180) + 'deg)';
+      layer.appendChild(bit);
+      setTimeout(function () {
+        bit.remove();
+      }, 2600);
+    }
   }
 
   function scoreClass(score) {

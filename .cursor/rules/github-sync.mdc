@@ -1,0 +1,34 @@
+---
+description: 每次更新後用繁體中文 commit，並推上 GitHub 同步
+alwaysApply: true
+---
+
+# 更新後同步 GitHub
+
+完成任何程式、畫面或說明的修改後，**不要等使用者再提醒**，立刻：
+
+1. 檢查 `git status`、`git diff`、最近 commit 風格
+2. 加入相關檔案並建立 commit
+3. `git push` 到現有 `origin`（目前為 `https://github.com/fish0048-ai/class-seating-chart.git`）
+
+## Commit 訊息
+
+一律使用**繁體中文**，格式：
+
+`<type>: <主旨>`
+
+type 用：`feat`（新功能）、`fix`（修正）、`docs`（說明）、`style`（樣式）、`chore`（雜項）
+
+主旨寫「為什麼／對老師有什麼用」，不要只列檔名。
+
+```
+feat: 新增更改資料表格，不必再下載 JSON
+fix: 修復更改資料腳本錯誤，本機可正常開啟
+```
+
+## 注意
+
+- 不要 commit 機密（`.env`、金鑰、憑證）
+- 不要 `--force`、不要改 git config、不要跳過 hooks
+- 沒有變更就不要空 commit
+- 若 push 失敗，用繁體中文說明原因與下一步

@@ -34,11 +34,13 @@
           <button type="button" class="chip" data-delta="5">5</button>
         </div>
         <button type="button" class="tool" id="btnUndo">復原</button>
+        <button type="button" class="tool" id="btnResetScores">重製加扣分</button>
         <button type="button" class="tool accent" id="btnLottery">抽籤</button>
         <button type="button" class="tool" id="btnUpload">上傳名單</button>
         <button type="button" class="tool" id="btnExport">下載備份</button>
         <button type="button" class="tool" id="btnImport">還原備份</button>
         <button type="button" class="tool primary" id="btnSave">存檔</button>
+        <button type="button" class="tool" id="btnDatabase">更改資料</button>
         <button type="button" class="tool" id="btnSettings">設定</button>
         <input id="backupFile" type="file" accept=".json,application/json" hidden />
       </nav>
@@ -49,19 +51,55 @@
           <div id="board" class="board" aria-label="座位表"></div>
         </section>
         <aside class="side">
-          <h2>本班學生</h2>
-          <p class="hint">資料會自動存在這個瀏覽器。可上傳 CSV／Excel，或下載備份拿到其他電腦還原。</p>
-          <ol id="roster" class="roster"></ol>
+          <h2>分數排行</h2>
+          <p class="hint">只顯示有加分或扣分的同學，分數高的在上面。</p>
+          <ol id="roster" class="roster rank-list"></ol>
+          <p id="rankEmpty" class="rank-empty" hidden>還沒有人加分或扣分。點「加分／扣分」再點學生，就會出現在這裡。</p>
         </aside>
       </main>
     </div>
 
     <div id="toast" class="toast" hidden></div>
+    <div id="fxLayer" class="fx-layer" aria-hidden="true"></div>
+
+    <div id="databaseModal" class="modal" hidden>
+      <div class="modal-card database-card">
+        <h2>更改資料</h2>
+        <p class="hint">像試算表一樣直接改。改完按「儲存」，座位表會立刻更新。不必下載 JSON。</p>
+        <div class="db-toolbar">
+          <label>顯示班級
+            <select id="dbClassFilter" aria-label="篩選班級"></select>
+          </label>
+          <button type="button" class="tool" id="btnDbAdd">新增一列</button>
+        </div>
+        <div class="db-table-wrap">
+          <table class="db-table">
+            <thead>
+              <tr>
+                <th>班級</th>
+                <th>座號</th>
+                <th>姓名</th>
+                <th>分數</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="dbBody"></tbody>
+          </table>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="tool" id="btnDatabaseClose">關閉</button>
+          <button type="button" class="tool primary" id="btnDatabaseSave">儲存</button>
+        </div>
+      </div>
+    </div>
 
     <div id="lotteryModal" class="modal" hidden>
-      <div class="modal-card lottery-card">
+      <div class="modal-card lottery-card" id="lotteryCard">
         <p class="modal-kicker">隨機抽籤</p>
-        <div id="lotteryName" class="lottery-name">？</div>
+        <div class="lottery-reel">
+          <div id="lotteryStamp" class="lottery-stamp" hidden>中</div>
+          <div id="lotteryName" class="lottery-name">？</div>
+        </div>
         <p id="lotteryMeta" class="lottery-meta">準備抽出一位同學</p>
         <label class="check">
           <input type="checkbox" id="lotteryUnique" checked />
@@ -112,8 +150,8 @@
       </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="api.js"></script>
     <script src="app.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
   </body>
 </html>
