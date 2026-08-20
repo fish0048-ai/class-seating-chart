@@ -1,0 +1,1480 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#1b3a4b" />
+    <title>班級座位表</title>
+<style>
+  :root {
+    --ink: #16303c;
+    --muted: #5b7380;
+    --paper: #f3efe4;
+    --board: #1f6f5b;
+    --seat: #fffdf8;
+    --line: #d9d0c1;
+    --accent: #d9852b;
+    --primary: #1b3a4b;
+    --plus: #2c7a4b;
+    --minus: #b4413c;
+    --shadow: 0 10px 24px rgba(22, 48, 60, 0.12);
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    min-height: 100%;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+    overscroll-behavior: none;
+  }
+
+  #app {
+    min-height: 100dvh;
+    display: grid;
+    grid-template-rows: auto auto 1fr;
+    padding: calc(12px + var(--safe-top)) 12px calc(12px + var(--safe-bottom));
+    gap: 10px;
+  }
+
+  .topbar, .toolbar, .board-wrap, .side, .modal-card {
+    background: #fffdf8;
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    box-shadow: var(--shadow);
+  }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 16px;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .brand-mark {
+    width: 42px;
+    height: 42px;
+    display: grid;
+    place-items: center;
+    border-radius: 12px;
+    background: var(--primary);
+    color: #fff;
+    font-weight: 700;
+  }
+
+  h1, h2 { margin: 0; font-size: 18px; }
+  .topbar p, .hint, .lottery-meta { margin: 4px 0 0; color: var(--muted); font-size: 13px; }
+
+  .class-picker {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+  }
+
+  select, input, textarea, button {
+    font: inherit;
+  }
+
+  select, input, textarea {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 10px 12px;
+    background: #fff;
+    color: var(--ink);
+  }
+
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px;
+    align-items: center;
+  }
+
+  .tool, .chip {
+    min-height: 44px;
+    min-width: 44px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fff;
+    color: var(--ink);
+    padding: 0 14px;
+    cursor: pointer;
+  }
+
+  .tool.primary {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+  }
+
+  .tool.accent {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
+  }
+
+  .tool.active-plus {
+    background: var(--plus);
+    color: #fff;
+    border-color: var(--plus);
+  }
+
+  .tool.active-minus {
+    background: var(--minus);
+    color: #fff;
+    border-color: var(--minus);
+  }
+
+  .chip.active {
+    background: var(--ink);
+    color: #fff;
+    border-color: var(--ink);
+  }
+
+  .delta-group { display: flex; gap: 6px; }
+
+  .stage {
+    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 240px;
+    gap: 10px;
+  }
+
+  .board-wrap {
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .blackboard {
+    background: var(--board);
+    color: #f4fff8;
+    text-align: center;
+    padding: 10px;
+    border-radius: 12px;
+    letter-spacing: 8px;
+    font-weight: 700;
+  }
+
+  .board {
+    flex: 1;
+    min-height: 280px;
+    display: grid;
+    gap: 8px;
+    align-content: start;
+    touch-action: pan-y;
+  }
+
+  .seat {
+    min-height: 72px;
+    border-radius: 14px;
+    border: 2px dashed #e6dccb;
+    background: rgba(255, 255, 255, 0.45);
+    position: relative;
+  }
+
+  .seat.drop-target {
+    border-color: var(--accent);
+    background: #fff4e4;
+  }
+
+  .seat-card {
+    position: absolute;
+    inset: 0;
+    border: 2px solid #eadfcb;
+    border-radius: 14px;
+    background: var(--seat);
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    touch-action: none;
+    user-select: none;
+    cursor: grab;
+  }
+
+  .seat-card.dragging {
+    opacity: 0.35;
+  }
+
+  .seat-card.selected {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(27, 58, 75, 0.18);
+  }
+
+  .seat-card.winner {
+    border-color: var(--accent);
+    animation: pulse 0.9s ease-in-out 2;
+  }
+
+  .seat-card.score-plus { box-shadow: 0 0 0 3px rgba(44, 122, 75, 0.35); }
+  .seat-card.score-minus { box-shadow: 0 0 0 3px rgba(180, 65, 60, 0.35); }
+
+  .seat-no { font-size: 12px; color: var(--muted); }
+  .seat-name { font-size: 16px; font-weight: 700; line-height: 1.2; }
+  .seat-score {
+    align-self: flex-end;
+    min-width: 28px;
+    text-align: center;
+    border-radius: 999px;
+    padding: 2px 8px;
+    font-size: 13px;
+    background: #e8eef2;
+  }
+
+  .score-neg { background: #f8d4d2; color: var(--minus); }
+  .score-mid { background: #d7efe2; color: var(--plus); }
+  .score-high { background: #ffe3b8; color: #8a4b12; }
+
+  .ghost {
+    position: fixed;
+    pointer-events: none;
+    z-index: 30;
+    width: 110px;
+    min-height: 72px;
+    border-radius: 14px;
+    background: #fff;
+    border: 2px solid var(--accent);
+    padding: 8px;
+    box-shadow: var(--shadow);
+  }
+
+  .side {
+    min-height: 0;
+    overflow: auto;
+    padding: 14px;
+  }
+
+  .roster {
+    list-style: none;
+    margin: 12px 0 0;
+    padding: 0;
+    display: grid;
+    gap: 6px;
+  }
+
+  .roster button {
+    width: 100%;
+    text-align: left;
+    min-height: 44px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fff;
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 8px 10px;
+  }
+
+  .roster button.selected {
+    border-color: var(--primary);
+    background: #eef4f7;
+  }
+
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: calc(18px + var(--safe-bottom));
+    transform: translateX(-50%);
+    background: var(--ink);
+    color: #fff;
+    padding: 10px 16px;
+    border-radius: 999px;
+    z-index: 50;
+  }
+
+  .modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(22, 48, 60, 0.42);
+    display: grid;
+    place-items: center;
+    padding: 16px;
+    z-index: 40;
+  }
+
+  .modal[hidden], .toast[hidden] {
+    display: none !important;
+  }
+
+  .modal-card {
+    width: min(520px, 100%);
+    padding: 20px;
+    display: grid;
+    gap: 12px;
+  }
+
+  .lottery-card { text-align: center; }
+  .lottery-name {
+    font-size: 42px;
+    font-weight: 800;
+    min-height: 56px;
+  }
+
+  .form-grid {
+    display: grid;
+    grid-template-columns: 1.4fr 0.8fr 0.8fr;
+    gap: 8px;
+  }
+
+  .empty-state {
+    grid-column: 1 / -1;
+    min-height: 220px;
+    display: grid;
+    place-items: center;
+    text-align: center;
+    gap: 12px;
+    color: var(--muted);
+    border: 2px dashed var(--line);
+    border-radius: 16px;
+    padding: 24px;
+    background: rgba(255, 255, 255, 0.6);
+  }
+
+  label { display: grid; gap: 6px; font-size: 14px; }
+  .check {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  @keyframes pulse {
+    50% { transform: scale(1.04); background: #fff3dd; }
+  }
+
+  @media (max-width: 900px) {
+    .stage { grid-template-columns: 1fr; }
+    .side { max-height: 28vh; }
+    .form-grid { grid-template-columns: 1fr; }
+    .seat-name { font-size: 14px; }
+  }
+</style>
+
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark">座</span>
+          <div>
+            <h1>班級座位表</h1>
+            <p id="syncMeta">正在載入…</p>
+          </div>
+        </div>
+        <label class="class-picker">
+          <span>班級</span>
+          <select id="classSelect" aria-label="選擇班級"></select>
+        </label>
+      </header>
+
+      <nav class="toolbar" aria-label="主要操作">
+        <button type="button" class="tool" data-mode="plus" id="btnPlus">加分</button>
+        <button type="button" class="tool" data-mode="minus" id="btnMinus">扣分</button>
+        <div class="delta-group" role="group" aria-label="分數幅度">
+          <button type="button" class="chip" data-delta="1">1</button>
+          <button type="button" class="chip" data-delta="2">2</button>
+          <button type="button" class="chip" data-delta="5">5</button>
+        </div>
+        <button type="button" class="tool" id="btnUndo">復原</button>
+        <button type="button" class="tool accent" id="btnLottery">抽籤</button>
+        <button type="button" class="tool" id="btnSync">重新載入</button>
+        <button type="button" class="tool" id="btnBackup">備份</button>
+        <button type="button" class="tool" id="btnImport">匯入</button>
+        <button type="button" class="tool" id="btnCsv">下載試算表</button>
+        <button type="button" class="tool primary" id="btnSave">存檔</button>
+        <button type="button" class="tool" id="btnSettings">設定</button>
+      </nav>
+      <input id="importFile" type="file" accept=".json,.csv,.txt,application/json,text/csv" hidden />
+
+      <main class="stage">
+        <section class="board-wrap">
+          <div class="blackboard">講台／黑板</div>
+          <div id="board" class="board" aria-label="座位表"></div>
+        </section>
+        <aside class="side">
+          <h2>本班學生</h2>
+          <p class="hint">按住座位可拖放對調。換平板請先「備份」，另一台再「匯入」。</p>
+          <ol id="roster" class="roster"></ol>
+        </aside>
+      </main>
+    </div>
+
+    <div id="toast" class="toast" hidden></div>
+
+    <div id="lotteryModal" class="modal" hidden>
+      <div class="modal-card lottery-card">
+        <p class="modal-kicker">隨機抽籤</p>
+        <div id="lotteryName" class="lottery-name">？</div>
+        <p id="lotteryMeta" class="lottery-meta">準備抽出一位同學</p>
+        <label class="check">
+          <input type="checkbox" id="lotteryUnique" checked />
+          本堂不重複抽過的人
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="tool" id="btnLotteryReset">重置名單</button>
+          <button type="button" class="tool" id="btnLotteryClose">關閉</button>
+          <button type="button" class="tool primary" id="btnLotteryAgain">再抽一次</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="settingsModal" class="modal" hidden>
+      <div class="modal-card">
+        <h2>班級設定與學生名單</h2>
+        <p class="hint">可從 Google 試算表複製「座號,姓名」貼到下方，或按「匯入」選 CSV。</p>
+        <div class="form-grid">
+          <label>班級名稱
+            <input id="settingClassName" type="text" maxlength="40" placeholder="例如 301" />
+          </label>
+          <label>列數
+            <input id="settingRows" type="number" min="1" max="20" />
+          </label>
+          <label>欄數
+            <input id="settingCols" type="number" min="1" max="16" />
+          </label>
+        </div>
+        <label>批次輸入（每行：座號,姓名 或 座號 姓名）
+          <textarea id="settingStudents" rows="8" placeholder="01,陳安安&#10;02 林冠宇"></textarea>
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="tool" id="btnSettingsClose">取消</button>
+          <button type="button" class="tool primary" id="btnSettingsSave">儲存設定</button>
+        </div>
+      </div>
+    </div>
+
+<script>
+(function (global) {
+  var KEY = 'class-seating-v1';
+
+  function nowIso() {
+    return new Date().toISOString();
+  }
+
+  function clone(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  function clampInt(value, min, max, fallback) {
+    var n = parseInt(value, 10);
+    if (!isFinite(n)) return fallback;
+    return Math.min(max, Math.max(min, n));
+  }
+
+  function loadStore() {
+    try {
+      var raw = localStorage.getItem(KEY);
+      if (raw) {
+        var parsed = JSON.parse(raw);
+        if (parsed && parsed.classes) return parsed;
+      }
+    } catch (err) {}
+    return seedStore();
+  }
+
+  function saveStore(store) {
+    localStorage.setItem(KEY, JSON.stringify(store));
+  }
+
+  function seedStore() {
+    var names = ['陳安安', '林冠宇', '黃詩涵', '張承恩', '吳品萱', '劉子豪', '蔡宜庭', '楊柏宇', '許雅琪', '周子翔', '羅欣怡', '簡廷偉'];
+    var students = names.map(function (name, i) {
+      return {
+        seatNo: String(i + 1).padStart(2, '0'),
+        name: name,
+        score: 0,
+        row: Math.floor(i / 6),
+        col: i % 6,
+        note: ''
+      };
+    });
+    var store = {
+      classes: {
+        '範例班': {
+          className: '範例班',
+          rows: 4,
+          cols: 6,
+          version: 1,
+          updatedAt: nowIso(),
+          students: students
+        }
+      },
+      history: []
+    };
+    saveStore(store);
+    return store;
+  }
+
+  function classNames(store) {
+    return Object.keys(store.classes).sort();
+  }
+
+  function ensureClass(store, className) {
+    if (!store.classes[className]) {
+      store.classes[className] = {
+        className: className,
+        rows: 6,
+        cols: 7,
+        version: 1,
+        updatedAt: nowIso(),
+        students: []
+      };
+    }
+    return store.classes[className];
+  }
+
+  function autoPlace(classroom) {
+    var taken = {};
+    classroom.students.forEach(function (s) {
+      if (s.row == null || s.col == null || s.row < 0 || s.col < 0 || s.row >= classroom.rows || s.col >= classroom.cols) {
+        s.row = null;
+        s.col = null;
+        return;
+      }
+      var key = s.row + ',' + s.col;
+      if (taken[key]) {
+        s.row = null;
+        s.col = null;
+      } else {
+        taken[key] = true;
+      }
+    });
+    classroom.students.forEach(function (s) {
+      if (s.row != null && s.col != null) return;
+      for (var r = 0; r < classroom.rows && s.row == null; r++) {
+        for (var c = 0; c < classroom.cols; c++) {
+          if (!taken[r + ',' + c]) {
+            s.row = r;
+            s.col = c;
+            taken[r + ',' + c] = true;
+            break;
+          }
+        }
+      }
+    });
+    classroom.students.sort(function (a, b) {
+      return parseInt(String(a.seatNo).replace(/\D/g, ''), 10) - parseInt(String(b.seatNo).replace(/\D/g, ''), 10);
+    });
+    return classroom;
+  }
+
+  function payload(store, className) {
+    var room = ensureClass(store, className);
+    autoPlace(room);
+    return {
+      ok: true,
+      classNames: classNames(store),
+      classroom: clone(room)
+    };
+  }
+
+  function persistRoom(store, classroom, bump) {
+    autoPlace(classroom);
+    if (bump) classroom.version = (Number(classroom.version) || 1) + 1;
+    classroom.updatedAt = nowIso();
+    store.classes[classroom.className] = classroom;
+    saveStore(store);
+  }
+
+  function addHistory(store, item) {
+    store.history = store.history || [];
+    store.history.push({
+      time: nowIso(),
+      className: item.className,
+      type: item.type,
+      seatNo: item.seatNo,
+      name: item.name,
+      delta: item.delta || 0,
+      newScore: item.newScore,
+      detail: item.detail || '',
+      undoable: item.undoable === true,
+      undone: false
+    });
+    if (store.history.length > 800) store.history = store.history.slice(-800);
+  }
+
+  function normalize(state) {
+    var className = String(state.className || '').trim();
+    if (!className) throw new Error('缺少班級名稱');
+    return {
+      className: className,
+      rows: clampInt(state.rows, 1, 20, 6),
+      cols: clampInt(state.cols, 1, 16, 7),
+      version: Number(state.version) || 1,
+      updatedAt: state.updatedAt || nowIso(),
+      students: (state.students || []).map(function (s) {
+        return {
+          seatNo: String(s.seatNo || '').trim(),
+          name: String(s.name || '').trim(),
+          score: Number(s.score) || 0,
+          row: s.row === null || s.row === undefined || s.row === '' ? null : Number(s.row),
+          col: s.col === null || s.col === undefined || s.col === '' ? null : Number(s.col),
+          note: String(s.note || '')
+        };
+      }).filter(function (s) { return s.seatNo && s.name; })
+    };
+  }
+
+  global.SeatDB = {
+    getBootstrapData: function () {
+      var store = loadStore();
+      var names = classNames(store);
+      return payload(store, names[0] || '範例班');
+    },
+    loadClassroom: function (className) {
+      var store = loadStore();
+      return payload(store, String(className || '').trim() || classNames(store)[0]);
+    },
+    saveClassroomState: function (state) {
+      var store = loadStore();
+      var classroom = normalize(state);
+      persistRoom(store, classroom, true);
+      addHistory(store, { className: classroom.className, type: '存檔', detail: '一鍵存檔', undoable: false });
+      saveStore(store);
+      return payload(store, classroom.className);
+    },
+    saveLayout: function (state) {
+      var store = loadStore();
+      var incoming = normalize(state);
+      var current = ensureClass(store, incoming.className);
+      var scores = {};
+      current.students.forEach(function (s) { scores[String(s.seatNo)] = s.score; });
+      incoming.rows = current.rows;
+      incoming.cols = current.cols;
+      incoming.version = current.version;
+      incoming.students.forEach(function (s) {
+        if (Object.prototype.hasOwnProperty.call(scores, String(s.seatNo))) s.score = scores[String(s.seatNo)];
+      });
+      persistRoom(store, incoming, false);
+      return payload(store, incoming.className);
+    },
+    applyScoreChange: function (body) {
+      var store = loadStore();
+      var className = String(body.className || '').trim();
+      var seatNo = String(body.seatNo || '').trim();
+      var delta = Number(body.delta);
+      if (!className || !seatNo || !isFinite(delta) || delta === 0) throw new Error('加扣分資料不完整');
+      var room = ensureClass(store, className);
+      var student = room.students.filter(function (s) { return String(s.seatNo) === seatNo; })[0];
+      if (!student) throw new Error('找不到座號 ' + seatNo);
+      student.score = (Number(student.score) || 0) + delta;
+      persistRoom(store, room, false);
+      addHistory(store, {
+        className: className,
+        type: delta > 0 ? '加分' : '扣分',
+        seatNo: seatNo,
+        name: student.name,
+        delta: delta,
+        newScore: student.score,
+        detail: (delta > 0 ? '+' : '') + delta,
+        undoable: true
+      });
+      saveStore(store);
+      return payload(store, className);
+    },
+    undoLastAction: function (className) {
+      var store = loadStore();
+      className = String(className || '').trim();
+      var history = store.history || [];
+      var idx = -1;
+      for (var i = history.length - 1; i >= 0; i--) {
+        if (history[i].className === className && history[i].undoable && !history[i].undone) {
+          idx = i;
+          break;
+        }
+      }
+      if (idx < 0) throw new Error('沒有可復原的加扣分');
+      var item = history[idx];
+      var room = ensureClass(store, className);
+      var student = room.students.filter(function (s) { return String(s.seatNo) === String(item.seatNo); })[0];
+      if (!student) throw new Error('找不到要復原的學生');
+      student.score = (Number(student.score) || 0) - Number(item.delta || 0);
+      item.undone = true;
+      persistRoom(store, room, false);
+      addHistory(store, {
+        className: className,
+        type: '復原',
+        seatNo: item.seatNo,
+        name: student.name,
+        delta: -Number(item.delta || 0),
+        newScore: student.score,
+        detail: '復原',
+        undoable: false
+      });
+      saveStore(store);
+      var data = payload(store, className);
+      data.undone = { seatNo: item.seatNo, name: student.name, reversedDelta: -Number(item.delta || 0) };
+      return data;
+    },
+    saveSettings: function (body) {
+      var store = loadStore();
+      var className = String(body.className || '').trim();
+      if (!className) throw new Error('請輸入班級名稱');
+      var room = ensureClass(store, className);
+      room.rows = clampInt(body.rows, 1, 20, 6);
+      room.cols = clampInt(body.cols, 1, 16, 7);
+      persistRoom(store, room, true);
+      return payload(store, className);
+    },
+    upsertStudents: function (body) {
+      var store = loadStore();
+      var className = String(body.className || '').trim();
+      if (!className) throw new Error('請輸入班級名稱');
+      var incoming = body.students || [];
+      if (!incoming.length) throw new Error('請至少輸入一位學生');
+      var room = ensureClass(store, className);
+      var bySeat = {};
+      room.students.forEach(function (s) { bySeat[String(s.seatNo)] = s; });
+      incoming.forEach(function (raw) {
+        var seatNo = String(raw.seatNo || '').trim();
+        var name = String(raw.name || '').trim();
+        if (!seatNo || !name) return;
+        if (bySeat[seatNo]) {
+          bySeat[seatNo].name = name;
+        } else {
+          bySeat[seatNo] = { seatNo: seatNo, name: name, score: 0, row: null, col: null, note: '' };
+        }
+      });
+      room.students = Object.keys(bySeat).map(function (k) { return bySeat[k]; });
+      persistRoom(store, room, true);
+      return payload(store, className);
+    },
+    logLottery: function () {
+      return { ok: true };
+    },
+    exportJSON: function () {
+      return localStorage.getItem(KEY) || JSON.stringify(loadStore());
+    },
+    importJSON: function (text) {
+      var parsed = JSON.parse(text);
+      if (!parsed || !parsed.classes) throw new Error('備份檔格式不正確');
+      saveStore(parsed);
+      return this.getBootstrapData();
+    },
+    exportCSV: function (className) {
+      var store = loadStore();
+      var room = ensureClass(store, className);
+      var lines = ['班級,座號,姓名,分數,列,欄'];
+      room.students.forEach(function (s) {
+        lines.push([room.className, s.seatNo, s.name, s.score, (s.row == null ? '' : s.row + 1), (s.col == null ? '' : s.col + 1)].join(','));
+      });
+      return lines.join('\r\n');
+    }
+  };
+})(window);
+</script>
+
+<script>
+(function () {
+  const App = {
+    classNames: [],
+    classroom: null,
+    mode: 'select',
+    delta: 1,
+    selectedSeatNo: null,
+    dirty: false,
+    busy: false,
+    drawn: {},
+    drag: null,
+    suppressClick: false
+  };
+
+  const els = {
+    classSelect: document.getElementById('classSelect'),
+    syncMeta: document.getElementById('syncMeta'),
+    board: document.getElementById('board'),
+    roster: document.getElementById('roster'),
+    toast: document.getElementById('toast'),
+    lotteryModal: document.getElementById('lotteryModal'),
+    lotteryName: document.getElementById('lotteryName'),
+    lotteryMeta: document.getElementById('lotteryMeta'),
+    lotteryUnique: document.getElementById('lotteryUnique'),
+    settingsModal: document.getElementById('settingsModal'),
+    settingClassName: document.getElementById('settingClassName'),
+    settingRows: document.getElementById('settingRows'),
+    settingCols: document.getElementById('settingCols'),
+    settingStudents: document.getElementById('settingStudents'),
+    importFile: document.getElementById('importFile')
+  };
+
+  document.getElementById('btnPlus').addEventListener('click', function () {
+    setMode(App.mode === 'plus' ? 'select' : 'plus');
+  });
+  document.getElementById('btnMinus').addEventListener('click', function () {
+    setMode(App.mode === 'minus' ? 'select' : 'minus');
+  });
+  document.getElementById('btnUndo').addEventListener('click', undoLast);
+  document.getElementById('btnLottery').addEventListener('click', function () {
+    openLottery(true);
+  });
+  document.getElementById('btnLotteryAgain').addEventListener('click', function () {
+    openLottery(false);
+  });
+  document.getElementById('btnLotteryClose').addEventListener('click', function () {
+    els.lotteryModal.hidden = true;
+  });
+  document.getElementById('btnLotteryReset').addEventListener('click', resetDrawn);
+  document.getElementById('btnSync').addEventListener('click', function () {
+    syncFromServer(true);
+  });
+  document.getElementById('btnSave').addEventListener('click', saveAll);
+  document.getElementById('btnSettings').addEventListener('click', openSettings);
+  document.getElementById('btnSettingsClose').addEventListener('click', function () {
+    els.settingsModal.hidden = true;
+  });
+  document.getElementById('btnSettingsSave').addEventListener('click', saveSettings);
+  document.getElementById('btnBackup').addEventListener('click', downloadBackup);
+  document.getElementById('btnCsv').addEventListener('click', downloadCsv);
+  document.getElementById('btnImport').addEventListener('click', function () {
+    els.importFile.click();
+  });
+  els.importFile.addEventListener('change', importBackup);
+  window.addEventListener('storage', function (event) {
+    if (event.key === 'class-seating-v1' && App.classroom) {
+      syncFromServer(false);
+    }
+  });
+  els.classSelect.addEventListener('change', function () {
+    loadClass(els.classSelect.value);
+  });
+  document.querySelectorAll('.chip').forEach(function (chip) {
+    chip.addEventListener('click', function () {
+      App.delta = Number(chip.getAttribute('data-delta')) || 1;
+      renderDelta();
+    });
+  });
+
+  bootstrap();
+
+  function bootstrap() {
+    run('getBootstrapData', [], function (data) {
+      applyPayload(data, true);
+      if (App.classroom && !App.classroom.students.length) {
+        openSettings();
+        toast('這個班還沒有學生，請先輸入座號與姓名');
+      } else {
+        toast('座位表已載入。換平板請用「備份」匯出，再到另一台「匯入」');
+      }
+    });
+  }
+
+  function loadClass(className) {
+    run('loadClassroom', [className], function (data) {
+      App.drawn[className] = App.drawn[className] || [];
+      applyPayload(data, true);
+    });
+  }
+
+  function applyPayload(data, replace) {
+    App.classNames = data.classNames || [];
+    if (replace || !App.classroom) {
+      App.classroom = data.classroom;
+      App.dirty = false;
+      App.selectedSeatNo = null;
+    }
+    renderAll();
+  }
+
+  function renderAll() {
+    if (!App.classroom || !els.board) {
+      return;
+    }
+    renderClassSelect();
+    renderMeta();
+    renderBoard();
+    renderRoster();
+    renderMode();
+    renderDelta();
+  }
+
+  function renderClassSelect() {
+    const current = App.classroom ? App.classroom.className : '';
+    els.classSelect.innerHTML = App.classNames.map(function (name) {
+      return '<option value="' + escapeHtml(name) + '"' + (name === current ? ' selected' : '') + '>' +
+        escapeHtml(name) + '</option>';
+    }).join('');
+  }
+
+  function renderMeta() {
+    if (!App.classroom) {
+      els.syncMeta.textContent = '尚無資料';
+      return;
+    }
+    const time = formatTime(App.classroom.updatedAt);
+    const dirty = App.dirty ? '（有未存檔變更）' : '';
+    els.syncMeta.textContent = App.classroom.students.length + ' 位學生 · 版本 ' +
+      (App.classroom.version || 1) + (time ? ' · ' + time : '') + dirty;
+  }
+
+  function renderBoard() {
+    const room = App.classroom;
+    els.board.style.gridTemplateColumns = 'repeat(' + room.cols + ', minmax(0, 1fr))';
+    if (!room.students.length) {
+      els.board.innerHTML = '<div class="empty-state">' +
+        '<div>「' + escapeHtml(room.className) + '」目前沒有學生</div>' +
+        '<div>每行輸入：座號,姓名　例如　01,陳安安</div>' +
+        '<button type="button" class="tool primary" id="btnEmptySetup">輸入學生名單</button>' +
+        '</div>';
+      var emptyBtn = document.getElementById('btnEmptySetup');
+      if (emptyBtn) {
+        emptyBtn.addEventListener('click', openSettings);
+      }
+      return;
+    }
+    const cells = [];
+    for (let r = 0; r < room.rows; r++) {
+      for (let c = 0; c < room.cols; c++) {
+        cells.push(seatCell(r, c));
+      }
+    }
+    els.board.innerHTML = cells.join('');
+    bindSeatEvents();
+  }
+
+  function seatCell(row, col) {
+    const student = studentAt(row, col);
+    const selected = student && student.seatNo === App.selectedSeatNo ? ' selected' : '';
+    const card = student ? (
+      '<article class="seat-card' + selected + '" data-seat="' + escapeHtml(student.seatNo) + '">' +
+        '<span class="seat-no">' + escapeHtml(student.seatNo) + '</span>' +
+        '<span class="seat-name">' + escapeHtml(student.name) + '</span>' +
+        '<span class="seat-score ' + scoreClass(student.score) + '">' + student.score + '</span>' +
+      '</article>'
+    ) : '';
+    return '<div class="seat" data-row="' + row + '" data-col="' + col + '">' + card + '</div>';
+  }
+
+  function bindSeatEvents() {
+    els.board.querySelectorAll('.seat-card').forEach(function (card) {
+      card.addEventListener('pointerdown', onPointerDown);
+      card.addEventListener('click', onSeatClick);
+    });
+  }
+
+  function onSeatClick(event) {
+    if (App.suppressClick || (App.drag && App.drag.moved)) {
+      return;
+    }
+    const seatNo = event.currentTarget.getAttribute('data-seat');
+    const student = findStudent(seatNo);
+    if (!student) {
+      return;
+    }
+    App.selectedSeatNo = seatNo;
+    if (App.mode === 'plus' || App.mode === 'minus') {
+      const sign = App.mode === 'plus' ? 1 : -1;
+      changeScore(student, sign * App.delta);
+    } else {
+      renderAll();
+    }
+  }
+
+  function onPointerDown(event) {
+    if (event.button !== undefined && event.button !== 0) {
+      return;
+    }
+    const card = event.currentTarget;
+    const seatNo = card.getAttribute('data-seat');
+    const student = findStudent(seatNo);
+    if (!student) {
+      return;
+    }
+    card.setPointerCapture(event.pointerId);
+    App.drag = {
+      seatNo: seatNo,
+      startX: event.clientX,
+      startY: event.clientY,
+      moved: false,
+      ghost: null,
+      pointerId: event.pointerId
+    };
+    card.addEventListener('pointermove', onPointerMove);
+    card.addEventListener('pointerup', onPointerUp);
+    card.addEventListener('pointercancel', onPointerUp);
+  }
+
+  function onPointerMove(event) {
+    if (!App.drag) {
+      return;
+    }
+    const dx = event.clientX - App.drag.startX;
+    const dy = event.clientY - App.drag.startY;
+    if (!App.drag.moved && (dx * dx + dy * dy) < 64) {
+      return;
+    }
+    App.drag.moved = true;
+    const student = findStudent(App.drag.seatNo);
+    if (!App.drag.ghost) {
+      const source = event.currentTarget;
+      source.classList.add('dragging');
+      App.drag.ghost = document.createElement('div');
+      App.drag.ghost.className = 'ghost';
+      App.drag.ghost.innerHTML = '<div class="seat-no">' + escapeHtml(student.seatNo) + '</div>' +
+        '<div class="seat-name">' + escapeHtml(student.name) + '</div>';
+      document.body.appendChild(App.drag.ghost);
+    }
+    App.drag.ghost.style.left = (event.clientX - 55) + 'px';
+    App.drag.ghost.style.top = (event.clientY - 36) + 'px';
+    highlightDropTarget(event.clientX, event.clientY);
+  }
+
+  function onPointerUp(event) {
+    const card = event.currentTarget;
+    card.removeEventListener('pointermove', onPointerMove);
+    card.removeEventListener('pointerup', onPointerUp);
+    card.removeEventListener('pointercancel', onPointerUp);
+    const drag = App.drag;
+    App.drag = null;
+    card.classList.remove('dragging');
+    if (drag && drag.ghost) {
+      drag.ghost.remove();
+    }
+    clearDropTargets();
+    if (!drag || !drag.moved) {
+      return;
+    }
+    App.suppressClick = true;
+    setTimeout(function () {
+      App.suppressClick = false;
+    }, 350);
+    const target = document.elementFromPoint(event.clientX, event.clientY);
+    const seat = target && target.closest ? target.closest('.seat') : null;
+    if (!seat) {
+      return;
+    }
+    moveStudent(drag.seatNo, Number(seat.getAttribute('data-row')), Number(seat.getAttribute('data-col')));
+  }
+
+  function highlightDropTarget(x, y) {
+    clearDropTargets();
+    const target = document.elementFromPoint(x, y);
+    const seat = target && target.closest ? target.closest('.seat') : null;
+    if (seat) {
+      seat.classList.add('drop-target');
+    }
+  }
+
+  function clearDropTargets() {
+    els.board.querySelectorAll('.drop-target').forEach(function (node) {
+      node.classList.remove('drop-target');
+    });
+  }
+
+  function moveStudent(seatNo, row, col) {
+    const mover = findStudent(seatNo);
+    if (!mover || (mover.row === row && mover.col === col)) {
+      return;
+    }
+    const occupant = studentAt(row, col);
+    if (occupant) {
+      occupant.row = mover.row;
+      occupant.col = mover.col;
+    }
+    mover.row = row;
+    mover.col = col;
+    App.dirty = true;
+    App.selectedSeatNo = seatNo;
+    renderAll();
+    run('saveLayout', [serializeClassroom()], function (data) {
+      App.classroom = data.classroom;
+      App.dirty = false;
+      App.selectedSeatNo = seatNo;
+      renderAll();
+    }, true);
+  }
+
+  function renderRoster() {
+    els.roster.innerHTML = App.classroom.students.map(function (student) {
+      const selected = student.seatNo === App.selectedSeatNo ? ' selected' : '';
+      return '<li><button type="button" class="' + selected + '" data-seat="' + escapeHtml(student.seatNo) + '">' +
+        '<span>' + escapeHtml(student.seatNo) + ' ' + escapeHtml(student.name) + '</span>' +
+        '<strong>' + student.score + '</strong></button></li>';
+    }).join('');
+    els.roster.querySelectorAll('button').forEach(function (button) {
+      button.addEventListener('click', function () {
+        const student = findStudent(button.getAttribute('data-seat'));
+        App.selectedSeatNo = student.seatNo;
+        if (App.mode === 'plus' || App.mode === 'minus') {
+          const sign = App.mode === 'plus' ? 1 : -1;
+          changeScore(student, sign * App.delta);
+        } else {
+          renderAll();
+        }
+      });
+    });
+  }
+
+  function setMode(mode) {
+    App.mode = mode;
+    renderMode();
+    toast(mode === 'plus' ? '加分模式：點學生即可加分' : mode === 'minus' ? '扣分模式：點學生即可扣分' : '已回到選取模式');
+  }
+
+  function renderMode() {
+    document.getElementById('btnPlus').classList.toggle('active-plus', App.mode === 'plus');
+    document.getElementById('btnMinus').classList.toggle('active-minus', App.mode === 'minus');
+  }
+
+  function renderDelta() {
+    document.querySelectorAll('.chip').forEach(function (chip) {
+      chip.classList.toggle('active', Number(chip.getAttribute('data-delta')) === App.delta);
+    });
+  }
+
+  function changeScore(student, delta) {
+    if (!delta) {
+      return;
+    }
+    run('applyScoreChange', [{
+      className: App.classroom.className,
+      seatNo: student.seatNo,
+      delta: delta
+    }], function (data) {
+      App.classroom = data.classroom;
+      App.selectedSeatNo = student.seatNo;
+      renderAll();
+      flashSeat(student.seatNo, delta > 0 ? 'score-plus' : 'score-minus');
+      toast(student.name + ' ' + (delta > 0 ? '+' : '') + delta + ' 分');
+    });
+  }
+
+  function undoLast() {
+    run('undoLastAction', [App.classroom.className], function (data) {
+      App.classroom = data.classroom;
+      App.selectedSeatNo = data.undone.seatNo;
+      renderAll();
+      toast('已復原 ' + data.undone.name + ' 的加扣分');
+    });
+  }
+
+  function openLottery(fromButton) {
+    const unique = els.lotteryUnique.checked;
+    const drawn = App.drawn[App.classroom.className] || [];
+    let pool = App.classroom.students.slice();
+    if (unique) {
+      pool = pool.filter(function (s) {
+        return drawn.indexOf(s.seatNo) === -1;
+      });
+    }
+    if (!pool.length) {
+      toast('可抽名單已空，請先重置');
+      els.lotteryModal.hidden = false;
+      return;
+    }
+    els.lotteryModal.hidden = false;
+    animateLottery(pool, function (winner) {
+      App.drawn[App.classroom.className] = drawn.concat([winner.seatNo]);
+      App.selectedSeatNo = winner.seatNo;
+      els.lotteryName.textContent = winner.name;
+      els.lotteryMeta.textContent = '座號 ' + winner.seatNo + ' · 目前 ' + winner.score + ' 分';
+      renderAll();
+      flashSeat(winner.seatNo, 'winner');
+      run('logLottery', [{
+        className: App.classroom.className,
+        seatNo: winner.seatNo,
+        name: winner.name,
+        detail: fromButton ? '抽籤' : '再抽一次'
+      }], function () {}, true);
+    });
+  }
+
+  function animateLottery(pool, done) {
+    let ticks = 18;
+    const timer = setInterval(function () {
+      const temp = pool[Math.floor(Math.random() * pool.length)];
+      els.lotteryName.textContent = temp.name;
+      els.lotteryMeta.textContent = '座號 ' + temp.seatNo;
+      ticks -= 1;
+      if (ticks <= 0) {
+        clearInterval(timer);
+        done(pool[Math.floor(Math.random() * pool.length)]);
+      }
+    }, 70);
+  }
+
+  function resetDrawn() {
+    App.drawn[App.classroom.className] = [];
+    els.lotteryName.textContent = '？';
+    els.lotteryMeta.textContent = '已重置，可再抽全部學生';
+    toast('抽籤名單已重置');
+  }
+
+  function saveAll() {
+    run('saveClassroomState', [serializeClassroom()], function (data) {
+      applyPayload(data, true);
+      toast('已存到這個瀏覽器。換裝置請按「備份」');
+    });
+  }
+
+  function syncFromServer(manual) {
+    run('loadClassroom', [App.classroom.className], function (data) {
+      applyPayload(data, true);
+      if (manual) {
+        toast('已重新讀取本機存檔');
+      }
+    });
+  }
+
+  function openSettings() {
+    els.settingClassName.value = (App.classroom && App.classroom.className) || '301';
+    els.settingRows.value = (App.classroom && App.classroom.rows) || 6;
+    els.settingCols.value = (App.classroom && App.classroom.cols) || 7;
+    els.settingStudents.value = App.classroom && App.classroom.students.length
+      ? App.classroom.students.map(function (s) {
+          return s.seatNo + ',' + s.name;
+        }).join('\n')
+      : '';
+    els.settingStudents.placeholder = '01,陳安安\n02,林冠宇\n03,黃詩涵';
+    els.settingsModal.hidden = false;
+    setTimeout(function () {
+      els.settingStudents.focus();
+    }, 50);
+  }
+
+  function saveSettings() {
+    const className = els.settingClassName.value.trim();
+    const rows = Number(els.settingRows.value);
+    const cols = Number(els.settingCols.value);
+    const students = parseStudentText(els.settingStudents.value);
+    if (!className) {
+      toast('請輸入班級名稱');
+      return;
+    }
+    run('saveSettings', [{ className: className, rows: rows, cols: cols }], function () {
+      if (!students.length) {
+        loadClass(className);
+        els.settingsModal.hidden = true;
+        toast('班級行列設定已儲存');
+        return;
+      }
+      run('upsertStudents', [{ className: className, students: students }], function (data) {
+        App.drawn[className] = App.drawn[className] || [];
+        applyPayload(data, true);
+        els.classSelect.value = className;
+        els.settingsModal.hidden = true;
+        toast('班級設定與學生名單已儲存');
+      });
+    });
+  }
+
+  function parseStudentText(text) {
+    return String(text || '').split(/\r?\n/).map(function (line) {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        return null;
+      }
+      const parts = trimmed.split(/[,，\s]+/);
+      return {
+        seatNo: String(parts[0] || '').trim(),
+        name: String(parts.slice(1).join(' ') || '').trim()
+      };
+    }).filter(function (item) {
+      return item && item.seatNo && item.name;
+    });
+  }
+
+  function serializeClassroom() {
+    return {
+      className: App.classroom.className,
+      rows: App.classroom.rows,
+      cols: App.classroom.cols,
+      students: App.classroom.students.map(function (s) {
+        return {
+          seatNo: s.seatNo,
+          name: s.name,
+          score: s.score,
+          row: s.row,
+          col: s.col,
+          note: s.note || ''
+        };
+      })
+    };
+  }
+
+  function studentAt(row, col) {
+    return App.classroom.students.find(function (s) {
+      return s.row === row && s.col === col;
+    });
+  }
+
+  function findStudent(seatNo) {
+    return App.classroom.students.find(function (s) {
+      return String(s.seatNo) === String(seatNo);
+    });
+  }
+
+  function flashSeat(seatNo, className) {
+    const card = els.board.querySelector('.seat-card[data-seat="' + cssEscape(seatNo) + '"]');
+    if (!card) {
+      return;
+    }
+    card.classList.add(className);
+    setTimeout(function () {
+      card.classList.remove(className);
+    }, 1200);
+  }
+
+  function scoreClass(score) {
+    if (score < 0) {
+      return 'score-neg';
+    }
+    if (score >= 10) {
+      return 'score-high';
+    }
+    if (score > 0) {
+      return 'score-mid';
+    }
+    return '';
+  }
+
+  function downloadBackup() {
+    downloadText('座位表備份.json', SeatDB.exportJSON(), 'application/json');
+    toast('已下載備份，可放到雲端硬碟或傳給另一台平板匯入');
+  }
+
+  function downloadCsv() {
+    if (!App.classroom) return;
+    downloadText(App.classroom.className + '-學生.csv', SeatDB.exportCSV(App.classroom.className), 'text/csv');
+    toast('已下載 CSV，可用 Google 試算表開啟');
+  }
+
+  function importBackup(event) {
+    var file = event.target.files && event.target.files[0];
+    event.target.value = '';
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function () {
+      try {
+        var text = String(reader.result || '');
+        if (file.name.toLowerCase().indexOf('.csv') !== -1 || text.indexOf('班級,座號') === 0) {
+          importCsvText(text);
+          return;
+        }
+        var data = SeatDB.importJSON(text);
+        applyPayload(data, true);
+        toast('備份已匯入');
+      } catch (err) {
+        toast(err && err.message ? err.message : '匯入失敗');
+      }
+    };
+    reader.readAsText(file, 'UTF-8');
+  }
+
+  function importCsvText(text) {
+    var lines = String(text || '').split(/\r?\n/).filter(function (line) { return line.trim(); });
+    if (!lines.length) throw new Error('CSV 是空的');
+    var start = lines[0].indexOf('座號') !== -1 ? 1 : 0;
+    var groups = {};
+    for (var i = start; i < lines.length; i++) {
+      var parts = lines[i].split(/[,，\t]/);
+      var className = String(parts[0] || '').trim();
+      var seatNo = String(parts[1] || '').trim();
+      var name = String(parts[2] || '').trim();
+      if (!className || !seatNo || !name) continue;
+      groups[className] = groups[className] || [];
+      groups[className].push({
+        seatNo: seatNo,
+        name: name,
+        score: Number(parts[3]) || 0
+      });
+    }
+    var names = Object.keys(groups);
+    if (!names.length) throw new Error('CSV 需要班級、座號、姓名三欄');
+    names.forEach(function (className) {
+      SeatDB.saveSettings({ className: className, rows: 6, cols: 7 });
+      SeatDB.upsertStudents({ className: className, students: groups[className] });
+    });
+    applyPayload(SeatDB.loadClassroom(names[0]), true);
+    toast('已從 CSV／試算表匯入 ' + names.length + ' 個班級');
+  }
+
+  function downloadText(filename, content, mime) {
+    var blob = new Blob([content], { type: mime + ';charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  function run(fnName, args, onSuccess, silent) {
+    if (App.busy && !silent) return;
+    try {
+      if (typeof SeatDB[fnName] !== 'function') throw new Error('找不到功能 ' + fnName);
+      var result = SeatDB[fnName].apply(SeatDB, args);
+      onSuccess(result);
+    } catch (error) {
+      var msg = error && error.message ? error.message : '操作失敗，請再試一次';
+      if (fnName === 'getBootstrapData' || fnName === 'loadClassroom') {
+        els.syncMeta.textContent = '載入失敗：' + msg;
+      }
+      toast(msg);
+    }
+  }
+
+  function toast(message) {
+    els.toast.hidden = false;
+    els.toast.textContent = message;
+    clearTimeout(toast.timer);
+    toast.timer = setTimeout(function () {
+      els.toast.hidden = true;
+    }, 2200);
+  }
+
+  function formatTime(value) {
+    if (!value) {
+      return '';
+    }
+    const date = new Date(value);
+    if (isNaN(date.getTime())) {
+      return '';
+    }
+    const hh = String(date.getHours()).padStart(2, '0');
+    const mm = String(date.getMinutes()).padStart(2, '0');
+    return '更新 ' + hh + ':' + mm;
+  }
+
+  function escapeHtml(value) {
+    return String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function cssEscape(value) {
+    return String(value).replace(/"/g, '\\"');
+  }
+})();
+</script>
+
+  </body>
+</html>

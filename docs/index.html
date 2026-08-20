@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="theme-color" content="#1b3a4b" />
+    <title>班級座位表</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark">座</span>
+          <div>
+            <h1>班級座位表</h1>
+            <p id="syncMeta">正在載入 Google 試算表…</p>
+          </div>
+        </div>
+        <label class="class-picker">
+          <span>班級</span>
+          <select id="classSelect" aria-label="選擇班級"></select>
+        </label>
+      </header>
+
+      <nav class="toolbar" aria-label="主要操作">
+        <button type="button" class="tool" data-mode="plus" id="btnPlus">加分</button>
+        <button type="button" class="tool" data-mode="minus" id="btnMinus">扣分</button>
+        <div class="delta-group" role="group" aria-label="分數幅度">
+          <button type="button" class="chip" data-delta="1">1</button>
+          <button type="button" class="chip" data-delta="2">2</button>
+          <button type="button" class="chip" data-delta="5">5</button>
+        </div>
+        <button type="button" class="tool" id="btnUndo">復原</button>
+        <button type="button" class="tool accent" id="btnLottery">抽籤</button>
+        <button type="button" class="tool" id="btnSync">同步</button>
+        <button type="button" class="tool" id="btnSheet">開啟資料庫</button>
+        <button type="button" class="tool primary" id="btnSave">存檔</button>
+        <button type="button" class="tool" id="btnSettings">設定</button>
+      </nav>
+
+      <main class="stage">
+        <section class="board-wrap">
+          <div class="blackboard">講台／黑板</div>
+          <div id="board" class="board" aria-label="座位表"></div>
+        </section>
+        <aside class="side">
+          <h2>本班學生</h2>
+          <p class="hint">資料存在 Google 試算表。改名單請按「開啟資料庫」，改完後按「同步」。</p>
+          <ol id="roster" class="roster"></ol>
+        </aside>
+      </main>
+    </div>
+
+    <div id="toast" class="toast" hidden></div>
+
+    <div id="setupOverlay" class="modal" hidden>
+      <div class="modal-card setup-card">
+        <h2>還沒接上試算表資料庫</h2>
+        <p class="hint">畫面在 GitHub，學生與分數在 Google 試算表。請完成這 3 步：</p>
+        <ol>
+          <li>在試算表開啟 Apps Script，貼上專案裡的 <code>Code.gs</code>，部署成「網頁應用程式」（執行身分：我，誰可以存取：任何人）。</li>
+          <li>複製部署網址（結尾 <code>/exec</code>）。</li>
+          <li>編輯 GitHub 的 <code>docs/config.js</code>，填入 <code>apiUrl</code> 與試算表網址，再重新整理這個頁面。</li>
+        </ol>
+      </div>
+    </div>
+
+    <div id="lotteryModal" class="modal" hidden>
+      <div class="modal-card lottery-card">
+        <p class="modal-kicker">隨機抽籤</p>
+        <div id="lotteryName" class="lottery-name">？</div>
+        <p id="lotteryMeta" class="lottery-meta">準備抽出一位同學</p>
+        <label class="check">
+          <input type="checkbox" id="lotteryUnique" checked />
+          本堂不重複抽過的人
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="tool" id="btnLotteryReset">重置名單</button>
+          <button type="button" class="tool" id="btnLotteryClose">關閉</button>
+          <button type="button" class="tool primary" id="btnLotteryAgain">再抽一次</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="settingsModal" class="modal" hidden>
+      <div class="modal-card">
+        <h2>班級設定與學生名單</h2>
+        <p class="hint">這裡儲存後會寫進 Google 試算表，你也可以直接打開試算表改。</p>
+        <div class="form-grid">
+          <label>班級名稱
+            <input id="settingClassName" type="text" maxlength="40" placeholder="例如 301" />
+          </label>
+          <label>列數
+            <input id="settingRows" type="number" min="1" max="20" />
+          </label>
+          <label>欄數
+            <input id="settingCols" type="number" min="1" max="16" />
+          </label>
+        </div>
+        <label>批次輸入（每行：座號,姓名）
+          <textarea id="settingStudents" rows="8" placeholder="01,陳安安&#10;02,林冠宇"></textarea>
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="tool" id="btnSettingsClose">取消</button>
+          <button type="button" class="tool primary" id="btnSettingsSave">儲存到試算表</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="config.js"></script>
+    <script src="api.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
