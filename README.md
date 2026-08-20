@@ -37,9 +37,8 @@
 ```powershell
 git add .
 git commit -m "feat: 以 GitHub Pages 顯示座位表並用試算表當資料庫"
-git branch -M main
 git remote add origin https://github.com/你的帳號/class-seating-chart.git
-git push -u origin main
+git push -u origin HEAD
 ```
 
 3. 編輯 GitHub 上的 `docs/config.js`：
@@ -53,7 +52,7 @@ window.SEAT_CONFIG = {
 
 4. GitHub 儲存庫：**Settings → Pages**
    - Source：Deploy from a branch
-   - Branch：`main` / 資料夾 `/docs`
+   - Branch：預設分支（`main` 或 `master`）／資料夾 `/docs`
 5. 等一兩分鐘，用這個網址開座位表（給平板用）：
 
 `https://你的帳號.github.io/class-seating-chart/`
