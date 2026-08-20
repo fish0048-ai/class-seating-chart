@@ -459,6 +459,15 @@
     flex: 1;
   }
 
+  #tabDaily.teacher-panel {
+    overflow: hidden;
+  }
+
+  .stats-panel .db-table-wrap {
+    flex: 0 0 auto;
+    max-height: 360px;
+  }
+
   .teacher-footer {
     display: flex;
     justify-content: flex-end;
@@ -495,6 +504,133 @@
 
   .stat-card strong {
     font-size: 22px;
+  }
+
+  .sheet-wrap {
+    flex: 1;
+    min-height: 240px;
+    overflow: auto;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fff;
+  }
+
+  .sheet-table {
+    width: max-content;
+    min-width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .sheet-table th,
+  .sheet-table td {
+    border: 1px solid #e4dbcc;
+    padding: 6px 8px;
+    text-align: center;
+    white-space: nowrap;
+  }
+
+  .sheet-table th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: #eef4f7;
+    font-weight: 700;
+    color: var(--muted);
+  }
+
+  .sheet-table tfoot td {
+    position: sticky;
+    bottom: 0;
+    background: #f7f1e6;
+    font-weight: 700;
+  }
+
+  .sheet-table .sticky-1,
+  .sheet-table .sticky-2 {
+    position: sticky;
+    background: #fff;
+    z-index: 1;
+  }
+
+  .sheet-table th.sticky-1,
+  .sheet-table th.sticky-2 {
+    z-index: 4;
+    background: #eef4f7;
+  }
+
+  .sheet-table tfoot .sticky-1,
+  .sheet-table tfoot .sticky-2 {
+    z-index: 3;
+    background: #f7f1e6;
+  }
+
+  .sheet-table .sticky-1 { left: 0; min-width: 52px; }
+  .sheet-table .sticky-2 { left: 52px; min-width: 88px; text-align: left; }
+
+  .sheet-table th[data-day],
+  .sheet-table td[data-day] { cursor: pointer; min-width: 64px; }
+  .sheet-table .col-on { background: #e7f3fb; }
+  .sheet-table th.col-on { background: #d5eaf6; color: var(--primary); }
+  .sheet-table .col-total { background: #fff8e8; font-weight: 700; }
+  .sheet-table th.col-total { background: #ffe9c4; color: var(--ink); }
+  .sheet-table .day-plus { color: var(--plus); }
+  .sheet-table .day-minus { color: var(--minus); }
+  .sheet-table tbody tr:hover td { background: #f4f8fb; }
+  .sheet-table tbody tr:hover .sticky-1,
+  .sheet-table tbody tr:hover .sticky-2 { background: #f4f8fb; }
+
+  .insight-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 8px;
+  }
+
+  .insight-item {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 10px 12px;
+    font-size: 14px;
+  }
+
+  .insight-item span {
+    display: block;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .chart-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .chart-card {
+    margin: 0;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 10px 12px 6px;
+  }
+
+  .chart-card figcaption {
+    font-size: 13px;
+    font-weight: 700;
+    margin-bottom: 6px;
+  }
+
+  .chart-svg {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+
+  .chart-empty {
+    color: var(--muted);
+    font-size: 13px;
+    padding: 24px 8px;
+    text-align: center;
   }
 
   .db-toolbar {
@@ -837,5 +973,6 @@
     .side { max-height: 28vh; }
     .form-grid { grid-template-columns: 1fr; }
     .seat-name { font-size: 14px; }
+    .chart-grid { grid-template-columns: 1fr; }
   }
   .setup-card ol { margin: 8px 0 0; padding-left: 20px; line-height: 1.7; color: var(--muted); }

@@ -78,8 +78,8 @@
 
       <nav class="toolbar teacher-tabs" role="tablist" aria-label="教師功能">
         <button type="button" class="tool tab-on" data-teacher-tab="roster">名單</button>
-        <button type="button" class="tool" data-teacher-tab="daily">每日紀錄</button>
-        <button type="button" class="tool" data-teacher-tab="stats">統計</button>
+        <button type="button" class="tool" data-teacher-tab="daily">成績表</button>
+        <button type="button" class="tool" data-teacher-tab="stats">統計圖表</button>
         <button type="button" class="tool" data-teacher-tab="settings">設定與上傳</button>
         <button type="button" class="tool" id="btnExport">下載備份</button>
         <button type="button" class="tool" id="btnImport">還原備份</button>
@@ -102,6 +102,7 @@
           </div>
           <p id="scoreDayLabel" class="score-day-label teacher-date-only">正在看今天的加扣分</p>
           <button type="button" class="tool teacher-tab-only" data-for-tab="roster" id="btnDbAdd">新增一列</button>
+          <button type="button" class="tool teacher-tab-only" data-for-tab="daily" id="btnExportSheet" hidden>下載成績表</button>
           <button type="button" class="tool teacher-tab-only" data-for-tab="settings" id="btnUpload" hidden>選擇名單檔</button>
         </div>
 
@@ -125,42 +126,40 @@
           </div>
 
           <div id="tabDaily" class="teacher-panel" hidden>
-            <p class="hint">每天晚上 10 點會自動把當天加扣分存下來，隔天從 0 開始。選上面的日期就能看那一天。</p>
-            <div id="dailyToday" class="stat-cards"></div>
-            <h3 class="subhead" id="dailyDayTitle">這天的學生加扣分</h3>
-            <div class="db-table-wrap">
-              <table class="db-table">
-                <thead>
-                  <tr>
-                    <th>座號</th>
-                    <th>姓名</th>
-                    <th>加扣分</th>
-                  </tr>
-                </thead>
-                <tbody id="dailyStudents"></tbody>
-              </table>
-            </div>
-            <h3 class="subhead">所有日期</h3>
-            <div class="db-table-wrap">
-              <table class="db-table">
-                <thead>
-                  <tr>
-                    <th>日期</th>
-                    <th>總分</th>
-                    <th>加分人數</th>
-                    <th>扣分人數</th>
-                    <th>平均</th>
-                  </tr>
-                </thead>
-                <tbody id="dailyBody"></tbody>
+            <p class="hint">像試算表：左邊是學生，上面是每一天，往右滑可看全部日期。點日期可切換查看那一天。</p>
+            <div id="sheetStats" class="stat-cards"></div>
+            <div id="sheetWrap" class="sheet-wrap">
+              <table class="sheet-table" id="scoreSheet">
+                <thead id="sheetHead"></thead>
+                <tbody id="sheetBody"></tbody>
+                <tfoot id="sheetFoot"></tfoot>
               </table>
             </div>
           </div>
 
-          <div id="tabStats" class="teacher-panel" hidden>
-            <p class="hint">含已存檔的每一天，以及目前正在計分的這一天。</p>
+          <div id="tabStats" class="teacher-panel stats-panel" hidden>
+            <p class="hint">依成績表自動計算，不用另外整理。</p>
             <div id="statsCards" class="stat-cards"></div>
-            <h3 class="subhead">學生累計排行</h3>
+            <div id="statsInsights" class="insight-list"></div>
+            <div class="chart-grid">
+              <figure class="chart-card">
+                <figcaption>每天全班總分</figcaption>
+                <div id="chartDaily"></div>
+              </figure>
+              <figure class="chart-card">
+                <figcaption>學生合計排行（前 10 名）</figcaption>
+                <div id="chartRank"></div>
+              </figure>
+              <figure class="chart-card">
+                <figcaption>每天加分／扣分人數</figcaption>
+                <div id="chartPlusMinus"></div>
+              </figure>
+              <figure class="chart-card">
+                <figcaption>合計分數分布</figcaption>
+                <div id="chartDist"></div>
+              </figure>
+            </div>
+            <h3 class="subhead">學生統計明細</h3>
             <div class="db-table-wrap">
               <table class="db-table">
                 <thead>
@@ -168,9 +167,12 @@
                     <th>名次</th>
                     <th>座號</th>
                     <th>姓名</th>
-                    <th>已結算</th>
-                    <th>進行中</th>
                     <th>合計</th>
+                    <th>平均</th>
+                    <th>加分天</th>
+                    <th>扣分天</th>
+                    <th>最高單日</th>
+                    <th>最低單日</th>
                   </tr>
                 </thead>
                 <tbody id="statsBody"></tbody>
