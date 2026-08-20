@@ -1,74 +1,55 @@
 # 班級座位表
 
-畫面放在 **GitHub Pages**，資料庫是你本來就在用的 **Google 試算表**。  
-學生、座號、分數、座位都可以直接打開試算表查看和修改。
+打開網頁就能用。資料存在這個瀏覽器，會自動存檔。
+
+- 上傳班級、座號、姓名（CSV 或 Excel）
+- 拖放調座位
+- 抽籤
+- 加分／扣分（可復原）
+- 下載備份／還原備份（換電腦時用）
+
+## 現在就可以用
+
+用瀏覽器打開：
+
+`docs/index.html`
+
+第一次會看到「範例班」。接著按 **上傳名單** 或 **設定**，把你的學生匯入即可。
+
+CSV 欄位：
 
 ```
-平板 / 電腦  →  GitHub 網頁（座位表畫面）
-                 ↓
-              Apps Script API（只要 Code.gs）
-                 ↓
-              Google 試算表（你看得到、改得到的資料庫）
+班級,座號,姓名
+301,01,陳安安
+301,02,林冠宇
 ```
 
-## 1. 先準備試算表資料庫
+範本：`docs/學生名單範本.csv`（可用 Excel 打開改完再上傳）
 
-1. 開一份 Google 試算表（建議專給座位表用）。
-2. **擴充功能 → Apps Script**，把本專案的 `Code.gs` 整份貼上並儲存。
-3. 回到試算表重新整理，選 **座位表 → 初始化／修復工作表**。
-4. 在 `學生` 工作表填：
+## 放到 GitHub 當網頁
 
-| 班級 | 座號 | 姓名 | 分數 | 列 | 欄 |
-| --- | --- | --- | --- | --- | --- |
-| 301 | 01 | 陳安安 | 0 |  |  |
-
-5. Apps Script：**部署 → 新增部署作業 → 網頁應用程式**
-   - 執行身分：我
-   - 誰可以存取：任何人
-   - 複製網址（結尾是 `/exec`）
-
-這個網址是資料庫 API，不是給學生看的座位表畫面。
-
-## 2. 把畫面放到 GitHub
-
-1. 到 [GitHub New repository](https://github.com/new) 新增一個儲存庫（例如 `class-seating-chart`）。
-2. 把本專案推上去：
+1. 打開 <https://github.com/new>
+2. 名稱填 `class-seating-chart`，選 Public，不要勾 README
+3. 在這個資料夾執行：
 
 ```powershell
 git add .
-git commit -m "feat: 以 GitHub Pages 顯示座位表並用試算表當資料庫"
+git commit -m "feat: 班級座位表（本機資料庫，打開即用）"
 git remote add origin https://github.com/你的帳號/class-seating-chart.git
-git push -u origin HEAD
+git push -u origin master
 ```
 
-3. 編輯 GitHub 上的 `docs/config.js`：
+4. GitHub：**Settings → Pages** → Deploy from a branch → `master` / `/docs`
+5. 網址：`https://你的帳號.github.io/class-seating-chart/`
 
-```javascript
-window.SEAT_CONFIG = {
-  apiUrl: 'https://script.google.com/macros/s/你的部署ID/exec',
-  spreadsheetUrl: 'https://docs.google.com/spreadsheets/d/你的試算表ID/edit'
-};
-```
+## 資料怎麼改
 
-4. GitHub 儲存庫：**Settings → Pages**
-   - Source：Deploy from a branch
-   - Branch：預設分支（`main` 或 `master`）／資料夾 `/docs`
-5. 等一兩分鐘，用這個網址開座位表（給平板用）：
-
-`https://你的帳號.github.io/class-seating-chart/`
-
-## 3. 之後怎麼改資料
-
-- 按網頁上的 **開啟資料庫**：直接進 Google 試算表。
-- 在試算表改姓名、加學生、改分數都可以。
-- 改完回到座位表按 **同步**（網頁也會約每 20 秒自動同步）。
-- 在平板拖放座位、加扣分、存檔，也會寫回同一份試算表。
-
-## 檔案
-
-| 檔案 | 用途 |
+| 想做的事 | 怎麼做 |
 | --- | --- |
-| `Code.gs` | 試算表 API（貼到 Apps Script） |
-| `docs/index.html` | GitHub Pages 座位表畫面 |
-| `docs/config.js` | 填 API 網址與試算表網址 |
-| `座位表.html` | 不上網、不連試算表的本機版 |
+| 匯入名單 | 上傳 CSV／Excel，或在設定裡貼上 |
+| 改座位 | 按住學生卡片拖放 |
+| 改分數 | 加分／扣分後點學生 |
+| 用 Excel 改名單 | 設定 → 下載本班 CSV → 改完再上傳 |
+| 換電腦／換平板 | 下載備份 → 到新裝置按還原備份 |
+
+同一個瀏覽器關掉再開都還在。清掉網站資料就會不見，所以重要時請按一次「下載備份」。

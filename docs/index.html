@@ -16,7 +16,7 @@
           <span class="brand-mark">座</span>
           <div>
             <h1>班級座位表</h1>
-            <p id="syncMeta">正在載入 Google 試算表…</p>
+            <p id="syncMeta">正在載入…</p>
           </div>
         </div>
         <label class="class-picker">
@@ -35,10 +35,12 @@
         </div>
         <button type="button" class="tool" id="btnUndo">復原</button>
         <button type="button" class="tool accent" id="btnLottery">抽籤</button>
-        <button type="button" class="tool" id="btnSync">同步</button>
-        <button type="button" class="tool" id="btnSheet">開啟資料庫</button>
+        <button type="button" class="tool" id="btnUpload">上傳名單</button>
+        <button type="button" class="tool" id="btnExport">下載備份</button>
+        <button type="button" class="tool" id="btnImport">還原備份</button>
         <button type="button" class="tool primary" id="btnSave">存檔</button>
         <button type="button" class="tool" id="btnSettings">設定</button>
+        <input id="backupFile" type="file" accept=".json,application/json" hidden />
       </nav>
 
       <main class="stage">
@@ -48,25 +50,13 @@
         </section>
         <aside class="side">
           <h2>本班學生</h2>
-          <p class="hint">資料存在 Google 試算表。改名單請按「開啟資料庫」，改完後按「同步」。</p>
+          <p class="hint">資料會自動存在這個瀏覽器。可上傳 CSV／Excel，或下載備份拿到其他電腦還原。</p>
           <ol id="roster" class="roster"></ol>
         </aside>
       </main>
     </div>
 
     <div id="toast" class="toast" hidden></div>
-
-    <div id="setupOverlay" class="modal" hidden>
-      <div class="modal-card setup-card">
-        <h2>還沒接上試算表資料庫</h2>
-        <p class="hint">畫面在 GitHub，學生與分數在 Google 試算表。請完成這 3 步：</p>
-        <ol>
-          <li>在試算表開啟 Apps Script，貼上專案裡的 <code>Code.gs</code>，部署成「網頁應用程式」（執行身分：我，誰可以存取：任何人）。</li>
-          <li>複製部署網址（結尾 <code>/exec</code>）。</li>
-          <li>編輯 GitHub 的 <code>docs/config.js</code>，填入 <code>apiUrl</code> 與試算表網址，再重新整理這個頁面。</li>
-        </ol>
-      </div>
-    </div>
 
     <div id="lotteryModal" class="modal" hidden>
       <div class="modal-card lottery-card">
@@ -86,9 +76,9 @@
     </div>
 
     <div id="settingsModal" class="modal" hidden>
-      <div class="modal-card">
+      <div class="modal-card settings-card">
         <h2>班級設定與學生名單</h2>
-        <p class="hint">這裡儲存後會寫進 Google 試算表，你也可以直接打開試算表改。</p>
+        <p class="hint">上傳 CSV／Excel，或直接貼上。儲存後立刻可用。</p>
         <div class="form-grid">
           <label>班級名稱
             <input id="settingClassName" type="text" maxlength="40" placeholder="例如 301" />
@@ -100,17 +90,29 @@
             <input id="settingCols" type="number" min="1" max="16" />
           </label>
         </div>
-        <label>批次輸入（每行：座號,姓名）
-          <textarea id="settingStudents" rows="8" placeholder="01,陳安安&#10;02,林冠宇"></textarea>
+        <div id="uploadBox" class="upload-box">
+          <input id="settingFile" type="file" accept=".csv,.txt,.xlsx,.xls" hidden />
+          <p><strong>把名單檔拖到這裡</strong>，或 <button type="button" class="linkish" id="btnPickFile">選擇檔案</button></p>
+          <p class="hint">欄位：班級、座號、姓名（分數可有可無）。Excel 請用第一個工作表。</p>
+          <p><a href="學生名單範本.csv" download>下載 CSV 範本</a></p>
+          <p id="uploadPreview" class="upload-preview" hidden></p>
+        </div>
+        <label class="check left">
+          <input type="checkbox" id="settingReplace" />
+          覆蓋這些班級的舊名單（沒出現的座號會刪除）
+        </label>
+        <label>或直接貼上（每行：座號,姓名 或 班級,座號,姓名）
+          <textarea id="settingStudents" rows="8" placeholder="301,01,陳安安&#10;301,02,林冠宇"></textarea>
         </label>
         <div class="modal-actions">
+          <button type="button" class="tool" id="btnExportCsv">下載本班 CSV</button>
           <button type="button" class="tool" id="btnSettingsClose">取消</button>
-          <button type="button" class="tool primary" id="btnSettingsSave">儲存到試算表</button>
+          <button type="button" class="tool primary" id="btnSettingsSave">儲存</button>
         </div>
       </div>
     </div>
 
-    <script src="config.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="api.js"></script>
     <script src="app.js"></script>
   </body>

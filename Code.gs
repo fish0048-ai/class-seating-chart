@@ -18,6 +18,9 @@ const HEADERS = {
 
 const MAX_HISTORY_ROWS = 800;
 
+/** 你的座位表資料庫（Google 試算表 ID） */
+const SPREADSHEET_ID = '1AES93Jv8l65YI2LQ-scVRPqYSLFxtVOD-UqIU99gQSA';
+
 /**
  * GitHub Pages 前端會呼叫這個 API。
  * GET  ?action=bootstrap&callback=seatCb123
@@ -119,6 +122,8 @@ function handleRequest_(req) {
           className: req.className,
           students: parseMaybeJson_(req.students) || (payload && payload.students) || payload || []
         });
+      case 'clearClass':
+        return clearClassStudents(req.className);
       case 'lottery':
         return logLottery(req);
       default:
@@ -434,6 +439,35 @@ function upsertStudents(payload) {
   });
 }
 
+function clearClassStudents(className) {
+  return withLock_(function () {
+    const ss = getSs_();
+    ensureSheets_(ss);
+    className = String(className || '').trim();
+    if (!className) {
+      throw new Error('缺少班級名稱');
+    }
+    const classroom = loadClassroom_(ss, className);
+    classroom.students = [];
+    persistClassroom_(ss, classroom, true);
+    appendHistory_(ss, {
+      className: className,
+      type: '清空名單',
+      seatNo: '',
+      name: '',
+      delta: 0,
+      newScore: '',
+      detail: '上傳名單前清空本班學生',
+      undoable: false
+    });
+    return {
+      ok: true,
+      classNames: listClassNames_(ss),
+      classroom: loadClassroom_(ss, className)
+    };
+  });
+}
+
 function logLottery(payload) {
   const ss = getSs_();
   ensureSheets_(ss);
@@ -451,6 +485,9 @@ function logLottery(payload) {
 }
 
 function getSs_() {
+  if (SPREADSHEET_ID) {
+    return SpreadsheetApp.openById(SPREADSHEET_ID);
+  }
   return SpreadsheetApp.getActiveSpreadsheet();
 }
 
@@ -518,6 +555,7 @@ function ensureHelpSheet_(ss) {
     ['5. 把網址加到平板主畫面，即可當座位表 App 使用。'],
     [''],
     ['三、網頁功能'],
+    ['上傳名單：設定裡可上傳 CSV／Excel，欄位為班級、座號、姓名。'],
     ['拖放：按住學生卡片拖到其他座位，可對調或移到空位。'],
     ['抽籤：隨機抽出一位（可設定本堂不重複）。'],
     ['加分／扣分：先選分數，再點學生。'],

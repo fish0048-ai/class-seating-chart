@@ -311,6 +311,51 @@
     gap: 12px;
   }
 
+  .settings-card {
+    width: min(640px, 100%);
+    max-height: min(92vh, 860px);
+    overflow: auto;
+  }
+
+  .upload-box {
+    border: 2px dashed var(--line);
+    border-radius: 14px;
+    padding: 14px;
+    background: rgba(255, 255, 255, 0.7);
+    text-align: center;
+  }
+
+  .upload-box.dragover {
+    border-color: var(--accent);
+    background: #fff4e4;
+  }
+
+  .upload-box a { color: var(--primary); }
+  .upload-box p { margin: 0 0 6px; }
+  .upload-preview {
+    margin-top: 8px !important;
+    color: var(--plus);
+    font-weight: 700;
+  }
+
+  button.linkish {
+    border: 0;
+    background: none;
+    color: var(--primary);
+    text-decoration: underline;
+    padding: 0;
+    min-height: 0;
+    cursor: pointer;
+  }
+
+  .check.left {
+    justify-content: flex-start;
+    text-align: left;
+    align-items: flex-start;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
   .lottery-card { text-align: center; }
   .lottery-name {
     font-size: 42px;

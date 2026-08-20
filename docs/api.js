@@ -1,110 +1,341 @@
-window.SEAT_CONFIG = window.SEAT_CONFIG || {
-  apiUrl: '',
-  spreadsheetUrl: ''
-};
-
 (function (global) {
-  function config() {
-    return global.SEAT_CONFIG || {};
+  var KEY = 'class-seating-v1';
+
+  function nowIso() {
+    return new Date().toISOString();
   }
 
-  function isConfigured() {
-    var url = String(config().apiUrl || '');
-    return /^https:\/\/script\.google\.com\/macros\/s\//.test(url);
+  function clone(value) {
+    return JSON.parse(JSON.stringify(value));
   }
 
-  function jsonp(params) {
-    return new Promise(function (resolve, reject) {
-      var name = 'seatCb' + String(Date.now()) + 'x' + Math.floor(Math.random() * 1e6);
-      var qs = [];
-      Object.keys(params).forEach(function (key) {
-        var value = params[key];
-        if (value === undefined || value === null) return;
-        if (typeof value === 'object') value = JSON.stringify(value);
-        qs.push(encodeURIComponent(key) + '=' + encodeURIComponent(String(value)));
-      });
-      qs.push('callback=' + name);
-      var timer = setTimeout(function () {
-        cleanup();
-        reject(new Error('連線試算表逾時，請確認 API 網址與部署權限'));
-      }, 20000);
-      function cleanup() {
-        clearTimeout(timer);
-        try { delete global[name]; } catch (err) { global[name] = undefined; }
-        if (script && script.parentNode) script.parentNode.removeChild(script);
+  function clampInt(value, min, max, fallback) {
+    var n = parseInt(value, 10);
+    if (!isFinite(n)) return fallback;
+    return Math.min(max, Math.max(min, n));
+  }
+
+  function wrap(result) {
+    return Promise.resolve(result);
+  }
+
+  function loadStore() {
+    try {
+      var raw = localStorage.getItem(KEY);
+      if (raw) {
+        var parsed = JSON.parse(raw);
+        if (parsed && parsed.classes) return parsed;
       }
-      global[name] = function (data) {
-        cleanup();
-        resolve(data);
-      };
-      var script = document.createElement('script');
-      script.src = config().apiUrl + (config().apiUrl.indexOf('?') >= 0 ? '&' : '?') + qs.join('&');
-      script.onerror = function () {
-        cleanup();
-        reject(new Error('無法連線資料庫，請檢查 GitHub 的 config.js 與 Apps Script 部署'));
-      };
-      document.body.appendChild(script);
-    });
+    } catch (err) {}
+    return seedStore();
   }
 
-  function unwrap(data) {
-    if (!data || data.ok === false) {
-      throw new Error((data && data.error) || '試算表回應失敗');
+  function saveStore(store) {
+    localStorage.setItem(KEY, JSON.stringify(store));
+  }
+
+  function seedStore() {
+    var names = ['陳安安', '林冠宇', '黃詩涵', '張承恩', '吳品萱', '劉子豪', '蔡宜庭', '楊柏宇', '許雅琪', '周子翔', '羅欣怡', '簡廷偉'];
+    var students = names.map(function (name, i) {
+      return {
+        seatNo: String(i + 1).padStart(2, '0'),
+        name: name,
+        score: 0,
+        row: Math.floor(i / 6),
+        col: i % 6,
+        note: ''
+      };
+    });
+    var store = {
+      classes: {
+        '範例班': {
+          className: '範例班',
+          rows: 4,
+          cols: 6,
+          version: 1,
+          updatedAt: nowIso(),
+          students: students
+        }
+      },
+      history: []
+    };
+    saveStore(store);
+    return store;
+  }
+
+  function classNames(store) {
+    return Object.keys(store.classes).sort();
+  }
+
+  function ensureClass(store, className) {
+    if (!store.classes[className]) {
+      store.classes[className] = {
+        className: className,
+        rows: 6,
+        cols: 7,
+        version: 1,
+        updatedAt: nowIso(),
+        students: []
+      };
     }
-    return data;
+    return store.classes[className];
+  }
+
+  function autoPlace(classroom) {
+    var taken = {};
+    classroom.students.forEach(function (s) {
+      if (s.row == null || s.col == null || s.row < 0 || s.col < 0 || s.row >= classroom.rows || s.col >= classroom.cols) {
+        s.row = null;
+        s.col = null;
+        return;
+      }
+      var key = s.row + ',' + s.col;
+      if (taken[key]) {
+        s.row = null;
+        s.col = null;
+      } else {
+        taken[key] = true;
+      }
+    });
+    classroom.students.forEach(function (s) {
+      if (s.row != null && s.col != null) return;
+      for (var r = 0; r < classroom.rows && s.row == null; r++) {
+        for (var c = 0; c < classroom.cols; c++) {
+          if (!taken[r + ',' + c]) {
+            s.row = r;
+            s.col = c;
+            taken[r + ',' + c] = true;
+            break;
+          }
+        }
+      }
+    });
+    classroom.students.sort(function (a, b) {
+      return parseInt(String(a.seatNo).replace(/\D/g, ''), 10) - parseInt(String(b.seatNo).replace(/\D/g, ''), 10);
+    });
+    return classroom;
+  }
+
+  function payload(store, className) {
+    var room = ensureClass(store, className);
+    autoPlace(room);
+    return {
+      ok: true,
+      classNames: classNames(store),
+      classroom: clone(room)
+    };
+  }
+
+  function persistRoom(store, classroom, bump) {
+    autoPlace(classroom);
+    if (bump) classroom.version = (Number(classroom.version) || 1) + 1;
+    classroom.updatedAt = nowIso();
+    store.classes[classroom.className] = classroom;
+    saveStore(store);
+  }
+
+  function addHistory(store, item) {
+    store.history = store.history || [];
+    store.history.push({
+      time: nowIso(),
+      className: item.className,
+      type: item.type,
+      seatNo: item.seatNo,
+      name: item.name,
+      delta: item.delta || 0,
+      newScore: item.newScore,
+      detail: item.detail || '',
+      undoable: item.undoable === true,
+      undone: false
+    });
+    if (store.history.length > 800) store.history = store.history.slice(-800);
+  }
+
+  function normalize(state) {
+    var className = String(state.className || '').trim();
+    if (!className) throw new Error('缺少班級名稱');
+    return {
+      className: className,
+      rows: clampInt(state.rows, 1, 20, 6),
+      cols: clampInt(state.cols, 1, 16, 7),
+      version: Number(state.version) || 1,
+      updatedAt: state.updatedAt || nowIso(),
+      students: (state.students || []).map(function (s) {
+        return {
+          seatNo: String(s.seatNo || '').trim(),
+          name: String(s.name || '').trim(),
+          score: Number(s.score) || 0,
+          row: s.row === null || s.row === undefined || s.row === '' ? null : Number(s.row),
+          col: s.col === null || s.col === undefined || s.col === '' ? null : Number(s.col),
+          note: String(s.note || '')
+        };
+      }).filter(function (s) { return s.seatNo && s.name; })
+    };
   }
 
   global.SeatDB = {
-    configured: isConfigured,
-    spreadsheetUrl: function () {
-      return config().spreadsheetUrl || '';
-    },
     getBootstrapData: function () {
-      return jsonp({ action: 'bootstrap' }).then(unwrap);
+      var store = loadStore();
+      var names = classNames(store);
+      return wrap(payload(store, names[0] || '範例班'));
     },
     loadClassroom: function (className) {
-      return jsonp({ action: 'load', className: className }).then(unwrap);
+      var store = loadStore();
+      return wrap(payload(store, String(className || '').trim() || classNames(store)[0]));
     },
     saveClassroomState: function (state) {
-      return jsonp({ action: 'save', payload: JSON.stringify(state) }).then(unwrap);
+      var store = loadStore();
+      var classroom = normalize(state);
+      persistRoom(store, classroom, true);
+      addHistory(store, { className: classroom.className, type: '存檔', detail: '一鍵存檔', undoable: false });
+      saveStore(store);
+      return wrap(payload(store, classroom.className));
     },
     saveLayout: function (state) {
-      return jsonp({ action: 'layout', payload: JSON.stringify(state) }).then(unwrap);
+      var store = loadStore();
+      var incoming = normalize(state);
+      var current = ensureClass(store, incoming.className);
+      var scores = {};
+      current.students.forEach(function (s) { scores[String(s.seatNo)] = s.score; });
+      incoming.rows = current.rows;
+      incoming.cols = current.cols;
+      incoming.version = current.version;
+      incoming.students.forEach(function (s) {
+        if (Object.prototype.hasOwnProperty.call(scores, String(s.seatNo))) s.score = scores[String(s.seatNo)];
+      });
+      persistRoom(store, incoming, false);
+      return wrap(payload(store, incoming.className));
     },
     applyScoreChange: function (body) {
-      return jsonp({
-        action: 'score',
-        className: body.className,
-        seatNo: body.seatNo,
-        delta: body.delta
-      }).then(unwrap);
+      var store = loadStore();
+      var className = String(body.className || '').trim();
+      var seatNo = String(body.seatNo || '').trim();
+      var delta = Number(body.delta);
+      if (!className || !seatNo || !isFinite(delta) || delta === 0) throw new Error('加扣分資料不完整');
+      var room = ensureClass(store, className);
+      var student = room.students.filter(function (s) { return String(s.seatNo) === seatNo; })[0];
+      if (!student) throw new Error('找不到座號 ' + seatNo);
+      student.score = (Number(student.score) || 0) + delta;
+      persistRoom(store, room, false);
+      addHistory(store, {
+        className: className,
+        type: delta > 0 ? '加分' : '扣分',
+        seatNo: seatNo,
+        name: student.name,
+        delta: delta,
+        newScore: student.score,
+        detail: (delta > 0 ? '+' : '') + delta,
+        undoable: true
+      });
+      saveStore(store);
+      return wrap(payload(store, className));
     },
     undoLastAction: function (className) {
-      return jsonp({ action: 'undo', className: className }).then(unwrap);
+      var store = loadStore();
+      className = String(className || '').trim();
+      var history = store.history || [];
+      var idx = -1;
+      for (var i = history.length - 1; i >= 0; i--) {
+        if (history[i].className === className && history[i].undoable && !history[i].undone) {
+          idx = i;
+          break;
+        }
+      }
+      if (idx < 0) throw new Error('沒有可復原的加扣分');
+      var item = history[idx];
+      var room = ensureClass(store, className);
+      var student = room.students.filter(function (s) { return String(s.seatNo) === String(item.seatNo); })[0];
+      if (!student) throw new Error('找不到要復原的學生');
+      student.score = (Number(student.score) || 0) - Number(item.delta || 0);
+      item.undone = true;
+      persistRoom(store, room, false);
+      addHistory(store, {
+        className: className,
+        type: '復原',
+        seatNo: item.seatNo,
+        name: student.name,
+        delta: -Number(item.delta || 0),
+        newScore: student.score,
+        detail: '復原',
+        undoable: false
+      });
+      saveStore(store);
+      var data = payload(store, className);
+      data.undone = { seatNo: item.seatNo, name: student.name, reversedDelta: -Number(item.delta || 0) };
+      return wrap(data);
     },
     saveSettings: function (body) {
-      return jsonp({
-        action: 'settings',
-        className: body.className,
-        rows: body.rows,
-        cols: body.cols
-      }).then(unwrap);
+      var store = loadStore();
+      var className = String(body.className || '').trim();
+      if (!className) throw new Error('請輸入班級名稱');
+      var room = ensureClass(store, className);
+      room.rows = clampInt(body.rows, 1, 20, 6);
+      room.cols = clampInt(body.cols, 1, 16, 7);
+      persistRoom(store, room, true);
+      return wrap(payload(store, className));
     },
     upsertStudents: function (body) {
-      return jsonp({
-        action: 'students',
-        className: body.className,
-        students: JSON.stringify(body.students || [])
-      }).then(unwrap);
+      var store = loadStore();
+      var className = String(body.className || '').trim();
+      if (!className) throw new Error('請輸入班級名稱');
+      var incoming = body.students || [];
+      if (!incoming.length) throw new Error('請至少輸入一位學生');
+      var room = ensureClass(store, className);
+      var bySeat = {};
+      room.students.forEach(function (s) { bySeat[String(s.seatNo)] = s; });
+      incoming.forEach(function (raw) {
+        var seatNo = String(raw.seatNo || '').trim();
+        var name = String(raw.name || '').trim();
+        if (!seatNo || !name) return;
+        if (bySeat[seatNo]) {
+          bySeat[seatNo].name = name;
+          if (raw.score !== undefined && raw.score !== '') {
+            bySeat[seatNo].score = Number(raw.score) || 0;
+          }
+        } else {
+          bySeat[seatNo] = {
+            seatNo: seatNo,
+            name: name,
+            score: Number(raw.score) || 0,
+            row: null,
+            col: null,
+            note: String(raw.note || '')
+          };
+        }
+      });
+      room.students = Object.keys(bySeat).map(function (k) { return bySeat[k]; });
+      persistRoom(store, room, true);
+      return wrap(payload(store, className));
     },
-    logLottery: function (body) {
-      return jsonp({
-        action: 'lottery',
-        className: body.className,
-        seatNo: body.seatNo,
-        name: body.name,
-        detail: body.detail
-      }).then(unwrap);
+    clearClassStudents: function (className) {
+      var store = loadStore();
+      className = String(className || '').trim();
+      if (!className) throw new Error('缺少班級名稱');
+      var room = ensureClass(store, className);
+      room.students = [];
+      persistRoom(store, room, true);
+      return wrap(payload(store, className));
+    },
+    logLottery: function () {
+      return wrap({ ok: true });
+    },
+    exportJSON: function () {
+      return localStorage.getItem(KEY) || JSON.stringify(loadStore());
+    },
+    importJSON: function (text) {
+      var parsed = JSON.parse(text);
+      if (!parsed || !parsed.classes) throw new Error('備份檔格式不正確');
+      saveStore(parsed);
+      return this.getBootstrapData();
+    },
+    exportCSV: function (className) {
+      var store = loadStore();
+      var room = ensureClass(store, className);
+      var lines = ['班級,座號,姓名,分數'];
+      room.students.forEach(function (s) {
+        lines.push([room.className, s.seatNo, s.name, s.score].join(','));
+      });
+      return '\uFEFF' + lines.join('\r\n');
     }
   };
 })(window);

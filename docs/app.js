@@ -9,7 +9,8 @@
     busy: false,
     drawn: {},
     drag: null,
-    suppressClick: false
+    suppressClick: false,
+    pendingImport: null
   };
 
   const els = {
@@ -26,7 +27,11 @@
     settingClassName: document.getElementById('settingClassName'),
     settingRows: document.getElementById('settingRows'),
     settingCols: document.getElementById('settingCols'),
-    settingStudents: document.getElementById('settingStudents')
+    settingStudents: document.getElementById('settingStudents'),
+    settingFile: document.getElementById('settingFile'),
+    settingReplace: document.getElementById('settingReplace'),
+    uploadBox: document.getElementById('uploadBox'),
+    uploadPreview: document.getElementById('uploadPreview')
   };
 
   document.getElementById('btnPlus').addEventListener('click', function () {
@@ -46,26 +51,69 @@
     els.lotteryModal.hidden = true;
   });
   document.getElementById('btnLotteryReset').addEventListener('click', resetDrawn);
-  document.getElementById('btnSync').addEventListener('click', function () {
-    syncFromServer(true);
-  });
   document.getElementById('btnSave').addEventListener('click', saveAll);
   document.getElementById('btnSettings').addEventListener('click', openSettings);
   document.getElementById('btnSettingsClose').addEventListener('click', function () {
     els.settingsModal.hidden = true;
   });
   document.getElementById('btnSettingsSave').addEventListener('click', saveSettings);
-  var sheetBtn = document.getElementById('btnSheet');
-  if (sheetBtn) {
-    sheetBtn.addEventListener('click', function () {
-      var url = SeatDB.spreadsheetUrl();
-      if (!url) {
-        toast('請在 docs/config.js 填入 spreadsheetUrl');
-        return;
-      }
-      window.open(url, '_blank');
+  var uploadBtn = document.getElementById('btnUpload');
+  if (uploadBtn) {
+    uploadBtn.addEventListener('click', function () {
+      openSettings();
+      setTimeout(function () {
+        if (els.settingFile) els.settingFile.click();
+      }, 80);
     });
   }
+  var pickBtn = document.getElementById('btnPickFile');
+  if (pickBtn) {
+    pickBtn.addEventListener('click', function () {
+      if (els.settingFile) els.settingFile.click();
+    });
+  }
+  if (els.settingFile) {
+    els.settingFile.addEventListener('change', function () {
+      if (els.settingFile.files && els.settingFile.files[0]) {
+        readRosterFile(els.settingFile.files[0]);
+      }
+    });
+  }
+  if (els.uploadBox) {
+    ['dragenter', 'dragover'].forEach(function (type) {
+      els.uploadBox.addEventListener(type, function (event) {
+        event.preventDefault();
+        els.uploadBox.classList.add('dragover');
+      });
+    });
+    ['dragleave', 'drop'].forEach(function (type) {
+      els.uploadBox.addEventListener(type, function (event) {
+        event.preventDefault();
+        els.uploadBox.classList.remove('dragover');
+      });
+    });
+    els.uploadBox.addEventListener('drop', function (event) {
+      var file = event.dataTransfer && event.dataTransfer.files && event.dataTransfer.files[0];
+      if (file) readRosterFile(file);
+    });
+  }
+  var exportBtn = document.getElementById('btnExport');
+  if (exportBtn) exportBtn.addEventListener('click', downloadBackup);
+  var importBtn = document.getElementById('btnImport');
+  var backupFile = document.getElementById('backupFile');
+  if (importBtn && backupFile) {
+    importBtn.addEventListener('click', function () {
+      backupFile.click();
+    });
+    backupFile.addEventListener('change', function () {
+      if (backupFile.files && backupFile.files[0]) {
+        restoreBackup(backupFile.files[0]);
+        backupFile.value = '';
+      }
+    });
+  }
+  var csvBtn = document.getElementById('btnExportCsv');
+  if (csvBtn) csvBtn.addEventListener('click', downloadClassCsv);
   els.classSelect.addEventListener('change', function () {
     loadClass(els.classSelect.value);
   });
@@ -77,30 +125,15 @@
   });
 
   bootstrap();
-  setInterval(function () {
-    if (!App.busy && !App.dirty && App.classroom && SeatDB.configured && SeatDB.configured()) {
-      var lottery = document.getElementById('lotteryModal');
-      var settings = document.getElementById('settingsModal');
-      if (lottery && !lottery.hidden) return;
-      if (settings && !settings.hidden) return;
-      syncFromServer(false);
-    }
-  }, 20000);
 
   function bootstrap() {
-    if (typeof SeatDB === 'undefined' || !SeatDB.configured()) {
-      els.syncMeta.textContent = '尚未連接 Google 試算表';
-      var setup = document.getElementById('setupOverlay');
-      if (setup) setup.hidden = false;
-      return;
-    }
     run('getBootstrapData', [], function (data) {
       applyPayload(data, true);
       if (App.classroom && !App.classroom.students.length) {
         openSettings();
-        toast('這個班還沒有學生，可在試算表或這裡輸入');
+        toast('這個班還沒有學生，請上傳或貼上名單');
       } else {
-        toast('已從 Google 試算表載入，可直接打開試算表改名單');
+        toast('已載入，拖放、抽籤、加扣分都會自動存檔');
       }
     });
   }
@@ -149,8 +182,8 @@
     }
     const time = formatTime(App.classroom.updatedAt);
     const dirty = App.dirty ? '（有未存檔變更）' : '';
-    els.syncMeta.textContent = App.classroom.students.length + ' 位學生 · 版本 ' +
-      (App.classroom.version || 1) + (time ? ' · ' + time : '') + dirty;
+    els.syncMeta.textContent = App.classroom.students.length + ' 位學生 · 已存在這個瀏覽器' +
+      (time ? ' · ' + time : '') + dirty;
   }
 
   function renderBoard() {
@@ -449,17 +482,55 @@
   function saveAll() {
     run('saveClassroomState', [serializeClassroom()], function (data) {
       applyPayload(data, true);
-      toast('已寫入 Google 試算表，其他平板按同步即可看到');
+      toast('已存到這個瀏覽器，關掉再開還在');
     });
   }
 
-  function syncFromServer(manual) {
-    run('loadClassroom', [App.classroom.className], function (data) {
-      applyPayload(data, true);
-      if (manual) {
-        toast('已從 Google 試算表同步最新資料');
-      }
-    });
+  function downloadBackup() {
+    if (typeof SeatDB === 'undefined' || !SeatDB.exportJSON) {
+      toast('無法下載備份');
+      return;
+    }
+    downloadText('座位表備份.json', SeatDB.exportJSON(), 'application/json;charset=utf-8');
+    toast('已下載備份，換電腦時用「還原備份」即可');
+  }
+
+  function downloadClassCsv() {
+    if (!App.classroom || typeof SeatDB === 'undefined' || !SeatDB.exportCSV) {
+      toast('沒有可下載的名單');
+      return;
+    }
+    downloadText(App.classroom.className + '-學生名單.csv', SeatDB.exportCSV(App.classroom.className), 'text/csv;charset=utf-8');
+    toast('已下載本班 CSV，可用 Excel 打開修改後再上傳');
+  }
+
+  function restoreBackup(file) {
+    var reader = new FileReader();
+    reader.onload = function (event) {
+      SeatDB.importJSON(String(event.target.result || ''))
+        .then(function (data) {
+          applyPayload(data, true);
+          toast('已還原備份');
+        })
+        .catch(function () {
+          toast('備份檔格式不正確');
+        });
+    };
+    reader.readAsText(file, 'UTF-8');
+  }
+
+  function downloadText(filename, text, type) {
+    var blob = new Blob([text], { type: type || 'text/plain;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(function () {
+      URL.revokeObjectURL(url);
+    }, 500);
   }
 
   function openSettings() {
@@ -471,7 +542,11 @@
           return s.seatNo + ',' + s.name;
         }).join('\n')
       : '';
-    els.settingStudents.placeholder = '01,陳安安\n02,林冠宇\n03,黃詩涵';
+    els.settingStudents.placeholder = '301,01,陳安安\n301,02,林冠宇';
+    if (els.settingReplace) els.settingReplace.checked = false;
+    if (els.settingFile) els.settingFile.value = '';
+    App.pendingImport = null;
+    renderUploadPreview(null);
     els.settingsModal.hidden = false;
     setTimeout(function () {
       els.settingStudents.focus();
@@ -482,42 +557,260 @@
     const className = els.settingClassName.value.trim();
     const rows = Number(els.settingRows.value);
     const cols = Number(els.settingCols.value);
-    const students = parseStudentText(els.settingStudents.value);
+    const pasted = parseRosterText(els.settingStudents.value, className);
+    const imported = pasted;
+    const replace = !!(els.settingReplace && els.settingReplace.checked);
     if (!className) {
       toast('請輸入班級名稱');
       return;
     }
-    run('saveSettings', [{ className: className, rows: rows, cols: cols }], function () {
-      if (!students.length) {
-        loadClass(className);
-        els.settingsModal.hidden = true;
-        toast('班級行列設定已儲存');
-        return;
-      }
-      run('upsertStudents', [{ className: className, students: students }], function (data) {
-        App.drawn[className] = App.drawn[className] || [];
-        applyPayload(data, true);
-        els.classSelect.value = className;
-        els.settingsModal.hidden = true;
-        toast('班級設定與學生名單已儲存');
+    if (App.busy) return;
+    App.busy = true;
+    api('saveSettings', [{ className: className, rows: rows, cols: cols }])
+      .then(function () {
+        if (!imported.length) {
+          return api('loadClassroom', [className]).then(function (data) {
+            applyPayload(data, true);
+            els.settingsModal.hidden = true;
+            toast('班級行列設定已儲存');
+          });
+        }
+        return importRoster(imported, replace, className);
+      })
+      .then(function () {
+        App.busy = false;
+      })
+      .catch(function (error) {
+        App.busy = false;
+        toast(error && error.message ? error.message : '儲存失敗，請再試一次');
       });
+  }
+
+  function importRoster(rows, replace, fallbackClass) {
+    const grouped = groupByClass(rows, fallbackClass);
+    const classNames = Object.keys(grouped);
+    if (!classNames.length) {
+      throw new Error('找不到有效的班級、座號、姓名');
+    }
+    toast('正在匯入 ' + classNames.length + ' 個班級…');
+    let chain = Promise.resolve();
+    classNames.forEach(function (cn) {
+      chain = chain.then(function () {
+        if (replace) {
+          return api('clearClassStudents', [cn]);
+        }
+      }).then(function () {
+        return upsertInBatches(cn, grouped[cn]);
+      });
+    });
+    return chain.then(function () {
+      const target = grouped[fallbackClass] ? fallbackClass : classNames[0];
+      return api('loadClassroom', [target]);
+    }).then(function (data) {
+      App.drawn[data.classroom.className] = App.drawn[data.classroom.className] || [];
+      applyPayload(data, true);
+      els.classSelect.value = data.classroom.className;
+      els.settingsModal.hidden = true;
+      App.pendingImport = null;
+      toast('已匯入 ' + rows.length + ' 位學生');
     });
   }
 
-  function parseStudentText(text) {
-    return String(text || '').split(/\r?\n/).map(function (line) {
-      const trimmed = line.trim();
-      if (!trimmed) {
-        return null;
-      }
-      const parts = trimmed.split(/[,，\s]+/);
-      return {
-        seatNo: String(parts[0] || '').trim(),
-        name: String(parts.slice(1).join(' ') || '').trim()
-      };
-    }).filter(function (item) {
-      return item && item.seatNo && item.name;
+  function upsertInBatches(className, students) {
+    return api('upsertStudents', [{ className: className, students: students }]);
+  }
+
+  function groupByClass(rows, fallbackClass) {
+    const grouped = {};
+    rows.forEach(function (row) {
+      const className = String(row.className || fallbackClass || '').trim();
+      if (!className || !row.seatNo || !row.name) return;
+      if (!grouped[className]) grouped[className] = [];
+      grouped[className].push({
+        seatNo: row.seatNo,
+        name: row.name,
+        score: row.score
+      });
     });
+    return grouped;
+  }
+
+  function readRosterFile(file) {
+    const name = String(file && file.name || '').toLowerCase();
+    if (/\.xlsx?$/.test(name)) {
+      if (typeof XLSX === 'undefined') {
+        toast('無法讀取 Excel，請另存成 CSV UTF-8 再上傳');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = function (event) {
+        try {
+          const workbook = XLSX.read(event.target.result, { type: 'array' });
+          const sheet = workbook.Sheets[workbook.SheetNames[0]];
+          const table = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
+          App.pendingImport = parseRosterTable(table, els.settingClassName.value.trim());
+          afterFileParsed(file.name);
+        } catch (err) {
+          toast('Excel 讀取失敗，請改用 CSV 範本');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = function (event) {
+      App.pendingImport = parseRosterText(event.target.result, els.settingClassName.value.trim());
+      afterFileParsed(file.name);
+    };
+    reader.onerror = function () {
+      toast('檔案讀取失敗');
+    };
+    reader.readAsText(file, 'UTF-8');
+  }
+
+  function afterFileParsed(fileName) {
+    if (!App.pendingImport || !App.pendingImport.length) {
+      renderUploadPreview(null);
+      toast('檔案裡找不到班級、座號、姓名，請用範本格式');
+      return;
+    }
+    renderUploadPreview(fileName);
+    const lines = App.pendingImport.map(function (row) {
+      var line = row.className + ',' + row.seatNo + ',' + row.name;
+      if (row.score !== undefined) line += ',' + row.score;
+      return line;
+    }).join('\n');
+    els.settingStudents.value = lines;
+    if (App.pendingImport[0].className) {
+      els.settingClassName.value = App.pendingImport[0].className;
+    }
+    toast('已讀取 ' + App.pendingImport.length + ' 位學生，按儲存即可');
+  }
+
+  function renderUploadPreview(fileName) {
+    if (!els.uploadPreview) return;
+    if (!App.pendingImport || !App.pendingImport.length) {
+      els.uploadPreview.hidden = true;
+      els.uploadPreview.textContent = '';
+      return;
+    }
+    const classes = {};
+    App.pendingImport.forEach(function (row) {
+      classes[row.className] = true;
+    });
+    els.uploadPreview.hidden = false;
+    els.uploadPreview.textContent = (fileName ? fileName + '：' : '') +
+      '共 ' + App.pendingImport.length + ' 位學生、' + Object.keys(classes).length + ' 個班級';
+  }
+
+  function parseRosterText(text, fallbackClass) {
+    const table = String(text || '').replace(/^\uFEFF/, '').split(/\r?\n/).map(function (line) {
+      return splitCsvLine(line);
+    });
+    return parseRosterTable(table, fallbackClass);
+  }
+
+  function splitCsvLine(line) {
+    return String(line || '').split(/[,，\t;]+/).map(function (part) {
+      return String(part || '').trim().replace(/^["']|["']$/g, '');
+    });
+  }
+
+  function parseRosterTable(table, fallbackClass) {
+    const rows = Array.isArray(table) ? table : [];
+    const students = [];
+    let map = null;
+    rows.forEach(function (raw, index) {
+      const cells = (raw || []).map(function (cell) {
+        return String(cell == null ? '' : cell).trim();
+      }).filter(function (cell, i, arr) {
+        return cell || arr.join('');
+      });
+      if (!cells.length) return;
+      if (index === 0 && isHeaderRow(cells)) {
+        map = headerMap(cells);
+        return;
+      }
+      const parsed = map ? rowFromHeader(cells, map, fallbackClass) : rowFromPosition(cells, fallbackClass);
+      if (parsed && parsed.seatNo && parsed.name) {
+        students.push(parsed);
+      }
+    });
+    return students;
+  }
+
+  function isHeaderRow(cells) {
+    const text = cells.join(',').toLowerCase();
+    return /班級|班別|class|座號|座号|seat|姓名|名字|name/.test(text);
+  }
+
+  function headerMap(cells) {
+    const map = { className: -1, seatNo: -1, name: -1, score: -1 };
+    cells.forEach(function (cell, i) {
+      const key = String(cell).toLowerCase();
+      if (/班級|班別|class/.test(key)) map.className = i;
+      else if (/座號|座号|seat|學號|学号/.test(key)) map.seatNo = i;
+      else if (/姓名|名字|name/.test(key)) map.name = i;
+      else if (/分數|分数|score|成績|成绩/.test(key)) map.score = i;
+    });
+    return map;
+  }
+
+  function rowFromHeader(cells, map, fallbackClass) {
+    return normalizeStudent({
+      className: map.className >= 0 ? cells[map.className] : fallbackClass,
+      seatNo: map.seatNo >= 0 ? cells[map.seatNo] : '',
+      name: map.name >= 0 ? cells[map.name] : '',
+      score: map.score >= 0 ? cells[map.score] : undefined
+    }, fallbackClass);
+  }
+
+  function rowFromPosition(cells, fallbackClass) {
+    if (cells.length >= 3 && !looksLikeSeatNo(cells[0])) {
+      return normalizeStudent({
+        className: cells[0],
+        seatNo: cells[1],
+        name: cells[2],
+        score: cells[3]
+      }, fallbackClass);
+    }
+    if (cells.length >= 3 && looksLikeSeatNo(cells[0]) && isNumeric(cells[2])) {
+      return normalizeStudent({
+        className: fallbackClass,
+        seatNo: cells[0],
+        name: cells[1],
+        score: cells[2]
+      }, fallbackClass);
+    }
+    return normalizeStudent({
+      className: fallbackClass,
+      seatNo: cells[0],
+      name: cells.slice(1).join(' ')
+    }, fallbackClass);
+  }
+
+  function normalizeStudent(row, fallbackClass) {
+    const seatNo = String(row.seatNo || '').trim();
+    const name = String(row.name || '').trim();
+    const className = String(row.className || fallbackClass || '').trim();
+    const item = { className: className, seatNo: seatNo, name: name };
+    if (row.score !== undefined && row.score !== '') {
+      const score = Number(row.score);
+      if (isFinite(score)) item.score = score;
+    }
+    return item;
+  }
+
+  function looksLikeSeatNo(value) {
+    return /^\d+[A-Za-z]?$|^[A-Za-z]\d+$/.test(String(value || '').trim());
+  }
+
+  function isNumeric(value) {
+    return /^-?\d+(\.\d+)?$/.test(String(value || '').trim());
+  }
+
+  function parseStudentText(text) {
+    return parseRosterText(text, (App.classroom && App.classroom.className) || '');
   }
 
   function serializeClassroom() {
@@ -577,11 +870,7 @@
   function run(fnName, args, onSuccess, silent) {
     if (App.busy && !silent) return;
     if (!silent) App.busy = true;
-    Promise.resolve()
-      .then(function () {
-        if (typeof SeatDB[fnName] !== 'function') throw new Error('找不到功能 ' + fnName);
-        return SeatDB[fnName].apply(SeatDB, args);
-      })
+    api(fnName, args)
       .then(function (result) {
         if (!silent) App.busy = false;
         onSuccess(result);
@@ -594,6 +883,15 @@
         }
         toast(msg);
       });
+  }
+
+  function api(fnName, args) {
+    return Promise.resolve().then(function () {
+      if (typeof SeatDB[fnName] !== 'function') {
+        throw new Error('找不到功能 ' + fnName);
+      }
+      return SeatDB[fnName].apply(SeatDB, args);
+    });
   }
 
   function toast(message) {
