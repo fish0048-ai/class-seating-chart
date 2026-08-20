@@ -377,8 +377,58 @@
     display: none !important;
   }
 
-  .auth-card {
-    width: min(420px, 100%);
+  .pw-mask {
+    -webkit-text-security: disc;
+    text-security: disc;
+    letter-spacing: 0.2em;
+    font-family: Tahoma, sans-serif;
+  }
+
+  .teacher-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .teacher-tabs .tab-on {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
+  }
+
+  .teacher-panel {
+    min-height: 0;
+    overflow: auto;
+    display: grid;
+    gap: 10px;
+  }
+
+  .subhead {
+    margin: 4px 0 0;
+    font-size: 15px;
+  }
+
+  .stat-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 8px;
+  }
+
+  .stat-card {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 10px;
+  }
+
+  .stat-card span {
+    display: block;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .stat-card strong {
+    font-size: 22px;
   }
 
   .database-card {

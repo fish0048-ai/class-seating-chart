@@ -43,6 +43,10 @@
     databaseModal: document.getElementById('databaseModal'),
     dbBody: document.getElementById('dbBody'),
     dbClassFilter: document.getElementById('dbClassFilter'),
+    dailyToday: document.getElementById('dailyToday'),
+    dailyBody: document.getElementById('dailyBody'),
+    statsCards: document.getElementById('statsCards'),
+    statsBody: document.getElementById('statsBody'),
     authModal: document.getElementById('authModal'),
     authTitle: document.getElementById('authTitle'),
     authHint: document.getElementById('authHint'),
@@ -97,12 +101,6 @@
   if (lockBtn) {
     lockBtn.addEventListener('click', lockTeacher);
   }
-  var changePwBtn = document.getElementById('btnChangePassword');
-  if (changePwBtn) {
-    changePwBtn.addEventListener('click', function () {
-      openAuthModal('change');
-    });
-  }
   var authCancel = document.getElementById('btnAuthCancel');
   if (authCancel) {
     authCancel.addEventListener('click', function () {
@@ -126,6 +124,15 @@
   if (dbClose) dbClose.addEventListener('click', function () {
     if (els.databaseModal) els.databaseModal.hidden = true;
   });
+  document.querySelectorAll('[data-teacher-tab]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      switchTeacherTab(btn.getAttribute('data-teacher-tab'));
+    });
+  });
+  var settleBtn = document.getElementById('btnSettleToday');
+  if (settleBtn) {
+    settleBtn.addEventListener('click', settleTodayScores);
+  }
   var dbSave = document.getElementById('btnDatabaseSave');
   if (dbSave) dbSave.addEventListener('click', saveDatabase);
   var dbAdd = document.getElementById('btnDbAdd');
@@ -144,6 +151,7 @@
       mergeVisibleDatabaseRows();
       App.dbFilter = els.dbClassFilter.value;
       renderDatabaseTable(App.dbRows || []);
+      refreshTeacherExtras();
     });
   }
   if (els.dbBody) {
@@ -242,7 +250,7 @@
       return;
     }
     App.teacherNext = nextFn;
-    openAuthModal(TeacherAuth && TeacherAuth.hasPassword() ? 'unlock' : 'setup');
+    openAuthModal('unlock');
   }
 
   function lockTeacher() {
@@ -255,21 +263,14 @@
   }
 
   function openAuthModal(mode) {
-    App.authMode = mode || 'unlock';
+    App.authMode = 'unlock';
     if (els.authPassword) els.authPassword.value = '';
     if (els.authPassword2) els.authPassword2.value = '';
-    var setup = App.authMode === 'setup' || App.authMode === 'change';
-    if (els.authPassword2Wrap) els.authPassword2Wrap.hidden = !setup;
-    if (els.authTitle) {
-      els.authTitle.textContent = App.authMode === 'change' ? '修改密碼' : setup ? '設定教師密碼' : '教師模式';
-    }
-    if (els.authHint) {
-      els.authHint.textContent = setup
-        ? '請設定至少 4 個字的密碼，上課時可按「鎖定」避免學生亂改。'
-        : '請輸入教師密碼。';
-    }
+    if (els.authPassword2Wrap) els.authPassword2Wrap.hidden = true;
+    if (els.authTitle) els.authTitle.textContent = '教師模式';
+    if (els.authHint) els.authHint.textContent = '請輸入教師密碼。';
     var submit = document.getElementById('btnAuthSubmit');
-    if (submit) submit.textContent = setup ? '儲存密碼' : '進入';
+    if (submit) submit.textContent = '進入';
     if (els.authModal) els.authModal.hidden = false;
     setTimeout(function () {
       if (els.authPassword) els.authPassword.focus();
@@ -282,24 +283,6 @@
       return;
     }
     var password = els.authPassword ? els.authPassword.value : '';
-    var again = els.authPassword2 ? els.authPassword2.value : '';
-    if (App.authMode === 'setup' || App.authMode === 'change') {
-      if (password.length < 4) {
-        toast('密碼至少 4 個字');
-        return;
-      }
-      if (password !== again) {
-        toast('兩次密碼不一致');
-        return;
-      }
-      TeacherAuth.setPassword(password).then(function () {
-        if (els.authModal) els.authModal.hidden = true;
-        applyTeacherUi();
-        toast(App.authMode === 'change' ? '密碼已修改' : '教師密碼已設定');
-        finishTeacherNext();
-      });
-      return;
-    }
     TeacherAuth.verify(password).then(function (ok) {
       if (!ok) {
         toast('密碼不正確');
@@ -676,8 +659,107 @@
       fillDatabaseFilter(data.classNames || App.classNames || []);
       if (els.dbClassFilter) els.dbClassFilter.value = App.dbFilter;
       renderDatabaseTable(App.dbRows);
+      switchTeacherTab(App.pendingTeacherTab || 'roster');
+      App.pendingTeacherTab = null;
+      refreshTeacherExtras();
       if (els.databaseModal) els.databaseModal.hidden = false;
     });
+  }
+
+  function teacherTargetClass() {
+    var filter = els.dbClassFilter ? els.dbClassFilter.value : '';
+    if (filter && filter !== '__all__') return filter;
+    return (App.classroom && App.classroom.className) || '';
+  }
+
+  function switchTeacherTab(tab) {
+    App.teacherTab = tab || 'roster';
+    document.querySelectorAll('[data-teacher-tab]').forEach(function (btn) {
+      btn.classList.toggle('tab-on', btn.getAttribute('data-teacher-tab') === App.teacherTab);
+    });
+    var roster = document.getElementById('tabRoster');
+    var daily = document.getElementById('tabDaily');
+    var stats = document.getElementById('tabStats');
+    if (roster) roster.hidden = App.teacherTab !== 'roster';
+    if (daily) daily.hidden = App.teacherTab !== 'daily';
+    if (stats) stats.hidden = App.teacherTab !== 'stats';
+    document.querySelectorAll('.teacher-tab-only').forEach(function (btn) {
+      btn.hidden = btn.getAttribute('data-for-tab') !== App.teacherTab;
+    });
+    if (App.teacherTab !== 'roster') refreshTeacherExtras();
+  }
+
+  function refreshTeacherExtras() {
+    var className = teacherTargetClass();
+    if (!className) return;
+    api('listDaily', [className]).then(renderDailyPanel).catch(function () {});
+    api('getClassStats', [className]).then(renderStatsPanel).catch(function () {});
+  }
+
+  function settleTodayScores() {
+    var className = teacherTargetClass();
+    if (!className) {
+      toast('請先選擇班級');
+      return;
+    }
+    if (!window.confirm('要結算「' + className + '」今天的分數嗎？結算後今日分數會歸零，紀錄會留在每日結算。')) {
+      return;
+    }
+    run('settleToday', [className], function (data) {
+      applyPayload(data, true);
+      toast(className + ' 今日已結算，分數已歸零');
+      App.pendingTeacherTab = 'daily';
+      openDatabase();
+    });
+  }
+
+  function statCard(label, value) {
+    return '<div class="stat-card"><span>' + escapeHtml(label) + '</span><strong>' + escapeHtml(String(value)) + '</strong></div>';
+  }
+
+  function renderDailyPanel(data) {
+    if (els.dailyToday && data.today) {
+      els.dailyToday.innerHTML =
+        statCard('今日日期', data.today.date) +
+        statCard('今日總分', data.today.total) +
+        statCard('加分人數', data.today.plusCount) +
+        statCard('扣分人數', data.today.minusCount) +
+        statCard('尚未加減', data.today.zeroCount);
+    }
+    if (!els.dailyBody) return;
+    var days = data.days || [];
+    if (!days.length) {
+      els.dailyBody.innerHTML = '<tr><td colspan="5">還沒有結算紀錄。下課前按「結算今日分數」即可。</td></tr>';
+      return;
+    }
+    els.dailyBody.innerHTML = days.map(function (day) {
+      return '<tr><td>' + escapeHtml(day.date) + '</td><td>' + day.total + '</td><td>' +
+        day.plusCount + '</td><td>' + day.minusCount + '</td><td>' + day.average + '</td></tr>';
+    }).join('');
+  }
+
+  function renderStatsPanel(data) {
+    if (els.statsCards) {
+      var top = (data.students && data.students[0]) ? data.students[0].name + '（' + data.students[0].grand + '）' : '—';
+      els.statsCards.innerHTML =
+        statCard('學生人數', data.studentCount) +
+        statCard('已結算天數', data.settledDays) +
+        statCard('已結算總分', data.settledTotal) +
+        statCard('今日進行中', data.today ? data.today.total : 0) +
+        statCard('合計總分', data.grandTotal) +
+        statCard('目前第一', top);
+    }
+    if (!els.statsBody) return;
+    var rows = data.students || [];
+    if (!rows.length) {
+      els.statsBody.innerHTML = '<tr><td colspan="6">尚無統計資料</td></tr>';
+      return;
+    }
+    els.statsBody.innerHTML = rows.map(function (row, index) {
+      return '<tr><td>' + (index + 1) + '</td><td>' + escapeHtml(row.seatNo) + '</td><td>' +
+        escapeHtml(row.name) + '</td><td>' + row.settledTotal + '</td><td>' +
+        row.todayScore + '</td><td><strong>' + row.grand + '</strong></td></tr>';
+    }).join('');
   }
 
   function mergeVisibleDatabaseRows() {
@@ -788,6 +870,7 @@
       App.dbRows = null;
       if (els.databaseModal) els.databaseModal.hidden = true;
       toast('資料已更改，座位表已更新');
+      refreshTeacherExtras();
     });
   }
 

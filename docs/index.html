@@ -68,10 +68,10 @@
         <h2 id="authTitle">教師模式</h2>
         <p id="authHint" class="hint">請輸入教師密碼。</p>
         <label>密碼
-          <input id="authPassword" type="password" autocomplete="current-password" />
+          <input id="authPassword" class="pw-mask" type="password" autocomplete="current-password" maxlength="64" />
         </label>
         <label id="authPassword2Wrap" hidden>再輸入一次
-          <input id="authPassword2" type="password" autocomplete="new-password" />
+          <input id="authPassword2" class="pw-mask" type="password" autocomplete="new-password" maxlength="64" />
         </label>
         <div class="modal-actions">
           <button type="button" class="tool" id="btnAuthCancel">取消</button>
@@ -83,31 +83,81 @@
     <div id="databaseModal" class="modal" hidden>
       <div class="modal-card database-card">
         <h2>教師模式</h2>
-        <p class="hint">在這裡直接改班級、座號、姓名、分數。改完按「儲存」即可。</p>
+        <div class="teacher-tabs" role="tablist">
+          <button type="button" class="tool tab-on" data-teacher-tab="roster">名單</button>
+          <button type="button" class="tool" data-teacher-tab="daily">每日結算</button>
+          <button type="button" class="tool" data-teacher-tab="stats">統計</button>
+        </div>
         <div class="db-toolbar">
-          <label>顯示班級
+          <label>班級
             <select id="dbClassFilter" aria-label="篩選班級"></select>
           </label>
-          <button type="button" class="tool" id="btnDbAdd">新增一列</button>
+          <button type="button" class="tool teacher-tab-only" data-for-tab="roster" id="btnDbAdd">新增一列</button>
+          <button type="button" class="tool accent teacher-tab-only" data-for-tab="daily" id="btnSettleToday">結算今日分數</button>
         </div>
-        <div class="db-table-wrap">
-          <table class="db-table">
-            <thead>
-              <tr>
-                <th>班級</th>
-                <th>座號</th>
-                <th>姓名</th>
-                <th>分數</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="dbBody"></tbody>
-          </table>
+
+        <div id="tabRoster" class="teacher-panel">
+          <p class="hint">直接改班級、座號、姓名、今日分數。改完按「儲存名單」。</p>
+          <div class="db-table-wrap">
+            <table class="db-table">
+              <thead>
+                <tr>
+                  <th>班級</th>
+                  <th>座號</th>
+                  <th>姓名</th>
+                  <th>今日分數</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="dbBody"></tbody>
+            </table>
+          </div>
         </div>
+
+        <div id="tabDaily" class="teacher-panel" hidden>
+          <p class="hint">把今天的加扣分存成當日紀錄，並把今日分數歸零，方便明天重新計分。</p>
+          <div id="dailyToday" class="stat-cards"></div>
+          <h3 class="subhead">已結算日期</h3>
+          <div class="db-table-wrap">
+            <table class="db-table">
+              <thead>
+                <tr>
+                  <th>日期</th>
+                  <th>總分</th>
+                  <th>加分人數</th>
+                  <th>扣分人數</th>
+                  <th>平均</th>
+                </tr>
+              </thead>
+              <tbody id="dailyBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div id="tabStats" class="teacher-panel" hidden>
+          <p class="hint">含已結算累計與今天尚未結算的分數。</p>
+          <div id="statsCards" class="stat-cards"></div>
+          <h3 class="subhead">學生累計排行</h3>
+          <div class="db-table-wrap">
+            <table class="db-table">
+              <thead>
+                <tr>
+                  <th>名次</th>
+                  <th>座號</th>
+                  <th>姓名</th>
+                  <th>已結算</th>
+                  <th>今日</th>
+                  <th>合計</th>
+                </tr>
+              </thead>
+              <tbody id="statsBody"></tbody>
+            </table>
+          </div>
+        </div>
+
         <div class="modal-actions">
-          <button type="button" class="tool" id="btnChangePassword">修改密碼</button>
           <button type="button" class="tool" id="btnDatabaseClose">關閉</button>
-          <button type="button" class="tool primary" id="btnDatabaseSave">儲存</button>
+          <button type="button" class="tool primary" id="btnDatabaseSave">儲存名單</button>
         </div>
       </div>
     </div>

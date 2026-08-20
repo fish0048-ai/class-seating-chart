@@ -15,6 +15,36 @@
     return Math.min(max, Math.max(min, n));
   }
 
+  function todayKey_() {
+  var d = new Date();
+  var y = d.getFullYear();
+  var m = String(d.getMonth() + 1).padStart(2, '0');
+  var day = String(d.getDate()).padStart(2, '0');
+  return y + '-' + m + '-' + day;
+}
+
+function summarizeStudents_(students) {
+  var total = 0;
+  var plusCount = 0;
+  var minusCount = 0;
+  var zeroCount = 0;
+  (students || []).forEach(function (s) {
+    var score = Number(s.score) || 0;
+    total += score;
+    if (score > 0) plusCount += 1;
+    else if (score < 0) minusCount += 1;
+    else zeroCount += 1;
+  });
+  var n = (students || []).length;
+  return {
+    total: total,
+    plusCount: plusCount,
+    minusCount: minusCount,
+    zeroCount: zeroCount,
+    average: n ? Math.round((total / n) * 10) / 10 : 0
+  };
+}
+
   function wrap(result) {
     return Promise.resolve(result);
   }
@@ -24,7 +54,11 @@
       var raw = localStorage.getItem(KEY);
       if (raw) {
         var parsed = JSON.parse(raw);
-        if (parsed && parsed.classes) return parsed;
+        if (parsed && parsed.classes) {
+          if (!parsed.daily) parsed.daily = {};
+          if (!parsed.history) parsed.history = [];
+          return parsed;
+        }
       }
     } catch (err) {}
     return seedStore();
@@ -57,7 +91,8 @@
           students: students
         }
       },
-      history: []
+      history: [],
+      daily: {}
     };
     saveStore(store);
     return store;
@@ -419,6 +454,116 @@
       var stay = targetClass && store.classes[targetClass] ? targetClass : names[0];
       return wrap(payload(store, stay));
     },
+    listDaily: function (className) {
+      var store = loadStore();
+      className = String(className || '').trim();
+      var days = ((store.daily || {})[className] || []).slice().sort(function (a, b) {
+        return String(b.date).localeCompare(String(a.date));
+      });
+      var room = ensureClass(store, className);
+      var today = summarizeStudents_(room.students);
+      today.date = todayKey_();
+      today.count = room.students.length;
+      return wrap({
+        ok: true,
+        className: className,
+        today: today,
+        days: days
+      });
+    },
+    settleToday: function (className) {
+      var store = loadStore();
+      className = String(className || '').trim();
+      if (!className) throw new Error('缺少班級名稱');
+      var room = ensureClass(store, className);
+      var summary = summarizeStudents_(room.students);
+      var record = {
+        date: todayKey_(),
+        settledAt: nowIso(),
+        students: room.students.map(function (s) {
+          return { seatNo: s.seatNo, name: s.name, score: Number(s.score) || 0 };
+        }),
+        total: summary.total,
+        plusCount: summary.plusCount,
+        minusCount: summary.minusCount,
+        zeroCount: summary.zeroCount,
+        average: summary.average
+      };
+      store.daily = store.daily || {};
+      store.daily[className] = store.daily[className] || [];
+      store.daily[className] = store.daily[className].filter(function (item) {
+        return item.date !== record.date;
+      });
+      store.daily[className].push(record);
+      room.students.forEach(function (s) {
+        s.score = 0;
+      });
+      persistRoom(store, room, true);
+      addHistory(store, {
+        className: className,
+        type: '每日結算',
+        seatNo: '',
+        name: '',
+        delta: 0,
+        newScore: 0,
+        detail: record.date + ' 結算總分 ' + record.total,
+        undoable: false
+      });
+      saveStore(store);
+      var data = payload(store, className);
+      data.settled = record;
+      return wrap(data);
+    },
+    getClassStats: function (className) {
+      var store = loadStore();
+      className = String(className || '').trim();
+      var room = ensureClass(store, className);
+      var days = ((store.daily || {})[className] || []).slice().sort(function (a, b) {
+        return String(a.date).localeCompare(String(b.date));
+      });
+      var totals = {};
+      room.students.forEach(function (s) {
+        totals[String(s.seatNo)] = {
+          seatNo: s.seatNo,
+          name: s.name,
+          settledTotal: 0,
+          todayScore: Number(s.score) || 0,
+          daysScored: 0
+        };
+      });
+      days.forEach(function (day) {
+        (day.students || []).forEach(function (s) {
+          var key = String(s.seatNo);
+          if (!totals[key]) {
+            totals[key] = { seatNo: s.seatNo, name: s.name, settledTotal: 0, todayScore: 0, daysScored: 0 };
+          }
+          totals[key].name = s.name || totals[key].name;
+          totals[key].settledTotal += Number(s.score) || 0;
+          if (Number(s.score)) totals[key].daysScored += 1;
+        });
+      });
+      var students = Object.keys(totals).map(function (key) {
+        var item = totals[key];
+        item.grand = item.settledTotal + item.todayScore;
+        return item;
+      }).sort(function (a, b) {
+        return b.grand - a.grand;
+      });
+      var today = summarizeStudents_(room.students);
+      var settledTotal = days.reduce(function (sum, day) { return sum + (Number(day.total) || 0); }, 0);
+      var recentDays = days.slice(-7).reverse();
+      return wrap({
+        ok: true,
+        className: className,
+        today: today,
+        settledDays: days.length,
+        settledTotal: settledTotal,
+        grandTotal: settledTotal + today.total,
+        studentCount: room.students.length,
+        recentDays: recentDays,
+        students: students
+      });
+    },
     exportJSON: function () {
       return localStorage.getItem(KEY) || JSON.stringify(loadStore());
     },
@@ -441,36 +586,12 @@
 })(window);
 
 (function (global) {
-  var HASH_KEY = 'class-seating-teacher-hash';
   var SESSION_KEY = 'class-seating-teacher-ok';
-
-  function fallbackHash(text) {
-    var h = 5381;
-    var extra = 0;
-    for (var i = 0; i < text.length; i++) {
-      h = ((h << 5) + h) + text.charCodeAt(i);
-      extra = (extra * 33 + text.charCodeAt(i)) >>> 0;
-    }
-    return 'fb-' + ((h >>> 0).toString(16)) + extra.toString(16);
-  }
-
-  function hashPassword(text) {
-    var payload = 'seat-teacher:' + String(text || '');
-    if (global.crypto && crypto.subtle && global.TextEncoder) {
-      return crypto.subtle.digest('SHA-256', new TextEncoder().encode(payload)).then(function (buf) {
-        return Array.from(new Uint8Array(buf)).map(function (b) {
-          return b.toString(16).padStart(2, '0');
-        }).join('');
-      }).catch(function () {
-        return fallbackHash(payload);
-      });
-    }
-    return Promise.resolve(fallbackHash(payload));
-  }
+  var OFFICIAL_PASSWORD = 'Ff128256033';
 
   global.TeacherAuth = {
     hasPassword: function () {
-      return !!localStorage.getItem(HASH_KEY);
+      return true;
     },
     isUnlocked: function () {
       return sessionStorage.getItem(SESSION_KEY) === '1';
@@ -481,17 +602,11 @@
     lock: function () {
       sessionStorage.removeItem(SESSION_KEY);
     },
-    setPassword: function (password) {
-      return hashPassword(password).then(function (hash) {
-        localStorage.setItem(HASH_KEY, hash);
-        sessionStorage.setItem(SESSION_KEY, '1');
-      });
+    setPassword: function () {
+      return Promise.resolve();
     },
     verify: function (password) {
-      var saved = localStorage.getItem(HASH_KEY);
-      return hashPassword(password).then(function (hash) {
-        return !!saved && hash === saved;
-      });
+      return Promise.resolve(String(password) === OFFICIAL_PASSWORD);
     }
   };
 })(window);
