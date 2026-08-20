@@ -1196,15 +1196,22 @@
 
   function scoreFormula(usual, quiz, exam) {
     var rules = gradeRules();
-    var bits = [];
-    if (usual != null) bits.push('平時 ' + usual + '×' + rules.classWeight + '%');
-    else bits.push('平時 無');
-    if (quiz != null) bits.push('小考 ' + quiz + '×' + rules.quizWeight + '%');
-    else bits.push('小考 無');
-    if (exam != null) bits.push('段考 ' + exam + '×' + rules.examWeight + '%');
-    else bits.push('段考 無');
+    var parts = [];
+    if (usual != null) parts.push({ label: '平時', v: usual, w: Number(rules.classWeight) || 0 });
+    if (quiz != null) parts.push({ label: '小考', v: quiz, w: Number(rules.quizWeight) || 0 });
+    if (exam != null) parts.push({ label: '段考', v: exam, w: Number(rules.examWeight) || 0 });
+    var wsum = parts.reduce(function (sum, p) { return sum + p.w; }, 0);
     var total = weightedScore(usual, quiz, exam);
-    return bits.join(' ＋ ') + ' → ' + (total == null ? '—' : total);
+    if (!wsum || total == null) return '尚無成績';
+    var bits = parts.map(function (p) {
+      return p.label + ' ' + p.v + '×' + round1(p.w / wsum * 100) + '%';
+    });
+    var missing = [];
+    if (quiz == null) missing.push('小考無');
+    if (exam == null) missing.push('段考無');
+    return bits.join(' ＋ ') +
+      (missing.length ? '（' + missing.join('、') + '，比重重算）' : '') +
+      ' → ' + total;
   }
 
   function mondayOf(dateKey) {
