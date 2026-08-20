@@ -7,8 +7,11 @@ const SHEETS = {
   STUDENTS: '學生',
   CONFIG: '班級設定',
   HISTORY: '操作紀錄',
-  HELP: '使用說明'
+  HELP: '使用說明',
+  CLOUD: '雲端資料'
 };
+
+const CLOUD_CHUNK = 45000;
 
 const HEADERS = {
   STUDENTS: ['班級', '座號', '姓名', '分數', '列', '欄', '備註'],
@@ -126,6 +129,10 @@ function handleRequest_(req) {
         return clearClassStudents(req.className);
       case 'lottery':
         return logLottery(req);
+      case 'getStore':
+        return getCloudStore();
+      case 'putStore':
+        return putCloudStore(req.store || payload);
       default:
         return { ok: false, error: '未知的操作：' + action };
     }
@@ -501,10 +508,79 @@ function withLock_(fn) {
   }
 }
 
+function getCloudStore() {
+  return withLock_(function () {
+    var ss = getSs_();
+    var sheet = ensureCloudSheet_(ss);
+    var json = readCloudChunks_(sheet);
+    if (json) {
+      try {
+        return { ok: true, empty: false, store: JSON.parse(json) };
+      } catch (err) {
+        throw new Error('雲端資料損壞，請從備份還原');
+      }
+    }
+    return { ok: true, empty: true, store: null };
+  });
+}
+
+function putCloudStore(store) {
+  if (!store || typeof store !== 'object') {
+    throw new Error('沒有可儲存的資料');
+  }
+  return withLock_(function () {
+    var ss = getSs_();
+    var sheet = ensureCloudSheet_(ss);
+    store.updatedAt = new Date().toISOString();
+    writeCloudChunks_(sheet, JSON.stringify(store));
+    return { ok: true, updatedAt: store.updatedAt };
+  });
+}
+
+function ensureCloudSheet_(ss) {
+  var sheet = ss.getSheetByName(SHEETS.CLOUD);
+  if (!sheet) {
+    sheet = ss.insertSheet(SHEETS.CLOUD);
+    sheet.getRange(1, 1, 1, 2).setValues([['說明', '這張表是座位表／成績的線上資料庫，請勿手動改內容。']]);
+  }
+  return sheet;
+}
+
+function writeCloudChunks_(sheet, json) {
+  var n = Math.max(1, Math.ceil(String(json).length / CLOUD_CHUNK));
+  var last = sheet.getLastRow();
+  if (last > 2) {
+    sheet.getRange(3, 1, last - 2, 1).clearContent();
+  }
+  sheet.getRange(2, 1, 1, 2).setValues([['chunkCount', n]]);
+  var rows = [];
+  var i;
+  for (i = 0; i < n; i++) {
+    rows.push([String(json).substr(i * CLOUD_CHUNK, CLOUD_CHUNK)]);
+  }
+  sheet.getRange(3, 1, rows.length, 1).setValues(rows);
+}
+
+function readCloudChunks_(sheet) {
+  var n = Number(sheet.getRange(2, 2).getValue()) || 0;
+  if (n <= 0) {
+    n = Number(sheet.getRange(2, 1).getValue()) || 0;
+  }
+  if (n <= 0) return '';
+  var values = sheet.getRange(3, 1, n, 1).getValues();
+  var out = '';
+  var i;
+  for (i = 0; i < values.length; i++) {
+    out += String(values[i][0] || '');
+  }
+  return out;
+}
+
 function ensureSheets_(ss) {
   ensureSheetWithHeaders_(ss, SHEETS.STUDENTS, HEADERS.STUDENTS);
   ensureSheetWithHeaders_(ss, SHEETS.CONFIG, HEADERS.CONFIG);
   ensureSheetWithHeaders_(ss, SHEETS.HISTORY, HEADERS.HISTORY);
+  ensureCloudSheet_(ss);
   ensureHelpSheet_(ss);
 
   const studentSheet = ss.getSheetByName(SHEETS.STUDENTS);

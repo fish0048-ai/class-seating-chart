@@ -321,6 +321,17 @@
   }
   var csvBtn = document.getElementById('btnExportCsv');
   if (csvBtn) csvBtn.addEventListener('click', downloadClassCsv);
+  var cloudBtn = document.getElementById('btnCloudConnect');
+  if (cloudBtn) cloudBtn.addEventListener('click', connectCloud);
+  var cloudUrl = document.getElementById('cloudApiUrl');
+  if (cloudUrl) {
+    cloudUrl.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        connectCloud();
+      }
+    });
+  }
   els.classSelect.addEventListener('change', function () {
     loadClass(els.classSelect.value);
   });
@@ -418,18 +429,85 @@
   function bootstrap() {
     run('getBootstrapData', [], function (data) {
       applyPayload(data, true);
-      if (App.classroom && !App.classroom.students.length) {
+      fillCloudSettings();
+      if (!cloudConnected()) {
+        toast('資料還沒上雲端。請切到教師模式 → 設定，連上 Google 試算表，平板和筆電才能共用');
+      } else if (App.classroom && !App.classroom.students.length) {
         toast('這個班還沒有學生，請切到「教師模式」輸入名單');
       } else {
-        toast('已載入，拖放、抽籤、加扣分都會自動存檔');
+        toast('已從雲端載入，平板與筆電會看到同一份資料');
       }
     });
   }
 
   setInterval(syncScoreDay, 30000);
+  setInterval(pullCloudQuiet, 12000);
   document.addEventListener('visibilitychange', function () {
-    if (!document.hidden) syncScoreDay();
+    if (!document.hidden) {
+      syncScoreDay();
+      pullCloudQuiet();
+    }
   });
+
+  function cloudConnected() {
+    var info = typeof SeatDB !== 'undefined' && SeatDB.cloudStatus ? SeatDB.cloudStatus() : {};
+    return !!(info.enabled && !info.localOnly);
+  }
+
+  function fillCloudSettings() {
+    var info = typeof SeatDB !== 'undefined' && SeatDB.cloudStatus ? SeatDB.cloudStatus() : {};
+    var urlInput = document.getElementById('cloudApiUrl');
+    if (urlInput && (!urlInput.value || urlInput !== document.activeElement)) {
+      urlInput.value = info.url || '';
+    }
+    var line = document.getElementById('cloudStatusLine');
+    if (line) {
+      if (info.saving) line.textContent = '正在存到雲端…';
+      else if (info.enabled && !info.error) line.textContent = '已連上雲端，平板與筆電會讀同一份資料';
+      else if (info.error) line.textContent = info.error;
+      else line.textContent = '尚未連線：請先部署 Apps Script 並貼上網址';
+    }
+    var link = document.getElementById('cloudSheetLink');
+    if (link) {
+      if (info.sheetUrl) {
+        link.innerHTML = '<a href="' + escapeHtml(info.sheetUrl) + '" target="_blank" rel="noopener">打開 Google 試算表資料庫</a>';
+      } else {
+        link.textContent = '';
+      }
+    }
+  }
+
+  function pullCloudQuiet() {
+    if (App.busy || App.dirty || App.lotteryBusy) return;
+    if (typeof SeatDB === 'undefined' || !SeatDB.pullIfNewer) return;
+    if (App.appView === 'teacher' && (App.teacherTab === 'summary' || App.teacherTab === 'settings')) return;
+    var className = App.classroom && App.classroom.className;
+    SeatDB.pullIfNewer(className).then(function (data) {
+      fillCloudSettings();
+      renderMeta();
+      if (!data || !data.changed) return;
+      applyPayload(data, true);
+      if (App.appView === 'teacher') refreshTeacherExtras();
+      toast('已從雲端同步（另一台裝置剛更新）');
+    }).catch(function () {
+      fillCloudSettings();
+      renderMeta();
+    });
+  }
+
+  function connectCloud() {
+    var urlInput = document.getElementById('cloudApiUrl');
+    var url = urlInput ? urlInput.value.trim() : '';
+    if (!url) {
+      toast('請先貼上 Apps Script 網頁應用程式網址');
+      return;
+    }
+    run('connectCloud', [url, App.classroom && App.classroom.className], function (data) {
+      applyPayload(data, true);
+      fillCloudSettings();
+      toast('已連上雲端，之後平板和筆電都會用這份資料');
+    });
+  }
 
   function loadClass(className) {
     run('loadClassroom', [className], function (data) {
@@ -503,7 +581,11 @@
     }
     const time = formatTime(App.classroom.updatedAt);
     const dirty = App.dirty ? '（有未存檔變更）' : '';
-    els.syncMeta.textContent = App.classroom.students.length + ' 位學生 · 已存在這個瀏覽器' +
+    var info = typeof SeatDB !== 'undefined' && SeatDB.cloudStatus ? SeatDB.cloudStatus() : {};
+    var where = info.saving ? '正在存到雲端'
+      : (info.enabled && !info.error) ? '雲端已同步'
+      : (info.error ? '尚未連上雲端' : '只在這台裝置');
+    els.syncMeta.textContent = App.classroom.students.length + ' 位學生 · ' + where +
       (time ? ' · ' + time : '') + dirty;
   }
 
@@ -800,19 +882,29 @@
   }
 
   function openDatabase() {
-    run('listRecords', [], function (data) {
-      noteScoreRoll(data);
-      App.dbRows = data.rows || [];
-      App.dbFilter = (App.classroom && App.classroom.className) || '__all__';
-      fillDatabaseFilter(data.classNames || App.classNames || []);
-      if (els.dbClassFilter) els.dbClassFilter.value = App.dbFilter;
-      if (!App.viewDate && App.activeDate) App.viewDate = App.activeDate;
-      renderDatabaseTable(App.dbRows);
-      switchTeacherTab(App.pendingTeacherTab || App.teacherTab || 'roster');
-      App.pendingTeacherTab = null;
-      refreshTeacherExtras();
-      showTeacherView();
-    });
+    var start = function () {
+      run('listRecords', [], function (data) {
+        noteScoreRoll(data);
+        App.dbRows = data.rows || [];
+        App.dbFilter = (App.classroom && App.classroom.className) || '__all__';
+        fillDatabaseFilter(data.classNames || App.classNames || []);
+        if (els.dbClassFilter) els.dbClassFilter.value = App.dbFilter;
+        if (!App.viewDate && App.activeDate) App.viewDate = App.activeDate;
+        renderDatabaseTable(App.dbRows);
+        switchTeacherTab(App.pendingTeacherTab || App.teacherTab || 'roster');
+        App.pendingTeacherTab = null;
+        refreshTeacherExtras();
+        showTeacherView();
+      });
+    };
+    if (typeof SeatDB !== 'undefined' && SeatDB.pullIfNewer && !App.dirty) {
+      SeatDB.pullIfNewer(App.classroom && App.classroom.className).then(function (data) {
+        if (data && data.changed) applyPayload(data, true);
+        start();
+      }).catch(start);
+      return;
+    }
+    start();
   }
 
   function teacherTargetClass() {
@@ -2776,7 +2868,16 @@
   function saveAll() {
     run('saveClassroomState', [serializeClassroom()], function (data) {
       applyPayload(data, true);
-      toast('已存到這個瀏覽器，關掉再開還在');
+      if (typeof SeatDB !== 'undefined' && SeatDB.flushCloud) {
+        SeatDB.flushCloud().then(function () {
+          fillCloudSettings();
+          renderMeta();
+        }).catch(function () {
+          fillCloudSettings();
+          renderMeta();
+        });
+      }
+      toast(cloudConnected() ? '已存到雲端，平板與筆電都會看到' : '已暫存在這台。請到設定連上雲端，另一台才看得到');
     });
   }
 
@@ -2786,7 +2887,7 @@
       return;
     }
     downloadText('座位表備份.json', SeatDB.exportJSON(), 'application/json;charset=utf-8');
-    toast('已下載備份，換電腦時用「還原備份」即可');
+    toast('已下載備份。平時請用雲端同步，這份是保險用');
   }
 
   function downloadClassCsv() {
@@ -2841,6 +2942,7 @@
     if (els.settingFile) els.settingFile.value = '';
     App.pendingImport = null;
     renderUploadPreview(null);
+    fillCloudSettings();
   }
 
   function saveSettings() {

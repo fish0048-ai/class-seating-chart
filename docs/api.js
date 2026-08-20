@@ -272,31 +272,116 @@
     return Promise.resolve(result);
   }
 
-  function loadStore() {
+  var memStore = null;
+  var hydrated = false;
+  var saveTimer = null;
+  var lastPushAt = '';
+  var cloudError = '';
+  var cloudSaving = false;
+
+  function cloudOn() {
+    return typeof CloudStore !== 'undefined' && CloudStore.enabled();
+  }
+
+  function normalizeLoadedStore_(parsed) {
+    if (!parsed || !parsed.classes) return null;
+    if (!parsed.daily) parsed.daily = {};
+    if (!parsed.history) parsed.history = [];
+    if (!parsed.grades) parsed.grades = {};
+    return parsed;
+  }
+
+  function readLegacyLocal_() {
     try {
       var raw = localStorage.getItem(KEY);
-      if (raw) {
-        var parsed = JSON.parse(raw);
-        if (parsed && parsed.classes) {
-          if (!parsed.daily) parsed.daily = {};
-          if (!parsed.history) parsed.history = [];
-          if (!parsed.grades) parsed.grades = {};
-          if (ensureRolledScores_(parsed)) saveStore(parsed);
-          return parsed;
-        }
-      }
-    } catch (err) {}
-    return seedStore();
+      if (!raw) return null;
+      return normalizeLoadedStore_(JSON.parse(raw));
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function clearLegacyLocal_() {
+    try { localStorage.removeItem(KEY); } catch (err) {}
+  }
+
+  function loadStore() {
+    if (!memStore) {
+      memStore = { classes: {}, history: [], daily: {}, grades: {}, scoreDate: scoreDateFromNow_() };
+    }
+    if (!memStore.daily) memStore.daily = {};
+    if (!memStore.history) memStore.history = [];
+    if (!memStore.grades) memStore.grades = {};
+    if (hydrated && ensureRolledScores_(memStore)) saveStore(memStore);
+    return memStore;
   }
 
   function saveStore(store) {
-    localStorage.setItem(KEY, JSON.stringify({
-      classes: store.classes,
-      history: store.history || [],
-      daily: store.daily || {},
-      grades: store.grades || {},
-      scoreDate: store.scoreDate || scoreDateFromNow_()
-    }));
+    memStore = store;
+    if (!hydrated) return;
+    store.updatedAt = nowIso();
+    if (!cloudOn()) {
+      try {
+        localStorage.setItem(KEY, JSON.stringify(store));
+      } catch (err) {}
+      return;
+    }
+    scheduleCloudSave_();
+  }
+
+  function scheduleCloudSave_() {
+    if (!cloudOn() || !hydrated || !memStore) return;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(function () {
+      pushCloud_(memStore).catch(function () {});
+    }, 600);
+  }
+
+  function pushCloud_(store) {
+    if (!cloudOn() || !store) return Promise.resolve();
+    cloudSaving = true;
+    lastPushAt = store.updatedAt || nowIso();
+    store.updatedAt = lastPushAt;
+    return CloudStore.putStore(store).then(function (data) {
+      cloudSaving = false;
+      cloudError = '';
+      if (data && data.updatedAt) {
+        store.updatedAt = data.updatedAt;
+        lastPushAt = data.updatedAt;
+      }
+      return data;
+    }).catch(function (err) {
+      cloudSaving = false;
+      cloudError = err && err.message ? err.message : '雲端存檔失敗';
+      return Promise.reject(err);
+    });
+  }
+
+  function hydrateFromCloud_() {
+    if (!cloudOn()) {
+      return Promise.reject(Object.assign(new Error('尚未連上雲端資料庫。請到教師模式 → 設定與上傳，貼上 Apps Script 網址。'), { code: 'NO_CLOUD' }));
+    }
+    return CloudStore.getStore().then(function (data) {
+      var remote = data && data.store ? normalizeLoadedStore_(data.store) : null;
+      cloudError = '';
+      if (remote) {
+        memStore = remote;
+        hydrated = true;
+        clearLegacyLocal_();
+        if (ensureRolledScores_(memStore)) saveStore(memStore);
+        return memStore;
+      }
+      memStore = hasClasses_(memStore) ? memStore : (readLegacyLocal_() || seedStore());
+      hydrated = true;
+      return pushCloud_(memStore).then(function () {
+        clearLegacyLocal_();
+        return memStore;
+      });
+    });
+  }
+
+  function hasClasses_(store) {
+    return !!(store && store.classes && Object.keys(store.classes).length);
   }
 
   function seedStore() {
@@ -311,7 +396,7 @@
         note: ''
       };
     });
-    var store = {
+    return {
       classes: {
         '範例班': {
           className: '範例班',
@@ -327,8 +412,24 @@
       grades: {},
       scoreDate: scoreDateFromNow_()
     };
-    saveStore(store);
-    return store;
+  }
+
+  function cloudStatusPayload_() {
+    return {
+      enabled: cloudOn(),
+      url: cloudOn() ? CloudStore.url() : '',
+      sheetUrl: typeof CloudStore !== 'undefined' ? CloudStore.spreadsheetUrl() : '',
+      hydrated: hydrated,
+      saving: cloudSaving,
+      error: cloudError,
+      updatedAt: memStore && memStore.updatedAt ? memStore.updatedAt : '',
+      localOnly: !cloudOn()
+    };
+  }
+
+  function bootstrapPayload_(store) {
+    var names = classNames(store);
+    return Object.assign(payload(store, names[0] || '範例班'), { cloud: cloudStatusPayload_() });
   }
 
   function classNames(store) {
@@ -443,9 +544,73 @@
 
   global.SeatDB = {
     getBootstrapData: function () {
-      var store = loadStore();
-      var names = classNames(store);
-      return wrap(payload(store, names[0] || '範例班'));
+      if (hydrated) {
+        return wrap(bootstrapPayload_(loadStore()));
+      }
+      if (!cloudOn()) {
+        memStore = readLegacyLocal_() || seedStore();
+        hydrated = true;
+        cloudError = '尚未連上雲端資料庫';
+        return wrap(bootstrapPayload_(memStore));
+      }
+      return hydrateFromCloud_().then(function (store) {
+        return bootstrapPayload_(store);
+      });
+    },
+    cloudStatus: function () {
+      return cloudStatusPayload_();
+    },
+    connectCloud: function (url, className) {
+      if (typeof CloudStore === 'undefined') {
+        return Promise.reject(new Error('雲端模組尚未載入'));
+      }
+      url = String(url || '').trim();
+      if (!url || url.indexOf('/exec') < 0) {
+        return Promise.reject(new Error('請貼上結尾是 /exec 的網頁應用程式網址'));
+      }
+      CloudStore.setUrl(url);
+      hydrated = false;
+      cloudError = '';
+      return hydrateFromCloud_().then(function (store) {
+        var names = classNames(store);
+        var current = className && store.classes[className] ? className : (names[0] || '範例班');
+        return Object.assign(payload(store, current), { cloud: cloudStatusPayload_() });
+      });
+    },
+    flushCloud: function () {
+      if (!cloudOn() || !memStore || !hydrated) {
+        return wrap(cloudStatusPayload_());
+      }
+      clearTimeout(saveTimer);
+      return pushCloud_(memStore).then(function () {
+        return cloudStatusPayload_();
+      });
+    },
+    pullIfNewer: function (className) {
+      if (!cloudOn() || !hydrated || cloudSaving) {
+        return wrap({ changed: false, cloud: cloudStatusPayload_() });
+      }
+      return CloudStore.getStore().then(function (data) {
+        var remote = data && data.store ? normalizeLoadedStore_(data.store) : null;
+        if (!remote || !remote.updatedAt) {
+          return { changed: false, cloud: cloudStatusPayload_() };
+        }
+        var localAt = (memStore && memStore.updatedAt) || '';
+        if (!localAt || remote.updatedAt > localAt) {
+          if (remote.updatedAt === lastPushAt) {
+            return { changed: false, cloud: cloudStatusPayload_() };
+          }
+          memStore = remote;
+          cloudError = '';
+          var names = classNames(memStore);
+          var target = className && memStore.classes[className] ? className : (names[0] || '範例班');
+          return Object.assign(payload(memStore, target), {
+            changed: true,
+            cloud: cloudStatusPayload_()
+          });
+        }
+        return { changed: false, cloud: cloudStatusPayload_() };
+      });
     },
     loadClassroom: function (className) {
       var store = loadStore();
@@ -838,13 +1003,18 @@
       return gradebookResult_(className, book);
     },
     exportJSON: function () {
-      return localStorage.getItem(KEY) || JSON.stringify(loadStore());
+      return JSON.stringify(loadStore());
     },
     importJSON: function (text) {
-      var parsed = JSON.parse(text);
-      if (!parsed || !parsed.classes) throw new Error('備份檔格式不正確');
-      saveStore(parsed);
-      return this.getBootstrapData();
+      var parsed = normalizeLoadedStore_(JSON.parse(text));
+      if (!parsed) throw new Error('備份檔格式不正確');
+      memStore = parsed;
+      hydrated = true;
+      saveStore(memStore);
+      var self = this;
+      return this.flushCloud().then(function () {
+        return self.getBootstrapData();
+      });
     },
     exportCSV: function (className) {
       var store = loadStore();

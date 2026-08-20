@@ -790,6 +790,43 @@
     min-height: 220px;
   }
 
+  .cloud-box {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 14px 16px 16px;
+    margin-bottom: 14px;
+  }
+
+  .cloud-box h3 {
+    margin: 0 0 6px;
+    font-size: 16px;
+  }
+
+  .cloud-status {
+    margin: 8px 0;
+    font-weight: 700;
+    color: #1b3a4b;
+  }
+
+  .cloud-steps {
+    margin: 8px 0 12px 1.2em;
+    padding: 0;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .cloud-box label {
+    display: block;
+    margin: 8px 0;
+  }
+
+  .cloud-box input[type="url"] {
+    width: 100%;
+    margin-top: 4px;
+  }
+
   .subhead {
     margin: 4px 0 0;
     font-size: 15px;

@@ -248,6 +248,24 @@
           </div>
 
           <div id="tabSettings" class="teacher-panel settings-panel" hidden>
+            <div class="cloud-box">
+              <h3>雲端資料庫（平板與筆電共用）</h3>
+              <p class="hint">名單、座位、加扣分與成績都存在這份 Google 試算表，不再只存在這個瀏覽器。</p>
+              <p id="cloudStatusLine" class="cloud-status">尚未連線</p>
+              <p id="cloudSheetLink" class="hint"></p>
+              <label>Apps Script 網頁應用程式網址
+                <input id="cloudApiUrl" type="url" placeholder="https://script.google.com/macros/s/…/exec" />
+              </label>
+              <ol class="cloud-steps">
+                <li>打開 Google 試算表（上方會顯示連結）。</li>
+                <li>「擴充功能」→「Apps Script」，把最新的 Code.gs 全部貼上並儲存。</li>
+                <li>「部署」→「新增部署作業」，類型選「網頁應用程式」。</li>
+                <li>執行身分「我」，對象「任何人」，把結尾是 /exec 的網址貼上來，按「連上雲端」。</li>
+              </ol>
+              <div class="modal-actions">
+                <button type="button" class="tool primary" id="btnCloudConnect">連上雲端</button>
+              </div>
+            </div>
             <p class="hint">上傳 CSV／Excel，或直接貼上。儲存後立刻可用。</p>
             <div class="form-grid">
               <label>班級名稱
@@ -327,6 +345,8 @@
       </div>
     </div>
 
+    <script src="config.js"></script>
+    <script src="cloud.js"></script>
     <script src="api.js"></script>
     <script src="app.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
