@@ -140,13 +140,10 @@
           </div>
 
           <div id="tabSummary" class="teacher-panel" hidden>
-            <p class="hint">平時：上課加扣、實作、作業。平時考試：黃卷與早自習。考試可請假。該週沒有平時，就只算平時考試。</p>
-            <div class="grade-subtabs" role="tablist" aria-label="成績統計表切換">
-              <button type="button" class="tool tab-on" data-grade-view="term">學期成績</button>
-              <button type="button" class="tool" data-grade-view="week">每週成績表現</button>
-            </div>
+            <p class="hint">點標題即可展開或收合。平時：上課加扣、實作、作業。平時考試：黃卷與早自習。考試可請假。該週沒有平時，就只算平時考試。</p>
 
-            <div id="gradeTermView" class="grade-view">
+            <details class="grade-fold" id="gradeTermView" open>
+              <summary>學期成績</summary>
               <div class="grade-toolbar">
                 <label>類型
                   <select id="gradeColType" aria-label="成績欄類型">
@@ -171,9 +168,10 @@
                 <button type="button" class="tool primary" id="btnSaveGrades">儲存成績</button>
               </div>
               <div id="gradeTermWrap" class="grade-boards"></div>
-            </div>
+            </details>
 
-            <div id="gradeWeekView" class="grade-view" hidden>
+            <details class="grade-fold" id="gradeWeekView">
+              <summary>每週成績表現</summary>
               <div id="gradeRuleBox" class="rule-box"></div>
               <div class="grade-toolbar">
                 <label>底分
@@ -202,7 +200,7 @@
                   <tbody id="gradeWeekBody"></tbody>
                 </table>
               </div>
-            </div>
+            </details>
           </div>
 
           <div id="tabStats" class="teacher-panel stats-panel" hidden>

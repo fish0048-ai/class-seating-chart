@@ -19,6 +19,7 @@
     viewDate: '',
     dailyDays: [],
     gradeView: 'term',
+    gradeOpen: { usual: true, quiz: false, exam: false, sum: false },
     gradebook: null,
     weekKey: ''
   };
@@ -197,11 +198,18 @@
   if (exportSheet) exportSheet.addEventListener('click', downloadScoreSheet);
   var exportReport = document.getElementById('btnExportReport');
   if (exportReport) exportReport.addEventListener('click', downloadScoreReport);
-  document.querySelectorAll('[data-grade-view]').forEach(function (btn) {
-    btn.addEventListener('click', function () {
-      switchGradeView(btn.getAttribute('data-grade-view'));
+  var gradeTermFold = document.getElementById('gradeTermView');
+  var gradeWeekFold = document.getElementById('gradeWeekView');
+  if (gradeTermFold) {
+    gradeTermFold.addEventListener('toggle', function () {
+      if (gradeTermFold.open) App.gradeView = 'term';
     });
-  });
+  }
+  if (gradeWeekFold) {
+    gradeWeekFold.addEventListener('toggle', function () {
+      if (gradeWeekFold.open) App.gradeView = 'week';
+    });
+  }
   var addGradeCol = document.getElementById('btnAddGradeCol');
   if (addGradeCol) addGradeCol.addEventListener('click', function () {
     addGradeColumn(els.gradeColType ? els.gradeColType.value : 'yellow');
@@ -1450,14 +1458,23 @@
 
   function switchGradeView(view) {
     App.gradeView = view === 'week' ? 'week' : 'term';
-    document.querySelectorAll('[data-grade-view]').forEach(function (btn) {
-      btn.classList.toggle('tab-on', btn.getAttribute('data-grade-view') === App.gradeView);
-    });
     var term = document.getElementById('gradeTermView');
     var week = document.getElementById('gradeWeekView');
-    if (term) term.hidden = App.gradeView !== 'term';
-    if (week) week.hidden = App.gradeView !== 'week';
-    renderGradebook();
+    if (term) term.open = App.gradeView === 'term';
+    if (week) week.open = App.gradeView === 'week';
+  }
+
+  function rememberOpenBoards() {
+    var open = App.gradeOpen || { usual: true, quiz: false, exam: false, sum: false };
+    var wrap = els.gradeTermWrap || document.getElementById('gradeTermWrap');
+    if (wrap) {
+      wrap.querySelectorAll('details.grade-board').forEach(function (el) {
+        var hit = el.className.match(/tone-([a-z]+)/);
+        if (hit) open[hit[1]] = el.open;
+      });
+    }
+    App.gradeOpen = open;
+    return open;
   }
 
   function renderGradebook() {
@@ -1592,13 +1609,14 @@
   }
 
   function gradeBoardHtml(title, tone, headCells, bodyRows) {
-    return '<section class="grade-board tone-' + tone + '">' +
-      '<h3>' + title + '</h3>' +
+    var open = App.gradeOpen && App.gradeOpen[tone];
+    return '<details class="grade-board tone-' + tone + '"' + (open ? ' open' : '') + '>' +
+      '<summary>' + title + '</summary>' +
       '<div class="sheet-wrap">' +
       '<table class="sheet-table report-table">' +
       '<thead><tr>' + studentHeadCells() + headCells + '</tr></thead>' +
       '<tbody>' + bodyRows + '</tbody>' +
-      '</table></div></section>';
+      '</table></div></details>';
   }
 
   function renderTermGrades() {
@@ -1617,6 +1635,7 @@
       wrap.innerHTML = '<p class="empty-board">這個班還沒有學生</p>';
       return;
     }
+    rememberOpenBoards();
     var rows = students.map(function (stu) {
       var parts = studentGradeParts(stu, '');
       return Object.assign({ seatNo: stu.seatNo, name: stu.name }, parts);
@@ -1742,7 +1761,7 @@
     if (!els.gradeRuleBox) return;
     var rules = gradeRules();
     els.gradeRuleBox.innerHTML =
-      '<details class="rule-details" open>' +
+      '<details class="rule-details">' +
       '<summary>每週成績計算規則</summary>' +
       '<ol>' +
       '<li>平時表現包含：上課加扣、實作評量（實驗室）、實作成績（回家做）、作業。有幾項就平均幾項。</li>' +
@@ -1884,6 +1903,11 @@
     }).then(function (data) {
       applyGradebook(data);
       if (els.gradeColName) els.gradeColName.value = '';
+      rememberOpenBoards();
+      var fold = { yellow: 'quiz', morning: 'quiz', exam: 'exam', lab: 'usual', practical: 'usual', homework: 'usual' };
+      App.gradeOpen[fold[type] || 'usual'] = true;
+      var term = document.getElementById('gradeTermView');
+      if (term) term.open = true;
       renderGradebook();
       toast('已新增' + (GRADE_TYPE_LABEL[type] || '成績') + '欄');
     }).catch(function (error) {

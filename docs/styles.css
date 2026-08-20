@@ -464,12 +464,65 @@
   }
 
   #tabSummary.teacher-panel {
-    overflow: hidden;
+    overflow: auto;
   }
 
-  #tabSummary > .hint,
-  #tabSummary > .grade-subtabs {
+  #tabSummary > .hint {
     flex-shrink: 0;
+  }
+
+  .grade-fold {
+    flex-shrink: 0;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 0 12px 12px;
+  }
+
+  .grade-fold > summary,
+  .grade-board > summary {
+    cursor: pointer;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 700;
+  }
+
+  .grade-fold > summary {
+    font-size: 16px;
+    padding: 12px 4px;
+  }
+
+  .grade-board > summary {
+    font-size: 14px;
+    padding: 10px 8px;
+  }
+
+  .grade-fold > summary::-webkit-details-marker,
+  .grade-board > summary::-webkit-details-marker,
+  .rule-details summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .grade-fold > summary::before,
+  .grade-board > summary::before,
+  .rule-details summary::before {
+    content: "▸";
+    width: 1em;
+    color: var(--muted);
+    font-size: 14px;
+  }
+
+  .grade-fold[open] > summary::before,
+  .grade-board[open] > summary::before,
+  .rule-details[open] > summary::before {
+    content: "▾";
+  }
+
+  .grade-fold > summary + *,
+  .grade-fold[open] > .grade-toolbar {
+    margin-top: 4px;
   }
 
   .sheet-table th small,
@@ -491,27 +544,8 @@
     flex: 1;
   }
 
-  #tabSummary .grade-view {
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    overflow: hidden;
-  }
-
-  #tabSummary .grade-view[hidden] {
-    display: none !important;
-  }
-
   .grade-subtabs {
-    display: flex;
-    gap: 4px;
-    padding: 4px;
-    background: #eef4f7;
-    border-radius: 14px;
-    flex-shrink: 0;
-    width: fit-content;
+    display: none;
   }
 
   .grade-toolbar {
@@ -520,6 +554,7 @@
     gap: 8px;
     align-items: end;
     flex-shrink: 0;
+    margin: 0 0 10px;
   }
 
   .grade-toolbar label {
@@ -543,40 +578,33 @@
   }
 
   .grade-boards {
-    flex: 1;
-    min-height: 0;
-    overflow: auto;
     display: flex;
     flex-direction: column;
-    gap: 14px;
-    padding-bottom: 8px;
-  }
-
-  .grade-board h3 {
-    margin: 0 0 8px;
-    font-size: 14px;
-    display: flex;
-    align-items: center;
     gap: 8px;
   }
 
-  .grade-board h3::before {
-    content: "";
-    width: 8px;
-    height: 8px;
-    border-radius: 99px;
-    background: var(--primary);
+  .grade-board {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #faf8f3;
+    overflow: hidden;
   }
 
-  .grade-board.tone-usual h3::before { background: #2c7a4b; }
-  .grade-board.tone-quiz h3::before { background: #d9852b; }
-  .grade-board.tone-exam h3::before { background: #b4413c; }
-  .grade-board.tone-sum h3::before { background: #1b3a4b; }
+  .grade-board > summary {
+    background: #fff;
+    border-left: 4px solid var(--primary);
+  }
+
+  .grade-board.tone-usual > summary { border-left-color: #2c7a4b; }
+  .grade-board.tone-quiz > summary { border-left-color: #d9852b; }
+  .grade-board.tone-exam > summary { border-left-color: #b4413c; }
+  .grade-board.tone-sum > summary { border-left-color: #1b3a4b; }
 
   .grade-board .sheet-wrap {
     flex: none;
     min-height: 0;
-    max-height: min(52vh, 460px);
+    margin: 0 8px 8px;
+    max-height: min(56vh, 520px);
   }
 
   .empty-board {
@@ -738,7 +766,9 @@
   }
 
   #gradeWeekView .sheet-wrap {
-    flex: 1;
+    flex: none;
+    max-height: min(56vh, 520px);
+    margin-top: 4px;
   }
 
   .grade-toolbar .tool {
