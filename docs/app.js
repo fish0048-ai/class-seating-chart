@@ -3165,6 +3165,74 @@
     });
   }
 
+  function usualScoreForDraw(student) {
+    var act = classActivity(student.seatNo, '');
+    var live = Number(student.score) || 0;
+    var today = App.activeDate || '';
+    var todayOld = 0;
+    if (today) {
+      (App.dailyDays || []).forEach(function (day) {
+        if (day.date !== today) return;
+        (day.students || []).forEach(function (s) {
+          if (String(s.seatNo) === String(student.seatNo)) todayOld = Number(s.score) || 0;
+        });
+      });
+    }
+    var raw = (act.raw || 0) - todayOld + live;
+    var has = act.has || live !== 0;
+    var book = App.gradebook || emptyGradebook();
+    var bundle = usualBundle(student.seatNo, raw, has, book.labs || [], book.practicals || [], book.homeworks || []);
+    return bundle.usual == null ? 60 : bundle.usual;
+  }
+
+  function pickFromPool(pool) {
+    var sum = 0;
+    var weights = [];
+    var i;
+    for (i = 0; i < pool.length; i++) {
+      var t = Math.max(0, Math.min(100, Number(usualScoreForDraw(pool[i])) || 60));
+      var w = 0.55 + t / 100 * 1.45;
+      weights.push(w);
+      sum += w;
+    }
+    var r = Math.random() * (sum || pool.length);
+    for (i = 0; i < pool.length; i++) {
+      r -= weights[i] || 1;
+      if (r <= 0) return pool[i];
+    }
+    return pool[pool.length - 1];
+  }
+
+  function prepareDrawData(done) {
+    var className = App.classroom && App.classroom.className;
+    if (!className) {
+      done();
+      return;
+    }
+    var needDaily = !(App.dailyDays && App.dailyDays.length);
+    var needBook = !App.gradebook;
+    if (!needDaily && !needBook) {
+      done();
+      return;
+    }
+    var chain = Promise.resolve();
+    if (needDaily) {
+      chain = chain.then(function () {
+        return api('listDaily', [className]).then(function (data) {
+          if (data && data.days) App.dailyDays = data.days;
+        });
+      });
+    }
+    if (needBook) {
+      chain = chain.then(function () {
+        return api('getGradebook', [className]).then(function (data) {
+          applyGradebook(data);
+        });
+      });
+    }
+    chain.then(done).catch(function () { done(); });
+  }
+
   function openLottery(fromButton) {
     if (App.lotteryBusy) return;
     const unique = els.lotteryUnique.checked;
@@ -3187,8 +3255,9 @@
       els.lotteryCard.classList.remove('revealed');
       els.lotteryCard.classList.add('rolling');
     }
-    const winner = pool[Math.floor(Math.random() * pool.length)];
-    animateLottery(pool, winner, function () {
+    prepareDrawData(function () {
+      const winner = pickFromPool(pool);
+      animateLottery(pool, winner, function () {
       App.drawn[App.classroom.className] = drawn.concat([winner.seatNo]);
       App.selectedSeatNo = winner.seatNo;
       els.lotteryName.textContent = winner.name;
@@ -3209,6 +3278,7 @@
         name: winner.name,
         detail: fromButton ? '抽籤' : '再抽一次'
       }], function () {}, true);
+    });
     });
   }
 
