@@ -42,7 +42,13 @@
     lotteryCard: document.getElementById('lotteryCard'),
     databaseModal: document.getElementById('databaseModal'),
     dbBody: document.getElementById('dbBody'),
-    dbClassFilter: document.getElementById('dbClassFilter')
+    dbClassFilter: document.getElementById('dbClassFilter'),
+    authModal: document.getElementById('authModal'),
+    authTitle: document.getElementById('authTitle'),
+    authHint: document.getElementById('authHint'),
+    authPassword: document.getElementById('authPassword'),
+    authPassword2: document.getElementById('authPassword2'),
+    authPassword2Wrap: document.getElementById('authPassword2Wrap')
   };
 
   document.getElementById('btnPlus').addEventListener('click', function () {
@@ -53,7 +59,11 @@
   });
   document.getElementById('btnUndo').addEventListener('click', undoLast);
   var resetScoresBtn = document.getElementById('btnResetScores');
-  if (resetScoresBtn) resetScoresBtn.addEventListener('click', resetAllScores);
+  if (resetScoresBtn) {
+    resetScoresBtn.addEventListener('click', function () {
+      requireTeacher(resetAllScores);
+    });
+  }
   document.getElementById('btnLottery').addEventListener('click', function () {
     openLottery(true);
   });
@@ -70,13 +80,48 @@
   });
   document.getElementById('btnLotteryReset').addEventListener('click', resetDrawn);
   document.getElementById('btnSave').addEventListener('click', saveAll);
-  document.getElementById('btnSettings').addEventListener('click', openSettings);
+  document.getElementById('btnSettings').addEventListener('click', function () {
+    requireTeacher(openSettings);
+  });
   document.getElementById('btnSettingsClose').addEventListener('click', function () {
     els.settingsModal.hidden = true;
   });
   document.getElementById('btnSettingsSave').addEventListener('click', saveSettings);
   var dbBtn = document.getElementById('btnDatabase');
-  if (dbBtn) dbBtn.addEventListener('click', openDatabase);
+  if (dbBtn) {
+    dbBtn.addEventListener('click', function () {
+      requireTeacher(openDatabase);
+    });
+  }
+  var lockBtn = document.getElementById('btnTeacherLock');
+  if (lockBtn) {
+    lockBtn.addEventListener('click', lockTeacher);
+  }
+  var changePwBtn = document.getElementById('btnChangePassword');
+  if (changePwBtn) {
+    changePwBtn.addEventListener('click', function () {
+      openAuthModal('change');
+    });
+  }
+  var authCancel = document.getElementById('btnAuthCancel');
+  if (authCancel) {
+    authCancel.addEventListener('click', function () {
+      if (els.authModal) els.authModal.hidden = true;
+      App.teacherNext = null;
+    });
+  }
+  var authSubmit = document.getElementById('btnAuthSubmit');
+  if (authSubmit) authSubmit.addEventListener('click', submitAuth);
+  if (els.authPassword) {
+    els.authPassword.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') submitAuth();
+    });
+  }
+  if (els.authPassword2) {
+    els.authPassword2.addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') submitAuth();
+    });
+  }
   var dbClose = document.getElementById('btnDatabaseClose');
   if (dbClose) dbClose.addEventListener('click', function () {
     if (els.databaseModal) els.databaseModal.hidden = true;
@@ -112,10 +157,12 @@
   var uploadBtn = document.getElementById('btnUpload');
   if (uploadBtn) {
     uploadBtn.addEventListener('click', function () {
-      openSettings();
-      setTimeout(function () {
-        if (els.settingFile) els.settingFile.click();
-      }, 80);
+      requireTeacher(function () {
+        openSettings();
+        setTimeout(function () {
+          if (els.settingFile) els.settingFile.click();
+        }, 80);
+      });
     });
   }
   var pickBtn = document.getElementById('btnPickFile');
@@ -150,12 +197,18 @@
     });
   }
   var exportBtn = document.getElementById('btnExport');
-  if (exportBtn) exportBtn.addEventListener('click', downloadBackup);
+  if (exportBtn) {
+    exportBtn.addEventListener('click', function () {
+      requireTeacher(downloadBackup);
+    });
+  }
   var importBtn = document.getElementById('btnImport');
   var backupFile = document.getElementById('backupFile');
   if (importBtn && backupFile) {
     importBtn.addEventListener('click', function () {
-      backupFile.click();
+      requireTeacher(function () {
+        backupFile.click();
+      });
     });
     backupFile.addEventListener('change', function () {
       if (backupFile.files && backupFile.files[0]) {
@@ -177,13 +230,100 @@
   });
 
   bootstrap();
+  applyTeacherUi();
+
+  function applyTeacherUi() {
+    document.body.classList.toggle('teacher-on', !!(window.TeacherAuth && TeacherAuth.isUnlocked()));
+  }
+
+  function requireTeacher(nextFn) {
+    if (window.TeacherAuth && TeacherAuth.isUnlocked()) {
+      nextFn();
+      return;
+    }
+    App.teacherNext = nextFn;
+    openAuthModal(TeacherAuth && TeacherAuth.hasPassword() ? 'unlock' : 'setup');
+  }
+
+  function lockTeacher() {
+    if (window.TeacherAuth) TeacherAuth.lock();
+    if (els.databaseModal) els.databaseModal.hidden = true;
+    if (els.settingsModal) els.settingsModal.hidden = true;
+    if (els.authModal) els.authModal.hidden = true;
+    applyTeacherUi();
+    toast('已鎖定教師模式');
+  }
+
+  function openAuthModal(mode) {
+    App.authMode = mode || 'unlock';
+    if (els.authPassword) els.authPassword.value = '';
+    if (els.authPassword2) els.authPassword2.value = '';
+    var setup = App.authMode === 'setup' || App.authMode === 'change';
+    if (els.authPassword2Wrap) els.authPassword2Wrap.hidden = !setup;
+    if (els.authTitle) {
+      els.authTitle.textContent = App.authMode === 'change' ? '修改密碼' : setup ? '設定教師密碼' : '教師模式';
+    }
+    if (els.authHint) {
+      els.authHint.textContent = setup
+        ? '請設定至少 4 個字的密碼，上課時可按「鎖定」避免學生亂改。'
+        : '請輸入教師密碼。';
+    }
+    var submit = document.getElementById('btnAuthSubmit');
+    if (submit) submit.textContent = setup ? '儲存密碼' : '進入';
+    if (els.authModal) els.authModal.hidden = false;
+    setTimeout(function () {
+      if (els.authPassword) els.authPassword.focus();
+    }, 50);
+  }
+
+  function submitAuth() {
+    if (!window.TeacherAuth) {
+      toast('無法使用教師密碼');
+      return;
+    }
+    var password = els.authPassword ? els.authPassword.value : '';
+    var again = els.authPassword2 ? els.authPassword2.value : '';
+    if (App.authMode === 'setup' || App.authMode === 'change') {
+      if (password.length < 4) {
+        toast('密碼至少 4 個字');
+        return;
+      }
+      if (password !== again) {
+        toast('兩次密碼不一致');
+        return;
+      }
+      TeacherAuth.setPassword(password).then(function () {
+        if (els.authModal) els.authModal.hidden = true;
+        applyTeacherUi();
+        toast(App.authMode === 'change' ? '密碼已修改' : '教師密碼已設定');
+        finishTeacherNext();
+      });
+      return;
+    }
+    TeacherAuth.verify(password).then(function (ok) {
+      if (!ok) {
+        toast('密碼不正確');
+        return;
+      }
+      TeacherAuth.unlock();
+      if (els.authModal) els.authModal.hidden = true;
+      applyTeacherUi();
+      toast('已進入教師模式');
+      finishTeacherNext();
+    });
+  }
+
+  function finishTeacherNext() {
+    var next = App.teacherNext;
+    App.teacherNext = null;
+    if (typeof next === 'function') next();
+  }
 
   function bootstrap() {
     run('getBootstrapData', [], function (data) {
       applyPayload(data, true);
       if (App.classroom && !App.classroom.students.length) {
-        openSettings();
-        toast('這個班還沒有學生，請上傳或貼上名單');
+        toast('這個班還沒有學生，請按「教師模式」輸入名單');
       } else {
         toast('已載入，拖放、抽籤、加扣分都會自動存檔');
       }
@@ -249,7 +389,9 @@
         '</div>';
       var emptyBtn = document.getElementById('btnEmptySetup');
       if (emptyBtn) {
-        emptyBtn.addEventListener('click', openSettings);
+        emptyBtn.addEventListener('click', function () {
+          requireTeacher(openSettings);
+        });
       }
       return;
     }

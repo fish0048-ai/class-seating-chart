@@ -34,14 +34,15 @@
           <button type="button" class="chip" data-delta="5">5</button>
         </div>
         <button type="button" class="tool" id="btnUndo">復原</button>
-        <button type="button" class="tool" id="btnResetScores">重製加扣分</button>
+        <button type="button" class="tool teacher-only" id="btnResetScores">重製加扣分</button>
         <button type="button" class="tool accent" id="btnLottery">抽籤</button>
-        <button type="button" class="tool" id="btnUpload">上傳名單</button>
-        <button type="button" class="tool" id="btnExport">下載備份</button>
-        <button type="button" class="tool" id="btnImport">還原備份</button>
+        <button type="button" class="tool teacher-only" id="btnUpload">上傳名單</button>
+        <button type="button" class="tool teacher-only" id="btnExport">下載備份</button>
+        <button type="button" class="tool teacher-only" id="btnImport">還原備份</button>
         <button type="button" class="tool primary" id="btnSave">存檔</button>
-        <button type="button" class="tool" id="btnDatabase">更改資料</button>
-        <button type="button" class="tool" id="btnSettings">設定</button>
+        <button type="button" class="tool" id="btnDatabase">教師模式</button>
+        <button type="button" class="tool teacher-only" id="btnTeacherLock">鎖定</button>
+        <button type="button" class="tool teacher-only" id="btnSettings">設定</button>
         <input id="backupFile" type="file" accept=".json,application/json" hidden />
       </nav>
 
@@ -62,10 +63,27 @@
     <div id="toast" class="toast" hidden></div>
     <div id="fxLayer" class="fx-layer" aria-hidden="true"></div>
 
+    <div id="authModal" class="modal" hidden>
+      <div class="modal-card auth-card">
+        <h2 id="authTitle">教師模式</h2>
+        <p id="authHint" class="hint">請輸入教師密碼。</p>
+        <label>密碼
+          <input id="authPassword" type="password" autocomplete="current-password" />
+        </label>
+        <label id="authPassword2Wrap" hidden>再輸入一次
+          <input id="authPassword2" type="password" autocomplete="new-password" />
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="tool" id="btnAuthCancel">取消</button>
+          <button type="button" class="tool primary" id="btnAuthSubmit">進入</button>
+        </div>
+      </div>
+    </div>
+
     <div id="databaseModal" class="modal" hidden>
       <div class="modal-card database-card">
-        <h2>更改資料</h2>
-        <p class="hint">像試算表一樣直接改。改完按「儲存」，座位表會立刻更新。不必下載 JSON。</p>
+        <h2>教師模式</h2>
+        <p class="hint">在這裡直接改班級、座號、姓名、分數。改完按「儲存」即可。</p>
         <div class="db-toolbar">
           <label>顯示班級
             <select id="dbClassFilter" aria-label="篩選班級"></select>
@@ -87,6 +105,7 @@
           </table>
         </div>
         <div class="modal-actions">
+          <button type="button" class="tool" id="btnChangePassword">修改密碼</button>
           <button type="button" class="tool" id="btnDatabaseClose">關閉</button>
           <button type="button" class="tool primary" id="btnDatabaseSave">儲存</button>
         </div>

@@ -373,6 +373,14 @@
     gap: 12px;
   }
 
+  body:not(.teacher-on) .teacher-only {
+    display: none !important;
+  }
+
+  .auth-card {
+    width: min(420px, 100%);
+  }
+
   .database-card {
     width: min(860px, 100%);
     max-height: min(92vh, 920px);

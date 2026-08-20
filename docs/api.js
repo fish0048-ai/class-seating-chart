@@ -439,3 +439,59 @@
     }
   };
 })(window);
+
+(function (global) {
+  var HASH_KEY = 'class-seating-teacher-hash';
+  var SESSION_KEY = 'class-seating-teacher-ok';
+
+  function fallbackHash(text) {
+    var h = 5381;
+    var extra = 0;
+    for (var i = 0; i < text.length; i++) {
+      h = ((h << 5) + h) + text.charCodeAt(i);
+      extra = (extra * 33 + text.charCodeAt(i)) >>> 0;
+    }
+    return 'fb-' + ((h >>> 0).toString(16)) + extra.toString(16);
+  }
+
+  function hashPassword(text) {
+    var payload = 'seat-teacher:' + String(text || '');
+    if (global.crypto && crypto.subtle && global.TextEncoder) {
+      return crypto.subtle.digest('SHA-256', new TextEncoder().encode(payload)).then(function (buf) {
+        return Array.from(new Uint8Array(buf)).map(function (b) {
+          return b.toString(16).padStart(2, '0');
+        }).join('');
+      }).catch(function () {
+        return fallbackHash(payload);
+      });
+    }
+    return Promise.resolve(fallbackHash(payload));
+  }
+
+  global.TeacherAuth = {
+    hasPassword: function () {
+      return !!localStorage.getItem(HASH_KEY);
+    },
+    isUnlocked: function () {
+      return sessionStorage.getItem(SESSION_KEY) === '1';
+    },
+    unlock: function () {
+      sessionStorage.setItem(SESSION_KEY, '1');
+    },
+    lock: function () {
+      sessionStorage.removeItem(SESSION_KEY);
+    },
+    setPassword: function (password) {
+      return hashPassword(password).then(function (hash) {
+        localStorage.setItem(HASH_KEY, hash);
+        sessionStorage.setItem(SESSION_KEY, '1');
+      });
+    },
+    verify: function (password) {
+      var saved = localStorage.getItem(HASH_KEY);
+      return hashPassword(password).then(function (hash) {
+        return !!saved && hash === saved;
+      });
+    }
+  };
+})(window);
