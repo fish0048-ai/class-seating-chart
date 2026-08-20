@@ -463,6 +463,23 @@
     overflow: hidden;
   }
 
+  #tabSummary.teacher-panel .db-table-wrap {
+    flex: 1;
+  }
+
+  #tabSummary .report-summary-wrap {
+    flex: 0 0 auto;
+  }
+
+  .report-table td,
+  .report-table th {
+    text-align: center;
+  }
+
+  .report-table .name-col {
+    text-align: left;
+  }
+
   .stats-panel .db-table-wrap {
     flex: 0 0 auto;
     max-height: 360px;

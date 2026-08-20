@@ -79,6 +79,7 @@
       <nav class="toolbar teacher-tabs" role="tablist" aria-label="教師功能">
         <button type="button" class="tool tab-on" data-teacher-tab="roster">名單</button>
         <button type="button" class="tool" data-teacher-tab="daily">成績表</button>
+        <button type="button" class="tool" data-teacher-tab="summary">成績統計表</button>
         <button type="button" class="tool" data-teacher-tab="stats">統計圖表</button>
         <button type="button" class="tool" data-teacher-tab="settings">設定與上傳</button>
         <button type="button" class="tool" id="btnExport">下載備份</button>
@@ -103,6 +104,7 @@
           <p id="scoreDayLabel" class="score-day-label teacher-date-only">正在看今天的加扣分</p>
           <button type="button" class="tool teacher-tab-only" data-for-tab="roster" id="btnDbAdd">新增一列</button>
           <button type="button" class="tool teacher-tab-only" data-for-tab="daily" id="btnExportSheet" hidden>下載成績表</button>
+          <button type="button" class="tool teacher-tab-only" data-for-tab="summary" id="btnExportReport" hidden>下載統計表</button>
           <button type="button" class="tool teacher-tab-only" data-for-tab="settings" id="btnUpload" hidden>選擇名單檔</button>
         </div>
 
@@ -133,6 +135,53 @@
                 <thead id="sheetHead"></thead>
                 <tbody id="sheetBody"></tbody>
                 <tfoot id="sheetFoot"></tfoot>
+              </table>
+            </div>
+          </div>
+
+          <div id="tabSummary" class="teacher-panel" hidden>
+            <p class="hint">把全部日期的加扣分加總，做成全班成績統計表，可下載到 Excel。</p>
+            <h3 class="subhead" id="reportTitle">成績統計表</h3>
+            <div class="db-table-wrap report-summary-wrap">
+              <table class="db-table report-table">
+                <thead>
+                  <tr>
+                    <th>人數</th>
+                    <th>全班合計</th>
+                    <th>全班平均</th>
+                    <th>中位數</th>
+                    <th>最高分</th>
+                    <th>最低分</th>
+                    <th>標準差</th>
+                    <th>正分</th>
+                    <th>零分</th>
+                    <th>負分</th>
+                    <th>加分總和</th>
+                    <th>扣分總和</th>
+                  </tr>
+                </thead>
+                <tbody id="reportClassBody"></tbody>
+              </table>
+            </div>
+            <h3 class="subhead">學生成績</h3>
+            <div class="db-table-wrap">
+              <table class="db-table report-table">
+                <thead>
+                  <tr>
+                    <th>名次</th>
+                    <th>座號</th>
+                    <th>姓名</th>
+                    <th>合計</th>
+                    <th>平均</th>
+                    <th>加分總和</th>
+                    <th>扣分總和</th>
+                    <th>加分次數</th>
+                    <th>扣分次數</th>
+                    <th>與平均差</th>
+                    <th>表現</th>
+                  </tr>
+                </thead>
+                <tbody id="reportBody"></tbody>
               </table>
             </div>
           </div>

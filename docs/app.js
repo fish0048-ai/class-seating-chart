@@ -60,6 +60,9 @@
     chartRank: document.getElementById('chartRank'),
     chartPlusMinus: document.getElementById('chartPlusMinus'),
     chartDist: document.getElementById('chartDist'),
+    reportTitle: document.getElementById('reportTitle'),
+    reportClassBody: document.getElementById('reportClassBody'),
+    reportBody: document.getElementById('reportBody'),
     authModal: document.getElementById('authModal'),
     authTitle: document.getElementById('authTitle'),
     authHint: document.getElementById('authHint'),
@@ -177,6 +180,8 @@
   }
   var exportSheet = document.getElementById('btnExportSheet');
   if (exportSheet) exportSheet.addEventListener('click', downloadScoreSheet);
+  var exportReport = document.getElementById('btnExportReport');
+  if (exportReport) exportReport.addEventListener('click', downloadScoreReport);
   if (els.dbBody) {
     els.dbBody.addEventListener('click', function (event) {
       var btn = event.target.closest('[data-del]');
@@ -749,10 +754,12 @@
     });
     var roster = document.getElementById('tabRoster');
     var daily = document.getElementById('tabDaily');
+    var summary = document.getElementById('tabSummary');
     var stats = document.getElementById('tabStats');
     var settings = document.getElementById('tabSettings');
     if (roster) roster.hidden = App.teacherTab !== 'roster';
     if (daily) daily.hidden = App.teacherTab !== 'daily';
+    if (summary) summary.hidden = App.teacherTab !== 'summary';
     if (stats) stats.hidden = App.teacherTab !== 'stats';
     if (settings) settings.hidden = App.teacherTab !== 'settings';
     document.querySelectorAll('.teacher-tab-only').forEach(function (btn) {
@@ -766,7 +773,7 @@
       els.dbClassFilter.parentElement.hidden = App.teacherTab === 'settings';
     }
     document.querySelectorAll('.teacher-date-only').forEach(function (el) {
-      el.hidden = App.teacherTab === 'settings';
+      el.hidden = App.teacherTab === 'settings' || App.teacherTab === 'stats' || App.teacherTab === 'summary';
     });
     updateScoreDayLabel();
     if (App.teacherTab === 'settings' && changed) openSettings();
@@ -912,6 +919,15 @@
     return Math.round(((list[mid - 1] + list[mid]) / 2) * 10) / 10;
   }
 
+  function stdevOf(nums) {
+    if (!nums.length) return 0;
+    var mean = nums.reduce(function (sum, n) { return sum + n; }, 0) / nums.length;
+    var variance = nums.reduce(function (sum, n) {
+      return sum + (n - mean) * (n - mean);
+    }, 0) / nums.length;
+    return Math.round(Math.sqrt(variance) * 10) / 10;
+  }
+
   function buildSheetModel() {
     var className = teacherTargetClass();
     var dates = (App.dailyDays || []).slice().sort(function (a, b) {
@@ -1021,6 +1037,7 @@
     var model = buildSheetModel();
     App.sheetModel = model;
     renderScoreSheet(model);
+    renderScoreReport(model);
     renderStatsDashboard(model);
   }
 
@@ -1084,6 +1101,67 @@
       '<td class="col-total ' + scoreCellClass(model.grand) + '">' + scoreCellText(model.grand) + '</td>' +
       '<td class="col-total">' + model.classAvg + '</td>' +
       '</tr>';
+  }
+
+  function renderScoreReport(model) {
+    model = model || App.sheetModel || buildSheetModel();
+    var ranked = (model.ranked || []).slice();
+    var totals = ranked.map(function (row) { return row.total; });
+    var top = ranked[0];
+    var bottom = ranked.length ? ranked[ranked.length - 1] : null;
+    var avg = model.classAvg || 0;
+    if (els.reportTitle) {
+      els.reportTitle.textContent = (model.className || '') + ' 成績統計表（全部日期合計）';
+    }
+    if (els.reportClassBody) {
+      if (!ranked.length) {
+        els.reportClassBody.innerHTML = '<tr><td colspan="12">這個班還沒有統計資料</td></tr>';
+      } else {
+        els.reportClassBody.innerHTML = '<tr>' +
+          '<td>' + ranked.length + '</td>' +
+          '<td class="' + scoreCellClass(model.grand) + '">' + scoreCellText(model.grand) + '</td>' +
+          '<td>' + avg + '</td>' +
+          '<td>' + model.median + '</td>' +
+          '<td class="' + scoreCellClass(top.total) + '">' + scoreCellText(top.total) + '</td>' +
+          '<td class="' + scoreCellClass(bottom.total) + '">' + scoreCellText(bottom.total) + '</td>' +
+          '<td>' + stdevOf(totals) + '</td>' +
+          '<td>' + (model.plusPeople || 0) + '</td>' +
+          '<td>' + (model.zeroPeople || 0) + '</td>' +
+          '<td>' + (model.minusPeople || 0) + '</td>' +
+          '<td class="day-plus">+' + (model.plusTotal || 0) + '</td>' +
+          '<td class="day-minus">' + (model.minusTotal || 0) + '</td>' +
+          '</tr>';
+      }
+    }
+    if (!els.reportBody) return;
+    if (!ranked.length) {
+      els.reportBody.innerHTML = '<tr><td colspan="11">這個班還沒有學生</td></tr>';
+      return;
+    }
+    var lastTotal = null;
+    var lastRank = 0;
+    els.reportBody.innerHTML = ranked.map(function (row, index) {
+      if (lastTotal === null || row.total !== lastTotal) {
+        lastRank = index + 1;
+        lastTotal = row.total;
+      }
+      var diff = Math.round((row.total - avg) * 10) / 10;
+      var mark = diff > 0 ? '優於平均' : (diff < 0 ? '低於平均' : '符合平均');
+      var markCls = diff > 0 ? 'day-plus' : (diff < 0 ? 'day-minus' : '');
+      return '<tr>' +
+        '<td>' + lastRank + '</td>' +
+        '<td>' + escapeHtml(row.seatNo) + '</td>' +
+        '<td class="name-col">' + escapeHtml(row.name) + '</td>' +
+        '<td class="' + scoreCellClass(row.total) + '">' + scoreCellText(row.total) + '</td>' +
+        '<td>' + row.avg + '</td>' +
+        '<td class="day-plus">+' + (row.plusSum || 0) + '</td>' +
+        '<td class="day-minus">' + (row.minusSum || 0) + '</td>' +
+        '<td>' + (row.plusDays || 0) + '</td>' +
+        '<td>' + (row.minusDays || 0) + '</td>' +
+        '<td class="' + scoreCellClass(diff) + '">' + scoreCellText(diff) + '</td>' +
+        '<td class="' + markCls + '">' + mark + '</td>' +
+        '</tr>';
+    }).join('');
   }
 
   function renderStatsDashboard(model) {
@@ -1265,6 +1343,34 @@
     });
     downloadText((model.className || '成績表') + '-成績表.csv', '\uFEFF' + lines.join('\r\n'), 'text/csv;charset=utf-8');
     toast('已下載成績表，可用 Excel 打開');
+  }
+
+  function downloadScoreReport() {
+    var model = App.sheetModel || buildSheetModel();
+    var ranked = model.ranked || [];
+    if (!ranked.length) {
+      toast('目前沒有成績統計表可以下載');
+      return;
+    }
+    var avg = model.classAvg || 0;
+    var lines = ['名次,座號,姓名,合計,平均,加分總和,扣分總和,加分次數,扣分次數,與平均差,表現'];
+    var lastTotal = null;
+    var lastRank = 0;
+    ranked.forEach(function (row, index) {
+      if (lastTotal === null || row.total !== lastTotal) {
+        lastRank = index + 1;
+        lastTotal = row.total;
+      }
+      var diff = Math.round((row.total - avg) * 10) / 10;
+      var mark = diff > 0 ? '優於平均' : (diff < 0 ? '低於平均' : '符合平均');
+      lines.push([
+        lastRank, row.seatNo, row.name, row.total, row.avg,
+        row.plusSum || 0, row.minusSum || 0, row.plusDays || 0, row.minusDays || 0,
+        diff, mark
+      ].join(','));
+    });
+    downloadText((model.className || '成績') + '-成績統計表.csv', '\uFEFF' + lines.join('\r\n'), 'text/csv;charset=utf-8');
+    toast('已下載成績統計表，可用 Excel 打開');
   }
 
   function mergeVisibleDatabaseRows() {
