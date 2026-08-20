@@ -63,8 +63,7 @@
     chartRank: document.getElementById('chartRank'),
     chartPlusMinus: document.getElementById('chartPlusMinus'),
     chartDist: document.getElementById('chartDist'),
-    gradeTermHead: document.getElementById('gradeTermHead'),
-    gradeTermBody: document.getElementById('gradeTermBody'),
+    gradeTermWrap: document.getElementById('gradeTermWrap'),
     gradeWeekHead: document.getElementById('gradeWeekHead'),
     gradeWeekBody: document.getElementById('gradeWeekBody'),
     gradeRuleBox: document.getElementById('gradeRuleBox'),
@@ -221,14 +220,14 @@
       renderWeekGrades();
     });
   }
-  var gradeTermTable = document.getElementById('gradeTermTable');
-  if (gradeTermTable) {
-    gradeTermTable.addEventListener('click', function (event) {
+  var gradeTermWrap = document.getElementById('gradeTermWrap');
+  if (gradeTermWrap) {
+    gradeTermWrap.addEventListener('click', function (event) {
       var btn = event.target.closest('[data-del-grade]');
       if (!btn) return;
       deleteGradeColumn(btn.getAttribute('data-kind'), btn.getAttribute('data-id'));
     });
-    gradeTermTable.addEventListener('change', onGradeCellChange);
+    gradeTermWrap.addEventListener('change', onGradeCellChange);
   }
   if (els.dbBody) {
     els.dbBody.addEventListener('click', function (event) {
@@ -1404,9 +1403,10 @@
     if (mark) {
       var cell = mark.closest('td');
       var input = cell && cell.querySelector('[data-grade-score]');
+      var leave = mark.type === 'checkbox' ? mark.checked : mark.value === 'leave';
       if (input) {
-        input.disabled = mark.value === 'leave';
-        if (mark.value === 'leave') input.value = '';
+        input.disabled = leave;
+        if (leave) input.value = '';
       }
       return;
     }
@@ -1415,6 +1415,7 @@
     var hwCell = hwStatus.closest('td');
     if (!hwCell) return;
     var submitted = hwStatus.value === 'submitted';
+    hwCell.setAttribute('data-submitted', submitted ? '1' : '0');
     var score = hwCell.querySelector('[data-hw-score]');
     var date = hwCell.querySelector('[data-hw-date]');
     if (score) score.disabled = !submitted;
@@ -1529,8 +1530,10 @@
   }
 
   function gradeColHead(col, kind, extra) {
-    return '<th>' + escapeHtml(col.title) + '<br><small>' + escapeHtml(shortDate(col.date)) +
-      (extra || '') + '</small><br><button type="button" class="col-del-mini" data-del-grade data-kind="' +
+    return '<th>' +
+      '<span class="col-title">' + escapeHtml(col.title) + '</span>' +
+      '<small>' + escapeHtml(shortDate(col.date)) + (extra || '') + '</small>' +
+      '<button type="button" class="col-del-mini" data-del-grade data-kind="' +
       kind + '" data-id="' + escapeHtml(col.id) + '">刪</button></th>';
   }
 
@@ -1538,16 +1541,16 @@
     var v = col.scores && col.scores[seatNo];
     var leave = isLeaveScore(v);
     var shown = leave || v == null || v === '' ? '' : v;
-    var input = '<input data-grade-score data-kind="' + kind + '" data-id="' + escapeHtml(col.id) +
+    var input = '<input class="mini-num" data-grade-score data-kind="' + kind + '" data-id="' + escapeHtml(col.id) +
       '" data-seat="' + escapeHtml(String(seatNo)) + '" type="number" min="0" max="' + (col.max || 100) +
       '" value="' + escapeHtml(String(shown)) + '"' + (leave ? ' disabled' : '') + ' />';
     if (!allowLeave) return '<td>' + input + '</td>';
     return '<td class="grade-cell">' +
-      '<select data-grade-mark data-kind="' + kind + '" data-id="' + escapeHtml(col.id) +
-      '" data-seat="' + escapeHtml(String(seatNo)) + '">' +
-      '<option value="">分數</option>' +
-      '<option value="leave"' + (leave ? ' selected' : '') + '>請假</option>' +
-      '</select>' + input + '</td>';
+      '<div class="cell-row">' + input +
+      '<label class="leave-toggle"><input data-grade-mark data-kind="' + kind + '" data-id="' +
+      escapeHtml(col.id) + '" data-seat="' + escapeHtml(String(seatNo)) +
+      '" type="checkbox"' + (leave ? ' checked' : '') + ' />假</label>' +
+      '</div></td>';
   }
 
   function hwCellHtml(col, seatNo) {
@@ -1558,25 +1561,49 @@
     if (submitted && result.final == null) note = '已繳未評';
     else if (submitted && result.late) note = '遲交−' + result.penalty + ' → ' + result.final;
     else if (submitted) note = '實得 ' + result.final;
-    return '<td class="hw-cell">' +
+    return '<td class="hw-cell" data-submitted="' + (submitted ? '1' : '0') + '">' +
+      '<div class="cell-stack">' +
       '<select data-hw-status data-id="' + escapeHtml(col.id) + '" data-seat="' + escapeHtml(String(seatNo)) + '">' +
       '<option value="missing">未繳交</option>' +
       '<option value="submitted"' + (submitted ? ' selected' : '') + '>已繳交</option></select>' +
-      '<input data-hw-score data-id="' + escapeHtml(col.id) + '" data-seat="' + escapeHtml(String(seatNo)) +
+      '<div class="hw-detail">' +
+      '<input class="mini-num" data-hw-score data-id="' + escapeHtml(col.id) + '" data-seat="' + escapeHtml(String(seatNo)) +
       '" type="number" min="0" max="' + (col.max || 100) + '" placeholder="成績" value="' +
       (rec.score == null || rec.score === '' ? '' : escapeHtml(String(rec.score))) + '"' +
       (submitted ? '' : ' disabled') + ' />' +
-      '<input data-hw-date data-id="' + escapeHtml(col.id) + '" data-seat="' + escapeHtml(String(seatNo)) +
+      '<input class="mini-date" data-hw-date data-id="' + escapeHtml(col.id) + '" data-seat="' + escapeHtml(String(seatNo)) +
       '" type="date" value="' + escapeHtml(rec.submittedAt || '') + '"' + (submitted ? '' : ' disabled') + ' />' +
-      '<span class="hw-final' + (result.late ? ' is-late' : '') + '">' + escapeHtml(note) + '</span></td>';
+      '</div>' +
+      '<span class="hw-final' + (result.late ? ' is-late' : '') + '">' + escapeHtml(note) + '</span>' +
+      '</div></td>';
   }
 
   function fmtScore(v) {
     return v == null ? '—' : v;
   }
 
+  function studentHeadCells() {
+    return '<th class="sticky-1">座號</th><th class="sticky-2">姓名</th>';
+  }
+
+  function studentBodyCells(row) {
+    return '<td class="sticky-1">' + escapeHtml(row.seatNo) + '</td>' +
+      '<td class="sticky-2 name-col">' + escapeHtml(row.name) + '</td>';
+  }
+
+  function gradeBoardHtml(title, tone, headCells, bodyRows) {
+    return '<section class="grade-board tone-' + tone + '">' +
+      '<h3>' + title + '</h3>' +
+      '<div class="sheet-wrap">' +
+      '<table class="sheet-table report-table">' +
+      '<thead><tr>' + studentHeadCells() + headCells + '</tr></thead>' +
+      '<tbody>' + bodyRows + '</tbody>' +
+      '</table></div></section>';
+  }
+
   function renderTermGrades() {
-    if (!els.gradeTermHead || !els.gradeTermBody) return;
+    var wrap = els.gradeTermWrap || document.getElementById('gradeTermWrap');
+    if (!wrap) return;
     var model = App.sheetModel || buildSheetModel();
     var book = App.gradebook || emptyGradebook();
     var yellow = book.yellow || [];
@@ -1586,36 +1613,8 @@
     var practicals = book.practicals || [];
     var homeworks = book.homeworks || [];
     var students = (model.rows || []).slice().sort(seatOrder);
-    var usualSpan = 6 + labs.length + practicals.length + homeworks.length;
-    var quizSpan = 3 + yellow.length + morning.length;
-    var examSpan = 1 + exams.length;
-    els.gradeTermHead.innerHTML =
-      '<tr>' +
-      '<th rowspan="2" class="sticky-1">座號</th>' +
-      '<th rowspan="2" class="sticky-2">姓名</th>' +
-      '<th colspan="' + usualSpan + '">平時表現</th>' +
-      '<th colspan="' + quizSpan + '">平時考試</th>' +
-      '<th colspan="' + examSpan + '">段考成績</th>' +
-      '<th colspan="2">學期成績</th>' +
-      '</tr><tr>' +
-      '<th>上課加扣</th><th>換算分</th>' +
-      labs.map(function (col) { return gradeColHead(col, 'lab'); }).join('') +
-      '<th>實作評量平均</th>' +
-      practicals.map(function (col) { return gradeColHead(col, 'practical'); }).join('') +
-      '<th>實作成績平均</th>' +
-      homeworks.map(function (col) {
-        return gradeColHead(col, 'homework', '<br>期限 ' + escapeHtml(shortDate(col.dueDate || col.date)));
-      }).join('') +
-      '<th>作業平均</th><th>平時平均</th>' +
-      yellow.map(function (col) { return gradeColHead(col, 'yellow'); }).join('') +
-      '<th>黃卷平均</th>' +
-      morning.map(function (col) { return gradeColHead(col, 'morning'); }).join('') +
-      '<th>早自習平均</th><th>平時考試平均</th>' +
-      exams.map(function (col) { return gradeColHead(col, 'exam'); }).join('') +
-      '<th>段考平均</th><th>加權總分</th><th>名次</th>' +
-      '</tr>';
     if (!students.length) {
-      els.gradeTermBody.innerHTML = '<tr><td class="sticky-1" colspan="12">這個班還沒有學生</td></tr>';
+      wrap.innerHTML = '<p class="empty-board">這個班還沒有學生</p>';
       return;
     }
     var rows = students.map(function (stu) {
@@ -1626,34 +1625,74 @@
     });
     var lastTotal = null;
     var lastRank = 0;
-    els.gradeTermBody.innerHTML = rows.map(function (row, index) {
+    rows.forEach(function (row, index) {
       if (lastTotal === null || row.total !== lastTotal) {
         lastRank = index + 1;
         lastTotal = row.total;
       }
-      return '<tr>' +
-        '<td class="sticky-1">' + escapeHtml(row.seatNo) + '</td>' +
-        '<td class="sticky-2 name-col">' + escapeHtml(row.name) + '</td>' +
+      row.rank = lastRank;
+    });
+
+    var usualHead = '<th>上課加扣</th><th>換算分</th>' +
+      labs.map(function (col) { return gradeColHead(col, 'lab'); }).join('') +
+      (labs.length ? '<th>實作評量平均</th>' : '') +
+      practicals.map(function (col) { return gradeColHead(col, 'practical'); }).join('') +
+      (practicals.length ? '<th>實作成績平均</th>' : '') +
+      homeworks.map(function (col) {
+        return gradeColHead(col, 'homework', ' · 期限 ' + shortDate(col.dueDate || col.date));
+      }).join('') +
+      (homeworks.length ? '<th>作業平均</th>' : '') +
+      '<th class="col-total">平時平均</th>';
+    var usualBody = rows.map(function (row) {
+      return '<tr>' + studentBodyCells(row) +
         '<td class="' + scoreCellClass(row.classRaw) + '">' + scoreCellText(row.classRaw) + '</td>' +
         '<td>' + (row.hasClass ? usualFromRaw(row.classRaw) : '—') + '</td>' +
         labs.map(function (col) { return scoreCellHtml('lab', col, row.seatNo, false); }).join('') +
-        '<td>' + fmtScore(row.labAvg) + '</td>' +
+        (labs.length ? '<td>' + fmtScore(row.labAvg) + '</td>' : '') +
         practicals.map(function (col) { return scoreCellHtml('practical', col, row.seatNo, false); }).join('') +
-        '<td>' + fmtScore(row.pracAvg) + '</td>' +
+        (practicals.length ? '<td>' + fmtScore(row.pracAvg) + '</td>' : '') +
         homeworks.map(function (col) { return hwCellHtml(col, row.seatNo); }).join('') +
-        '<td>' + fmtScore(row.hwAvg) + '</td>' +
-        '<td>' + fmtScore(row.usual) + '</td>' +
+        (homeworks.length ? '<td>' + fmtScore(row.hwAvg) + '</td>' : '') +
+        '<td class="col-total">' + fmtScore(row.usual) + '</td></tr>';
+    }).join('');
+
+    var quizHead = yellow.map(function (col) { return gradeColHead(col, 'yellow'); }).join('') +
+      (yellow.length ? '<th>黃卷平均</th>' : '') +
+      morning.map(function (col) { return gradeColHead(col, 'morning'); }).join('') +
+      (morning.length ? '<th>早自習平均</th>' : '') +
+      '<th class="col-total">平時考試平均</th>';
+    var quizBody = rows.map(function (row) {
+      return '<tr>' + studentBodyCells(row) +
         yellow.map(function (col) { return scoreCellHtml('yellow', col, row.seatNo, true); }).join('') +
-        '<td>' + fmtScore(row.yellowAvg) + '</td>' +
+        (yellow.length ? '<td>' + fmtScore(row.yellowAvg) + '</td>' : '') +
         morning.map(function (col) { return scoreCellHtml('morning', col, row.seatNo, true); }).join('') +
-        '<td>' + fmtScore(row.morningAvg) + '</td>' +
-        '<td>' + fmtScore(row.quiz) + '</td>' +
+        (morning.length ? '<td>' + fmtScore(row.morningAvg) + '</td>' : '') +
+        '<td class="col-total">' + fmtScore(row.quiz) + '</td></tr>';
+    }).join('');
+
+    var examHead = exams.map(function (col) { return gradeColHead(col, 'exam'); }).join('') +
+      '<th class="col-total">段考平均</th>';
+    var examBody = rows.map(function (row) {
+      return '<tr>' + studentBodyCells(row) +
         exams.map(function (col) { return scoreCellHtml('exam', col, row.seatNo, true); }).join('') +
+        '<td class="col-total">' + fmtScore(row.exam) + '</td></tr>';
+    }).join('');
+
+    var sumHead = '<th>平時</th><th>平時考試</th><th>段考</th><th class="col-total">加權總分</th><th>名次</th>';
+    var sumBody = rows.map(function (row) {
+      return '<tr>' + studentBodyCells(row) +
+        '<td>' + fmtScore(row.usual) + '</td>' +
+        '<td>' + fmtScore(row.quiz) + '</td>' +
         '<td>' + fmtScore(row.exam) + '</td>' +
         '<td class="col-total">' + fmtScore(row.total) + '</td>' +
-        '<td>' + lastRank + '</td>' +
-        '</tr>';
+        '<td>' + row.rank + '</td></tr>';
     }).join('');
+
+    wrap.innerHTML =
+      gradeBoardHtml('平時表現', 'usual', usualHead, usualBody) +
+      gradeBoardHtml('平時考試（黃卷／早自習）', 'quiz', quizHead, quizBody) +
+      gradeBoardHtml('段考成績', 'exam', examHead, examBody) +
+      gradeBoardHtml('學期成績', 'sum', sumHead, sumBody);
   }
 
   function renderWeekGrades() {
@@ -1671,7 +1710,7 @@
     var students = (model.rows || []).slice().sort(seatOrder);
     els.gradeWeekHead.innerHTML = '<tr>' +
       '<th class="sticky-1">座號</th><th class="sticky-2">姓名</th>' +
-      '<th>該週上課加扣</th><th>實作評量</th><th>實作成績</th><th>作業</th><th>平時表現</th>' +
+      '<th>上課加扣</th><th>實作評量</th><th>實作成績</th><th>作業</th><th>平時</th>' +
       '<th>黃卷</th><th>早自習</th><th>平時考試</th><th>段考</th>' +
       '<th class="col-total">每週成績</th><th>計算過程</th>' +
       '</tr>';
@@ -1688,13 +1727,13 @@
         '<td>' + (parts.labAvg == null ? '無' : parts.labAvg) + '</td>' +
         '<td>' + (parts.pracAvg == null ? '無' : parts.pracAvg) + '</td>' +
         '<td>' + (parts.hwAvg == null ? '無' : parts.hwAvg) + '</td>' +
-        '<td>' + (parts.usual == null ? '無（改算平時考試）' : parts.usual) + '</td>' +
+        '<td>' + (parts.usual == null ? '無' : parts.usual) + '</td>' +
         '<td>' + (parts.yellowAvg == null ? '無' : parts.yellowAvg) + '</td>' +
         '<td>' + (parts.morningAvg == null ? '無' : parts.morningAvg) + '</td>' +
         '<td>' + (parts.quiz == null ? '無' : parts.quiz) + '</td>' +
         '<td>' + (parts.exam == null ? '無' : parts.exam) + '</td>' +
         '<td class="col-total">' + fmtScore(parts.total) + '</td>' +
-        '<td class="name-col">' + escapeHtml(scoreFormula(parts.usual, parts.quiz, parts.exam)) + '</td>' +
+        '<td class="formula-col">' + escapeHtml(scoreFormula(parts.usual, parts.quiz, parts.exam)) + '</td>' +
         '</tr>';
     }).join('');
   }
@@ -1703,18 +1742,20 @@
     if (!els.gradeRuleBox) return;
     var rules = gradeRules();
     els.gradeRuleBox.innerHTML =
-      '<h3>每週成績計算規則</h3>' +
+      '<details class="rule-details" open>' +
+      '<summary>每週成績計算規則</summary>' +
       '<ol>' +
-      '<li>平時表現包含：上課加扣分、實作評量（實驗室）、實作成績（回家做）、作業成績。有幾項就平均幾項。</li>' +
+      '<li>平時表現包含：上課加扣、實作評量（實驗室）、實作成績（回家做）、作業。有幾項就平均幾項。</li>' +
       '<li>上課換算分 ＝ 底分 ' + rules.base + ' ＋ 該週上課加扣合計，最低 ' + rules.min + '、最高 ' + rules.max + '。該週沒有加扣分就不列入平時。</li>' +
-      '<li>平時考試 ＝ 課堂考卷（黃卷）與早自習小考的平均（依滿分換算成 100 分制）。請假不計入平均。</li>' +
+      '<li>平時考試 ＝ 黃卷與早自習平均（換算成 100 分制）。請假不計入。</li>' +
       '<li>段考平均同樣換算成 100 分制，請假不計入。</li>' +
-      '<li>作業可記未繳交／已繳交；已繳交後再登錄成績。超過繳交期限 ' + rules.lateWorkDays +
-      ' 個工作天（週六、週日與國定假日不算）扣 ' + rules.latePenalty + ' 分。未繳交以 0 分計算。</li>' +
+      '<li>作業可記未繳交／已繳交，繳交後再登錄成績與繳交日。超過期限 ' + rules.lateWorkDays +
+      ' 個工作天（週六日與國定假日不算）扣 ' + rules.latePenalty + ' 分。未繳交以 0 分計。</li>' +
       '<li>每週成績 ＝ 平時×' + rules.classWeight + '% ＋ 平時考試×' + rules.quizWeight + '% ＋ 段考×' + rules.examWeight + '%。</li>' +
       '<li>若本週完全沒有平時成績，就不使用底分，只算平時考試（有段考仍一併加權）。缺的項目不計，其餘比重按比例重算。</li>' +
       '</ol>' +
-      '<p class="rule-note">學期成績用同一套規則，改成統計全部日期與全部欄位。額外假日可在下方填寫，作業遲交就不算那些日子。</p>';
+      '<p class="rule-note">學期成績用同一套規則，只是改成全部日期與全部欄位。額外假日填在下方，作業遲交就不算那些日子。</p>' +
+      '</details>';
   }
 
   function cloneScoreCols(list) {
@@ -1770,7 +1811,8 @@
       var seat = input.getAttribute('data-seat');
       var cell = input.closest('td');
       var mark = cell && cell.querySelector('[data-grade-mark]');
-      if (mark && mark.value === 'leave') {
+      var leave = mark && (mark.type === 'checkbox' ? mark.checked : mark.value === 'leave');
+      if (leave) {
         col.scores[seat] = 'leave';
         return;
       }

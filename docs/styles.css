@@ -472,9 +472,19 @@
     flex-shrink: 0;
   }
 
+  .sheet-table th small,
+  .sheet-table th .col-title {
+    display: block;
+  }
+
   .sheet-table th small {
     font-weight: 400;
     color: var(--muted);
+    font-size: 11px;
+  }
+
+  .sheet-table th .col-title {
+    font-weight: 700;
   }
 
   #tabSummary.teacher-panel .db-table-wrap {
@@ -487,6 +497,7 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
+    overflow: hidden;
   }
 
   #tabSummary .grade-view[hidden] {
@@ -512,11 +523,70 @@
   }
 
   .grade-toolbar label {
-    min-width: 110px;
+    display: grid;
+    gap: 4px;
+    min-width: 120px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .grade-toolbar input,
+  .grade-toolbar select {
+    min-height: 40px;
+    min-width: 0;
+    padding: 8px 10px;
+    border-radius: 10px;
   }
 
   .grade-toolbar select {
-    min-width: 160px;
+    min-width: 168px;
+  }
+
+  .grade-boards {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding-bottom: 8px;
+  }
+
+  .grade-board h3 {
+    margin: 0 0 8px;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .grade-board h3::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 99px;
+    background: var(--primary);
+  }
+
+  .grade-board.tone-usual h3::before { background: #2c7a4b; }
+  .grade-board.tone-quiz h3::before { background: #d9852b; }
+  .grade-board.tone-exam h3::before { background: #b4413c; }
+  .grade-board.tone-sum h3::before { background: #1b3a4b; }
+
+  .grade-board .sheet-wrap {
+    flex: none;
+    min-height: 0;
+    max-height: min(52vh, 460px);
+  }
+
+  .empty-board {
+    margin: 0;
+    padding: 28px 12px;
+    text-align: center;
+    color: var(--muted);
+    background: #fff;
+    border: 1px dashed var(--line);
+    border-radius: 12px;
   }
 
   .rule-box {
@@ -524,18 +594,24 @@
     background: #fff;
     border: 1px solid var(--line);
     border-radius: 12px;
-    padding: 12px 14px;
+    padding: 8px 14px;
     font-size: 14px;
     line-height: 1.7;
   }
 
-  .rule-box h3 {
-    margin: 0 0 6px;
+  .rule-details summary {
+    cursor: pointer;
+    font-weight: 700;
     font-size: 15px;
+    list-style: none;
   }
 
-  .rule-box ol {
-    margin: 0;
+  .rule-details summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .rule-details ol {
+    margin: 8px 0 0;
     padding-left: 22px;
     color: var(--ink);
   }
@@ -557,34 +633,72 @@
     min-width: 0;
   }
 
-  .grade-cell,
-  .hw-cell {
-    min-width: 108px;
-    vertical-align: top;
-  }
-
-  .grade-cell,
-  .hw-cell {
-    display: table-cell;
-  }
-
-  .grade-cell select,
-  .hw-cell select,
-  .hw-cell input[type="date"] {
-    width: 100%;
+  .report-table input,
+  .report-table select {
     min-height: 32px;
-    margin-bottom: 4px;
+    padding: 4px 6px;
+    border-radius: 8px;
     font-size: 13px;
   }
 
-  .hw-cell input[type="number"] {
+  .cell-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+  }
+
+  .cell-stack {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    min-width: 118px;
+  }
+
+  .mini-num {
+    width: 58px;
+    text-align: center;
+  }
+
+  .mini-date {
     width: 100%;
+    min-width: 0;
+  }
+
+  .leave-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    font-size: 12px;
+    color: var(--muted);
+    white-space: nowrap;
+    margin: 0;
+  }
+
+  .leave-toggle input {
+    width: 16px;
+    min-height: 16px;
+    padding: 0;
+    accent-color: var(--minus);
+  }
+
+  .hw-cell[data-submitted="0"] .hw-detail {
+    display: none;
+  }
+
+  .hw-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
   }
 
   .hw-final {
     display: block;
     font-size: 12px;
     color: var(--muted);
+    white-space: normal;
+    line-height: 1.35;
   }
 
   .hw-final.is-late {
@@ -593,8 +707,8 @@
   }
 
   .sheet-table input[type="number"] {
-    width: 64px;
-    min-height: 36px;
+    width: 58px;
+    min-height: 32px;
     padding: 4px 6px;
     text-align: center;
   }
@@ -606,6 +720,29 @@
 
   .report-table .name-col {
     text-align: left;
+  }
+
+  .report-table td.grade-cell,
+  .report-table td.hw-cell,
+  .report-table td.formula-col {
+    white-space: normal;
+  }
+
+  .report-table td.formula-col {
+    text-align: left;
+    min-width: 220px;
+    max-width: 340px;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--muted);
+  }
+
+  #gradeWeekView .sheet-wrap {
+    flex: 1;
+  }
+
+  .grade-toolbar .tool {
+    min-height: 40px;
   }
 
   .stats-panel .db-table-wrap {
@@ -683,6 +820,19 @@
     font-weight: 700;
     color: var(--muted);
   }
+
+  .grade-board.tone-usual .sheet-table th,
+  .grade-board.tone-usual .sheet-table th.sticky-1,
+  .grade-board.tone-usual .sheet-table th.sticky-2 { background: #eaf6ee; }
+  .grade-board.tone-quiz .sheet-table th,
+  .grade-board.tone-quiz .sheet-table th.sticky-1,
+  .grade-board.tone-quiz .sheet-table th.sticky-2 { background: #fff4dc; }
+  .grade-board.tone-exam .sheet-table th,
+  .grade-board.tone-exam .sheet-table th.sticky-1,
+  .grade-board.tone-exam .sheet-table th.sticky-2 { background: #fdecea; }
+  .grade-board.tone-sum .sheet-table th,
+  .grade-board.tone-sum .sheet-table th.sticky-1,
+  .grade-board.tone-sum .sheet-table th.sticky-2 { background: #e8eef2; }
 
   .sheet-table tfoot td {
     position: sticky;

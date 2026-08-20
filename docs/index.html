@@ -140,7 +140,7 @@
           </div>
 
           <div id="tabSummary" class="teacher-panel" hidden>
-            <p class="hint">上課加扣、實作評量、實作成績與作業會併入平時表現。課堂考卷（黃卷）與早自習小考算平時考試。考試可選請假；本週若完全沒有平時成績，每週成績只算平時考試。</p>
+            <p class="hint">平時：上課加扣、實作、作業。平時考試：黃卷與早自習。考試可請假。該週沒有平時，就只算平時考試。</p>
             <div class="grade-subtabs" role="tablist" aria-label="成績統計表切換">
               <button type="button" class="tool tab-on" data-grade-view="term">學期成績</button>
               <button type="button" class="tool" data-grade-view="week">每週成績表現</button>
@@ -170,12 +170,7 @@
                 <button type="button" class="tool" id="btnAddGradeCol">新增這一欄</button>
                 <button type="button" class="tool primary" id="btnSaveGrades">儲存成績</button>
               </div>
-              <div id="gradeTermWrap" class="sheet-wrap">
-                <table class="sheet-table report-table" id="gradeTermTable">
-                  <thead id="gradeTermHead"></thead>
-                  <tbody id="gradeTermBody"></tbody>
-                </table>
-              </div>
+              <div id="gradeTermWrap" class="grade-boards"></div>
             </div>
 
             <div id="gradeWeekView" class="grade-view" hidden>
