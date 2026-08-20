@@ -329,19 +329,29 @@
     scheduleCloudSave_();
   }
 
+  function notifyCloud_(phase) {
+    try {
+      document.dispatchEvent(new CustomEvent('seat-cloud', { detail: { phase: phase || '' } }));
+    } catch (err) {}
+  }
+
   function scheduleCloudSave_() {
     if (!cloudOn() || !hydrated || !memStore) return;
+    cloudSaving = true;
+    notifyCloud_('saving');
     clearTimeout(saveTimer);
     saveTimer = setTimeout(function () {
       pushCloud_(memStore).catch(function () {});
-    }, 600);
+    }, 400);
   }
 
-  function pushCloud_(store) {
+  function pushCloud_(store, attempt) {
     if (!cloudOn() || !store) return Promise.resolve();
+    attempt = attempt || 1;
     cloudSaving = true;
     lastPushAt = store.updatedAt || nowIso();
     store.updatedAt = lastPushAt;
+    notifyCloud_('saving');
     return CloudStore.putStore(store).then(function (data) {
       cloudSaving = false;
       cloudError = '';
@@ -349,10 +359,19 @@
         store.updatedAt = data.updatedAt;
         lastPushAt = data.updatedAt;
       }
+      notifyCloud_('ok');
       return data;
     }).catch(function (err) {
+      if (attempt < 3) {
+        return new Promise(function (resolve, reject) {
+          setTimeout(function () {
+            pushCloud_(store, attempt + 1).then(resolve, reject);
+          }, 700 * attempt);
+        });
+      }
       cloudSaving = false;
       cloudError = err && err.message ? err.message : '雲端存檔失敗';
+      notifyCloud_('error');
       return Promise.reject(err);
     });
   }

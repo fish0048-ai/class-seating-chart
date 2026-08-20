@@ -257,7 +257,18 @@
       deleteGradeColumn(btn.getAttribute('data-kind'), btn.getAttribute('data-id'));
     });
     gradeTermWrap.addEventListener('change', onGradeCellChange);
+    gradeTermWrap.addEventListener('input', scheduleAutoGradeSave);
   }
+  ['ruleBase', 'ruleClassW', 'ruleQuizW', 'ruleExamW', 'ruleHolidays'].forEach(function (id) {
+    var field = document.getElementById(id);
+    if (!field) return;
+    field.addEventListener('change', scheduleAutoRuleSave);
+    field.addEventListener('input', scheduleAutoRuleSave);
+  });
+  document.addEventListener('seat-cloud', function () {
+    fillCloudSettings();
+    renderMeta();
+  });
   if (els.dbBody) {
     els.dbBody.addEventListener('click', function (event) {
       var btn = event.target.closest('[data-del]');
@@ -443,10 +454,15 @@
   setInterval(syncScoreDay, 30000);
   setInterval(pullCloudQuiet, 12000);
   document.addEventListener('visibilitychange', function () {
-    if (!document.hidden) {
-      syncScoreDay();
-      pullCloudQuiet();
+    if (document.hidden) {
+      if (typeof SeatDB !== 'undefined' && SeatDB.flushCloud) SeatDB.flushCloud().catch(function () {});
+      return;
     }
+    syncScoreDay();
+    pullCloudQuiet();
+  });
+  window.addEventListener('pagehide', function () {
+    if (typeof SeatDB !== 'undefined' && SeatDB.flushCloud) SeatDB.flushCloud().catch(function () {});
   });
 
   function cloudConnected() {
@@ -463,7 +479,7 @@
     var line = document.getElementById('cloudStatusLine');
     if (line) {
       if (info.saving) line.textContent = '正在存到雲端…';
-      else if (info.enabled && !info.error) line.textContent = '已連上雲端，平板與筆電會讀同一份資料';
+      else if (info.enabled && !info.error) line.textContent = '已連上雲端，修改後會自動存，平板與筆電共用';
       else if (info.error) line.textContent = info.error;
       else line.textContent = '尚未連線：請先部署 Apps Script 並貼上網址';
     }
@@ -480,6 +496,7 @@
   function pullCloudQuiet() {
     if (App.busy || App.dirty || App.lotteryBusy) return;
     if (typeof SeatDB === 'undefined' || !SeatDB.pullIfNewer) return;
+    if (gradeSaveTimer || ruleSaveTimer) return;
     if (App.appView === 'teacher' && (App.teacherTab === 'summary' || App.teacherTab === 'settings')) return;
     var className = App.classroom && App.classroom.className;
     SeatDB.pullIfNewer(className).then(function (data) {
@@ -583,8 +600,8 @@
     const dirty = App.dirty ? '（有未存檔變更）' : '';
     var info = typeof SeatDB !== 'undefined' && SeatDB.cloudStatus ? SeatDB.cloudStatus() : {};
     var where = info.saving ? '正在存到雲端'
-      : (info.enabled && !info.error) ? '雲端已同步'
-      : (info.error ? '尚未連上雲端' : '只在這台裝置');
+      : (info.enabled && !info.error) ? '已自動存到雲端'
+      : (info.error ? '雲端同步失敗' : '只在這台裝置');
     els.syncMeta.textContent = App.classroom.students.length + ' 位學生 · ' + where +
       (time ? ' · ' + time : '') + dirty;
   }
@@ -1529,21 +1546,43 @@
         input.disabled = leave;
         if (leave) input.value = '';
       }
+      scheduleAutoGradeSave();
       return;
     }
     var hwStatus = event.target.closest('[data-hw-status]');
-    if (!hwStatus) return;
-    var hwCell = hwStatus.closest('td');
-    if (!hwCell) return;
-    var submitted = hwStatus.value === 'submitted';
-    hwCell.setAttribute('data-submitted', submitted ? '1' : '0');
-    var score = hwCell.querySelector('[data-hw-score]');
-    var date = hwCell.querySelector('[data-hw-date]');
-    if (score) score.disabled = !submitted;
-    if (date) {
-      date.disabled = !submitted;
-      if (submitted && !date.value) date.value = formatDateKey(new Date());
+    if (hwStatus) {
+      var hwCell = hwStatus.closest('td');
+      if (hwCell) {
+        var submitted = hwStatus.value === 'submitted';
+        hwCell.setAttribute('data-submitted', submitted ? '1' : '0');
+        var score = hwCell.querySelector('[data-hw-score]');
+        var date = hwCell.querySelector('[data-hw-date]');
+        if (score) score.disabled = !submitted;
+        if (date) {
+          date.disabled = !submitted;
+          if (submitted && !date.value) date.value = formatDateKey(new Date());
+        }
+      }
     }
+    scheduleAutoGradeSave();
+  }
+
+  var gradeSaveTimer = null;
+  var ruleSaveTimer = null;
+
+  function scheduleAutoGradeSave() {
+    if (!App.gradebook || !document.querySelector('#gradeTermWrap table')) return;
+    clearTimeout(gradeSaveTimer);
+    gradeSaveTimer = setTimeout(function () {
+      saveGradebookFromTable(false);
+    }, 700);
+  }
+
+  function scheduleAutoRuleSave() {
+    clearTimeout(ruleSaveTimer);
+    ruleSaveTimer = setTimeout(function () {
+      saveGradeRules(false);
+    }, 700);
   }
 
   function applyGradebook(data) {
@@ -1987,8 +2026,10 @@
     }
     api('saveGradebook', [body]).then(function (data) {
       applyGradebook(data);
-      renderGradebook();
-      if (showToast) toast('成績已儲存');
+      if (showToast) {
+        renderGradebook();
+        toast('成績已存到雲端');
+      }
     }).catch(function (error) {
       toast(error && error.message ? error.message : '儲存成績失敗');
     });
@@ -2039,7 +2080,7 @@
     });
   }
 
-  function saveGradeRules() {
+  function saveGradeRules(showToast) {
     var className = teacherTargetClass();
     if (!className) return;
     var body = collectGradebookFromTable();
@@ -2052,8 +2093,10 @@
     };
     api('saveGradebook', [body]).then(function (data) {
       applyGradebook(data);
-      renderGradebook();
-      toast('已套用計算規則');
+      if (showToast !== false) {
+        renderGradebook();
+        toast('已套用計算規則');
+      }
     }).catch(function (error) {
       toast(error && error.message ? error.message : '儲存規則失敗');
     });
@@ -2877,7 +2920,7 @@
           renderMeta();
         });
       }
-      toast(cloudConnected() ? '已存到雲端，平板與筆電都會看到' : '已暫存在這台。請到設定連上雲端，另一台才看得到');
+      toast(cloudConnected() ? '已同步到雲端。平時改完就會自動存，不必再按' : '已暫存在這台。請到設定連上雲端，另一台才看得到');
     });
   }
 

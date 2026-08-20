@@ -65,28 +65,52 @@
     });
   }
 
+  function parseCloudText_(text) {
+    var data;
+    try {
+      data = JSON.parse(text);
+    } catch (err) {
+      throw new Error('雲端回應不是資料，請確認 Apps Script 已部署成網頁應用程式');
+    }
+    if (data && data.error) throw new Error(data.error);
+    return data;
+  }
+
+  function wait_(ms) {
+    return new Promise(function (resolve) {
+      setTimeout(resolve, ms);
+    });
+  }
+
   function postAction(action, body) {
     var url = apiUrl();
     if (!url) {
       return Promise.reject(new Error('尚未連上雲端資料庫'));
     }
     var payload = Object.assign({ action: action }, body || {});
+    var raw = JSON.stringify(payload);
     return fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify(payload),
+      body: raw,
       redirect: 'follow'
     }).then(function (res) {
       return res.text();
-    }).then(function (text) {
-      var data;
-      try {
-        data = JSON.parse(text);
-      } catch (err) {
-        throw new Error('雲端回應不是資料，請確認 Apps Script 已部署成網頁應用程式');
-      }
-      if (data && data.error) throw new Error(data.error);
-      return data;
+    }).then(parseCloudText_).catch(function () {
+      return fetch(url, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: raw
+      }).then(function () {
+        return wait_(900).then(function () {
+          return jsonpGet('getStore');
+        }).then(function (data) {
+          var remoteAt = data && data.store && data.store.updatedAt;
+          if (!remoteAt) throw new Error('雲端存檔後讀不到資料，請再試一次');
+          return { ok: true, updatedAt: remoteAt };
+        });
+      });
     });
   }
 
