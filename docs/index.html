@@ -104,7 +104,9 @@
           <p id="scoreDayLabel" class="score-day-label teacher-date-only">正在看今天的加扣分</p>
           <button type="button" class="tool teacher-tab-only" data-for-tab="roster" id="btnDbAdd">新增一列</button>
           <button type="button" class="tool teacher-tab-only" data-for-tab="daily" id="btnExportSheet" hidden>下載成績表</button>
-          <button type="button" class="tool teacher-tab-only" data-for-tab="summary" id="btnExportReport" hidden>下載統計表</button>
+          <button type="button" class="tool teacher-tab-only" data-for-tab="summary" id="btnExportReport" hidden>下載 Excel</button>
+          <button type="button" class="tool teacher-tab-only" data-for-tab="summary" id="btnImportGrades" hidden>從 Excel 匯入</button>
+          <input id="gradeExcelFile" type="file" accept=".xlsx,.xls,.csv" hidden />
           <button type="button" class="tool teacher-tab-only" data-for-tab="settings" id="btnUpload" hidden>選擇名單檔</button>
         </div>
 
@@ -140,7 +142,7 @@
           </div>
 
           <div id="tabSummary" class="teacher-panel" hidden>
-            <p class="hint">點標題即可展開或收合。平時：上課加扣、實作、作業。平時考試：黃卷與早自習。考試可請假。該週沒有平時，就只算平時考試。</p>
+            <p class="hint">點標題即可展開或收合。可用 Excel 輸入成績後再匯入。平時：上課加扣、實作、作業。平時考試：黃卷與早自習。考試可請假。該週沒有平時，就只算平時考試。</p>
 
             <details class="grade-fold" id="gradeTermView" open>
               <summary>學期成績</summary>
@@ -165,6 +167,8 @@
                   <input id="gradeColDue" type="date" />
                 </label>
                 <button type="button" class="tool" id="btnAddGradeCol">新增這一欄</button>
+                <button type="button" class="tool" id="btnGradeExcelOut">下載 Excel</button>
+                <button type="button" class="tool" id="btnGradeExcelIn">從 Excel 匯入</button>
                 <button type="button" class="tool primary" id="btnSaveGrades">儲存成績</button>
               </div>
               <div id="gradeTermWrap" class="grade-boards"></div>

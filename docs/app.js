@@ -197,7 +197,28 @@
   var exportSheet = document.getElementById('btnExportSheet');
   if (exportSheet) exportSheet.addEventListener('click', downloadScoreSheet);
   var exportReport = document.getElementById('btnExportReport');
-  if (exportReport) exportReport.addEventListener('click', downloadScoreReport);
+  if (exportReport) exportReport.addEventListener('click', exportGradeExcel);
+  var importGrades = document.getElementById('btnImportGrades');
+  if (importGrades) importGrades.addEventListener('click', function () {
+    var input = document.getElementById('gradeExcelFile');
+    if (input) input.click();
+  });
+  var gradeExcelOut = document.getElementById('btnGradeExcelOut');
+  if (gradeExcelOut) gradeExcelOut.addEventListener('click', exportGradeExcel);
+  var gradeExcelIn = document.getElementById('btnGradeExcelIn');
+  if (gradeExcelIn) gradeExcelIn.addEventListener('click', function () {
+    var input = document.getElementById('gradeExcelFile');
+    if (input) input.click();
+  });
+  var gradeExcelFile = document.getElementById('gradeExcelFile');
+  if (gradeExcelFile) {
+    gradeExcelFile.addEventListener('change', function () {
+      if (gradeExcelFile.files && gradeExcelFile.files[0]) {
+        importGradeExcel(gradeExcelFile.files[0]);
+        gradeExcelFile.value = '';
+      }
+    });
+  }
   var gradeTermFold = document.getElementById('gradeTermView');
   var gradeWeekFold = document.getElementById('gradeWeekView');
   if (gradeTermFold) {
@@ -2127,22 +2148,181 @@
     toast('已下載成績表，可用 Excel 打開');
   }
 
-  function downloadScoreReport() {
-    if (App.gradeView === 'week') {
-      downloadWeekReport();
+  var GRADE_EXCEL_KIND = {
+    yellow: '黃卷',
+    morning: '早自習',
+    exam: '段考',
+    lab: '實作評量',
+    practical: '實作成績'
+  };
+
+  var GRADE_EXCEL_PREFIX = {
+    '黃卷': 'yellow',
+    '早自習': 'morning',
+    '段考': 'exam',
+    '實作評量': 'lab',
+    '實作成績': 'practical',
+    '作業繳交': 'homework-status',
+    '作業成績': 'homework-score',
+    '作業日期': 'homework-date'
+  };
+
+  function withXlsx(done) {
+    if (typeof XLSX !== 'undefined') {
+      done(XLSX);
       return;
     }
-    var model = App.sheetModel || buildSheetModel();
-    var students = (model.rows || []).slice().sort(seatOrder);
-    if (!students.length) {
-      toast('目前沒有成績統計表可以下載');
-      return;
+    var n = 0;
+    var timer = setInterval(function () {
+      n += 1;
+      if (typeof XLSX !== 'undefined') {
+        clearInterval(timer);
+        done(XLSX);
+      } else if (n > 25) {
+        clearInterval(timer);
+        toast('Excel 功能還沒載入完成，請重新整理頁面後再試');
+      }
+    }, 200);
+  }
+
+  function newGradeColId() {
+    return 'g' + Date.now() + Math.floor(Math.random() * 1000);
+  }
+
+  function scoreColsOf(book, kind) {
+    if (kind === 'yellow') return book.yellow || [];
+    if (kind === 'morning') return book.morning || [];
+    if (kind === 'exam') return book.exams || [];
+    if (kind === 'lab') return book.labs || [];
+    if (kind === 'practical') return book.practicals || [];
+    if (kind === 'homework') return book.homeworks || [];
+    return [];
+  }
+
+  function excelHeaderFor(kind, col) {
+    return GRADE_EXCEL_KIND[kind] + '｜' + (col.title || '未命名');
+  }
+
+  function hwExcelHeader(part, col) {
+    var prefix = part === 'status' ? '作業繳交' : (part === 'score' ? '作業成績' : '作業日期');
+    return prefix + '｜' + (col.title || '作業');
+  }
+
+  function splitExcelHeader(name) {
+    var parts = String(name || '').split('｜');
+    return { prefix: (parts[0] || '').trim(), title: (parts.slice(1).join('｜') || '').trim() };
+  }
+
+  function findColByTitle(list, title) {
+    var hit = null;
+    (list || []).forEach(function (col) {
+      if (!hit && String(col.title || '') === String(title || '')) hit = col;
+    });
+    return hit;
+  }
+
+  function matchSeat(students, seat) {
+    var raw = String(seat || '').trim();
+    if (!raw) return null;
+    var hit = students.filter(function (s) { return String(s.seatNo) === raw; })[0];
+    if (hit) return hit;
+    if (/^\d+$/.test(raw)) {
+      hit = students.filter(function (s) { return String(Number(s.seatNo)) === String(Number(raw)); })[0];
     }
-    var header = ['座號', '姓名', '上課加扣', '換算分', '實作評量平均', '實作成績平均', '作業平均', '平時平均', '黃卷平均', '早自習平均', '平時考試平均', '段考平均', '加權總分'];
-    var lines = [header.join(',')];
+    return hit || null;
+  }
+
+  function parseLeaveOrScore(value) {
+    var s = String(value == null ? '' : value).trim();
+    if (!s) return { empty: true };
+    if (s === '請假' || s === '假' || s.toLowerCase() === 'leave') return { leave: true };
+    var n = Number(s);
+    if (!isFinite(n)) return { empty: true };
+    return { score: n };
+  }
+
+  function parseHwStatus(value) {
+    var s = String(value == null ? '' : value).trim();
+    if (!s) return '';
+    if (/^(已繳交|已繳|submitted)$/i.test(s)) return 'submitted';
+    if (/^(未繳交|未繳|missing)$/i.test(s)) return 'missing';
+    return '';
+  }
+
+  function parseExcelDateValue(value) {
+    var s = String(value == null ? '' : value).trim().replace(/\//g, '-');
+    var m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+    if (!m) return '';
+    return m[1] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[3]).slice(-2);
+  }
+
+  function aoaToSheet(X, rows) {
+    var sheet = X.utils.aoa_to_sheet(rows);
+    var cols = (rows[0] || []).map(function (name) {
+      var n = String(name || '').length;
+      return { wch: Math.max(10, Math.min(18, n + 2)) };
+    });
+    if (cols[0]) cols[0].wch = 8;
+    if (cols[1]) cols[1].wch = 12;
+    sheet['!cols'] = cols;
+    return sheet;
+  }
+
+  function buildInputSheetRows(book, students) {
+    var kinds = ['yellow', 'morning', 'exam', 'lab', 'practical'];
+    var headers = ['座號', '姓名'];
+    var fields = [];
+    kinds.forEach(function (kind) {
+      scoreColsOf(book, kind).forEach(function (col) {
+        headers.push(excelHeaderFor(kind, col));
+        fields.push({ kind: kind, col: col });
+      });
+    });
+    (book.homeworks || []).forEach(function (col) {
+      headers.push(hwExcelHeader('status', col), hwExcelHeader('score', col), hwExcelHeader('date', col));
+      fields.push({ kind: 'homework-status', col: col });
+      fields.push({ kind: 'homework-score', col: col });
+      fields.push({ kind: 'homework-date', col: col });
+    });
+    var rows = [headers];
+    students.forEach(function (stu) {
+      var line = [stu.seatNo, stu.name];
+      fields.forEach(function (field) {
+        if (field.kind.indexOf('homework') === 0) {
+          var rec = ((field.col.records || {})[stu.seatNo]) || {};
+          if (field.kind === 'homework-status') line.push(rec.status === 'submitted' ? '已繳交' : (rec.status === 'missing' ? '未繳交' : ''));
+          else if (field.kind === 'homework-score') line.push(rec.score == null || rec.score === '' ? '' : rec.score);
+          else line.push(rec.submittedAt || '');
+          return;
+        }
+        var v = field.col.scores && field.col.scores[stu.seatNo];
+        if (isLeaveScore(v)) line.push('請假');
+        else if (v == null || v === '') line.push('');
+        else line.push(v);
+      });
+      rows.push(line);
+    });
+    return rows;
+  }
+
+  function buildMapSheetRows(book) {
+    var rows = [['欄位名稱', '類型', '編號', '日期', '期限', '滿分']];
+    ['yellow', 'morning', 'exam', 'lab', 'practical'].forEach(function (kind) {
+      scoreColsOf(book, kind).forEach(function (col) {
+        rows.push([excelHeaderFor(kind, col), kind, col.id, col.date || '', '', col.max || 100]);
+      });
+    });
+    (book.homeworks || []).forEach(function (col) {
+      rows.push([hwExcelHeader('status', col), 'homework', col.id, col.date || '', col.dueDate || '', col.max || 100]);
+    });
+    return rows;
+  }
+
+  function buildTermSheetRows(students) {
+    var rows = [['座號', '姓名', '上課加扣', '換算分', '實作評量平均', '實作成績平均', '作業平均', '平時平均', '黃卷平均', '早自習平均', '平時考試平均', '段考平均', '加權總分']];
     students.forEach(function (stu) {
       var p = studentGradeParts(stu, '');
-      lines.push([
+      rows.push([
         stu.seatNo, stu.name, p.classRaw,
         p.hasClass ? usualFromRaw(p.classRaw) : '',
         p.labAvg == null ? '' : p.labAvg,
@@ -2154,39 +2334,247 @@
         p.quiz == null ? '' : p.quiz,
         p.exam == null ? '' : p.exam,
         p.total == null ? '' : p.total
-      ].join(','));
+      ]);
     });
-    downloadText((teacherTargetClass() || '成績') + '-成績統計表.csv', '\uFEFF' + lines.join('\r\n'), 'text/csv;charset=utf-8');
-    toast('已下載成績統計表，可用 Excel 打開');
+    return rows;
   }
 
-  function downloadWeekReport() {
+  function buildWeekSheetRows(students) {
+    var monday = App.weekKey || mondayOf(formatDateKey(new Date()));
+    var rows = [['週次', formatZhDate(monday) + '～' + formatZhDate(sundayOf(monday))]];
+    rows.push(['座號', '姓名', '上課加扣', '實作評量', '實作成績', '作業', '平時', '黃卷', '早自習', '平時考試', '段考', '每週成績', '計算過程']);
+    students.forEach(function (stu) {
+      var p = studentGradeParts(stu, monday);
+      rows.push([
+        stu.seatNo, stu.name, p.classRaw,
+        p.labAvg == null ? '' : p.labAvg,
+        p.pracAvg == null ? '' : p.pracAvg,
+        p.hwAvg == null ? '' : p.hwAvg,
+        p.usual == null ? '' : p.usual,
+        p.yellowAvg == null ? '' : p.yellowAvg,
+        p.morningAvg == null ? '' : p.morningAvg,
+        p.quiz == null ? '' : p.quiz,
+        p.exam == null ? '' : p.exam,
+        p.total == null ? '' : p.total,
+        scoreFormula(p.usual, p.quiz, p.exam)
+      ]);
+    });
+    return rows;
+  }
+
+  function buildHelpSheetRows() {
+    return [
+      ['班級座位表　成績 Excel 使用說明'],
+      [''],
+      ['1. 請在「成績輸入」工作表填分數，不要改第一列欄名。'],
+      ['2. 黃卷、早自習、段考、實作：填數字；請假請填「請假」。'],
+      ['3. 作業分三欄：作業繳交填「已繳交」或「未繳交」；作業成績填分數；作業日期填 YYYY-MM-DD。'],
+      ['4. 填完後，回到網頁按「從 Excel 匯入」，選這個檔。'],
+      ['5. 「學期總表」「每週成績」是計算結果，匯入時會略過，改了也不會寫回。'],
+      ['6. 若要在 Excel 新增一欄，欄名格式請用：黃卷｜第三次　或　段考｜第一次段考　或　作業繳交｜第一次作業。'],
+      ['7. 座號要和網頁名單一致，系統用座號對應學生。']
+    ];
+  }
+
+  function exportGradeExcel() {
     var model = App.sheetModel || buildSheetModel();
     var students = (model.rows || []).slice().sort(seatOrder);
     if (!students.length) {
-      toast('目前沒有每週成績可以下載');
+      toast('目前沒有成績可以下載');
       return;
     }
-    var monday = App.weekKey || mondayOf(formatDateKey(new Date()));
-    var lines = ['座號,姓名,該週上課加扣,實作評量,實作成績,作業,平時表現,黃卷,早自習,平時考試,段考,每週成績,計算過程'];
-    students.forEach(function (stu) {
-      var p = studentGradeParts(stu, monday);
-      lines.push([
-        stu.seatNo, stu.name, p.classRaw,
-        p.labAvg == null ? '無' : p.labAvg,
-        p.pracAvg == null ? '無' : p.pracAvg,
-        p.hwAvg == null ? '無' : p.hwAvg,
-        p.usual == null ? '無' : p.usual,
-        p.yellowAvg == null ? '無' : p.yellowAvg,
-        p.morningAvg == null ? '無' : p.morningAvg,
-        p.quiz == null ? '無' : p.quiz,
-        p.exam == null ? '無' : p.exam,
-        p.total == null ? '' : p.total,
-        '"' + scoreFormula(p.usual, p.quiz, p.exam) + '"'
-      ].join(','));
+    var book = collectGradebookFromTable();
+    App.gradebook = {
+      yellow: book.yellow,
+      morning: book.morning,
+      exams: book.exams,
+      labs: book.labs,
+      practicals: book.practicals,
+      homeworks: book.homeworks,
+      rules: book.rules || gradeRules()
+    };
+    withXlsx(function (X) {
+      var wb = X.utils.book_new();
+      X.utils.book_append_sheet(wb, aoaToSheet(X, buildInputSheetRows(App.gradebook, students)), '成績輸入');
+      X.utils.book_append_sheet(wb, aoaToSheet(X, buildTermSheetRows(students)), '學期總表');
+      X.utils.book_append_sheet(wb, aoaToSheet(X, buildWeekSheetRows(students)), '每週成績');
+      X.utils.book_append_sheet(wb, aoaToSheet(X, buildHelpSheetRows()), '說明');
+      X.utils.book_append_sheet(wb, aoaToSheet(X, buildMapSheetRows(App.gradebook)), '欄位對照');
+      X.writeFile(wb, (teacherTargetClass() || '成績') + '-成績簿.xlsx');
+      toast('已下載 Excel，可直接在裡面輸入成績後再匯入');
     });
-    downloadText((teacherTargetClass() || '成績') + '-每週成績.csv', '\uFEFF' + lines.join('\r\n'), 'text/csv;charset=utf-8');
-    toast('已下載每週成績，可用 Excel 打開');
+  }
+
+  function importGradeExcel(file) {
+    if (!file) return;
+    var className = teacherTargetClass();
+    if (!className) {
+      toast('請先選擇班級');
+      return;
+    }
+    var name = String(file.name || '').toLowerCase();
+    withXlsx(function (X) {
+      var reader = new FileReader();
+      reader.onload = function (event) {
+        try {
+          var rows;
+          if (/\.csv$/.test(name)) {
+            var text = new TextDecoder('utf-8').decode(event.target.result);
+            rows = text.split(/\r?\n/).map(function (line) {
+              return line.split(',').map(function (cell) { return cell.replace(/^"|"$/g, '').trim(); });
+            }).filter(function (line) { return line.some(function (cell) { return cell !== ''; }); });
+          } else {
+            var wb = X.read(event.target.result, { type: 'array' });
+            var sheetName = wb.SheetNames.indexOf('成績輸入') >= 0 ? '成績輸入' : wb.SheetNames[0];
+            var sheet = wb.Sheets[sheetName];
+            rows = X.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
+          }
+          applyGradeExcelRows(rows);
+        } catch (err) {
+          toast('Excel 讀取失敗，請確認檔案是成績簿格式');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    });
+  }
+
+  function applyGradeExcelRows(table) {
+    var rows = (table || []).filter(function (row) {
+      return (row || []).some(function (cell) { return String(cell || '').trim() !== ''; });
+    });
+    if (!rows.length) {
+      toast('檔案是空的');
+      return;
+    }
+    var headers = (rows[0] || []).map(function (h) { return String(h || '').trim(); });
+    var seatIdx = headers.indexOf('座號');
+    var nameIdx = headers.indexOf('姓名');
+    if (seatIdx < 0) {
+      toast('找不到「座號」欄，請用網頁下載的 Excel 範本');
+      return;
+    }
+    var model = App.sheetModel || buildSheetModel();
+    var students = (model.rows || []).slice();
+    var body = collectGradebookFromTable();
+    var book = {
+      yellow: cloneScoreCols(body.yellow),
+      morning: cloneScoreCols(body.morning),
+      exams: cloneScoreCols(body.exams),
+      labs: cloneScoreCols(body.labs),
+      practicals: cloneScoreCols(body.practicals),
+      homeworks: cloneHomeworkCols(body.homeworks),
+      rules: body.rules || gradeRules()
+    };
+    var updated = 0;
+    var created = 0;
+    var unknown = 0;
+
+    function listFor(kind) {
+      if (kind === 'yellow') return book.yellow;
+      if (kind === 'morning') return book.morning;
+      if (kind === 'exam') return book.exams;
+      if (kind === 'lab') return book.labs;
+      if (kind === 'practical') return book.practicals;
+      if (kind === 'homework' || kind.indexOf('homework') === 0) return book.homeworks;
+      return null;
+    }
+
+    function ensureCol(kind, title) {
+      var list = listFor(kind);
+      if (!list) return null;
+      var col = findColByTitle(list, title);
+      if (col) return col;
+      col = {
+        id: newGradeColId(),
+        title: title || GRADE_TYPE_LABEL[kind] || '未命名',
+        date: App.activeDate || formatDateKey(new Date()),
+        max: 100
+      };
+      if (kind.indexOf('homework') === 0) {
+        col.dueDate = col.date;
+        col.records = {};
+        book.homeworks.push(col);
+      } else {
+        col.scores = {};
+        list.push(col);
+      }
+      created += 1;
+      return col;
+    }
+
+    var colMap = headers.map(function (header, index) {
+      if (index === seatIdx || index === nameIdx) return null;
+      var parts = splitExcelHeader(header);
+      var kind = GRADE_EXCEL_PREFIX[parts.prefix];
+      if (!kind) {
+        unknown += 1;
+        return null;
+      }
+      var realKind = kind.indexOf('homework') === 0 ? 'homework' : kind;
+      var col = ensureCol(realKind, parts.title);
+      return { index: index, kind: kind, col: col };
+    }).filter(function (item) { return item && item.col; });
+
+    rows.slice(1).forEach(function (row) {
+      var stu = matchSeat(students, row[seatIdx]);
+      if (!stu) return;
+      var seat = stu.seatNo;
+      colMap.forEach(function (item) {
+        var raw = row[item.index];
+        if (item.kind === 'homework-status' || item.kind === 'homework-score' || item.kind === 'homework-date') {
+          var rec = item.col.records[seat] || {};
+          if (item.kind === 'homework-status') {
+            var status = parseHwStatus(raw);
+            if (status) rec.status = status;
+            else if (String(raw || '').trim() === '') rec.status = rec.status || 'missing';
+          } else if (item.kind === 'homework-score') {
+            var parsed = parseLeaveOrScore(raw);
+            if (parsed.score != null) {
+              rec.score = parsed.score;
+              if (!rec.status) rec.status = 'submitted';
+            } else if (parsed.empty) {
+              delete rec.score;
+            }
+          } else {
+            var day = parseExcelDateValue(raw);
+            if (day) rec.submittedAt = day;
+            else if (String(raw || '').trim() === '') delete rec.submittedAt;
+          }
+          if (rec.status !== 'submitted' && rec.score == null) rec.status = rec.status || 'missing';
+          item.col.records[seat] = rec;
+          updated += 1;
+          return;
+        }
+        var cell = parseLeaveOrScore(raw);
+        if (cell.leave) item.col.scores[seat] = 'leave';
+        else if (cell.score != null) item.col.scores[seat] = cell.score;
+        else delete item.col.scores[seat];
+        updated += 1;
+      });
+    });
+
+    api('saveGradebook', [{
+      className: teacherTargetClass(),
+      rules: book.rules,
+      yellow: book.yellow,
+      morning: book.morning,
+      exams: book.exams,
+      labs: book.labs,
+      practicals: book.practicals,
+      homeworks: book.homeworks
+    }]).then(function (data) {
+      applyGradebook(data);
+      renderGradebook();
+      var msg = '已從 Excel 匯入成績';
+      if (created) msg += '，並新增 ' + created + ' 欄';
+      toast(msg);
+    }).catch(function (error) {
+      toast(error && error.message ? error.message : '匯入失敗');
+    });
+  }
+
+  function downloadScoreReport() {
+    exportGradeExcel();
   }
 
   function mergeVisibleDatabaseRows() {
