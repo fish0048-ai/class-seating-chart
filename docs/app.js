@@ -100,6 +100,7 @@
     timetableNow: document.getElementById('timetableNow'),
     timetableGrid: document.getElementById('timetableGrid'),
     timetableOpenLink: document.getElementById('timetableOpenLink'),
+    timetableFrame: document.getElementById('timetableFrame'),
     gradeTermWrap: document.getElementById('gradeTermWrap'),
     gradeWeekHead: document.getElementById('gradeWeekHead'),
     gradeWeekBody: document.getElementById('gradeWeekBody'),
@@ -215,8 +216,6 @@
       switchTeacherTab(btn.getAttribute('data-teacher-tab'));
     });
   });
-  var ttRefresh = document.getElementById('btnTimetableRefresh');
-  if (ttRefresh) ttRefresh.addEventListener('click', function () { loadTimetable(true); });
   if (els.timetableSheets) {
     els.timetableSheets.addEventListener('click', function (event) {
       var btn = event.target.closest('[data-tt-sheet]');
@@ -579,7 +578,7 @@
     var link = document.getElementById('cloudSheetLink');
     if (link) {
       if (info.sheetUrl) {
-        link.innerHTML = '<a href="' + escapeHtml(info.sheetUrl) + '" target="_blank" rel="noopener">打開 Google 試算表資料庫</a>';
+        link.innerHTML = '<a href="' + escapeHtml(info.sheetUrl) + '" target="_blank" rel="noopener">打開成績資料庫（不是課表）</a>';
       } else {
         link.textContent = '';
       }
@@ -1058,7 +1057,7 @@
     updateScoreDayLabel();
     if (App.teacherTab === 'settings' && changed) openSettings();
     if (App.teacherTab === 'timetable') {
-      loadTimetable(false);
+      loadTimetable();
       startTimetableClock();
     } else {
       stopTimetableClock();
@@ -1080,7 +1079,6 @@
     }).catch(function () {});
   }
 
-  var TT_CACHE_KEY = 'class-seating-timetable-v1';
   var TT_DAYS = ['週一', '週二', '週三', '週四', '週五'];
   var TT_CLASS_COLORS = ['#dbeaf2', '#dcecdc', '#f3e3c6', '#ead8f0', '#f6d9d4', '#e8e4d4'];
 
@@ -1089,8 +1087,7 @@
       ok: true,
       title: '115學年度課表',
       url: timetableUrl(),
-      fetchedAt: '',
-      source: 'seed',
+      source: 'local',
       sheets: [{
         name: '課表',
         gid: '871518223',
@@ -1120,56 +1117,15 @@
       'https://docs.google.com/spreadsheets/d/13VrWBx6hoKpUON_JNxIrynH_gyRV8HnhUt0MMscjkWg/edit').trim();
   }
 
-  function readTimetableCache() {
-    try {
-      var raw = localStorage.getItem(TT_CACHE_KEY);
-      return raw ? JSON.parse(raw) : null;
-    } catch (err) {
-      return null;
-    }
+  function timetableEmbedUrl() {
+    var id = String((window.SEAT_CONFIG && window.SEAT_CONFIG.timetableId) ||
+      '13VrWBx6hoKpUON_JNxIrynH_gyRV8HnhUt0MMscjkWg').trim();
+    return 'https://docs.google.com/spreadsheets/d/' + id + '/htmlembed?widget=true&headers=false';
   }
 
-  function writeTimetableCache(data) {
-    try {
-      localStorage.setItem(TT_CACHE_KEY, JSON.stringify(data));
-    } catch (err) {}
-  }
-
-  function loadTimetable(force) {
-    var cached = readTimetableCache();
-    if (!App.timetableData) {
-      App.timetableData = cached && cached.sheets && cached.sheets.length ? cached : fallbackTimetable();
-      renderTimetable();
-    } else if (!force) {
-      renderTimetable();
-    }
-    if (!force && cached && cached.fetchedAt && Date.now() - Date.parse(cached.fetchedAt) < 3 * 60 * 1000) {
-      App.timetableNote = '';
-      setTimetableStatus(cached);
-      return;
-    }
-    if (!force && App.timetableTried) {
-      setTimetableStatus(App.timetableData);
-      return;
-    }
-    App.timetableTried = true;
-    App.timetableNote = force ? '正在從 Google 課表讀取…' : '';
-    setTimetableStatus(App.timetableData);
-    api('getTimetable', []).then(function (data) {
-      if (!data || !data.sheets || !data.sheets.length) throw new Error('課表是空的');
-      data.source = 'cloud';
-      App.timetableNote = '';
-      App.timetableData = data;
-      if (App.timetableSheet >= data.sheets.length) App.timetableSheet = 0;
-      writeTimetableCache(data);
-      renderTimetable();
-      if (force) toast('已讀取最新課表');
-    }).catch(function (error) {
-      if (!App.timetableData) App.timetableData = cached || fallbackTimetable();
-      var msg = error && error.message ? error.message : '課表讀取失敗';
-      App.timetableNote = '還沒連上最新課表（' + msg + '）。請把最新 Code.gs 貼進 Apps Script 後再按「重新讀取」。';
-      renderTimetable();
-    });
+  function loadTimetable() {
+    App.timetableData = fallbackTimetable();
+    renderTimetable();
   }
 
   function startTimetableClock() {
@@ -1186,16 +1142,9 @@
     }
   }
 
-  function setTimetableStatus(data) {
+  function setTimetableStatus() {
     if (!els.timetableStatus) return;
-    if (App.timetableNote) {
-      els.timetableStatus.textContent = App.timetableNote;
-      return;
-    }
-    var when = data && data.fetchedAt ? formatTime(data.fetchedAt).replace('更新 ', '') : '';
-    els.timetableStatus.textContent = when
-      ? '已從 Google 課表更新 ' + when + '。點有班級的格子可直接去上課。'
-      : '點有班級的格子可直接去上課。課表改了請按「重新讀取課表」。';
+    els.timetableStatus.textContent = '這份是上課課表，不是成績資料庫。點班級可去上課；名單與成績仍存在另一份試算表。';
   }
 
   function weekdayIndex(now) {
@@ -1361,6 +1310,9 @@
     if (els.timetableOpenLink) {
       els.timetableOpenLink.href = data.url || timetableUrl();
     }
+    if (els.timetableFrame && !els.timetableFrame.getAttribute('src')) {
+      els.timetableFrame.src = timetableEmbedUrl();
+    }
     if (els.timetableSheets) {
       els.timetableSheets.innerHTML = sheets.map(function (sheet, i) {
         return '<button type="button" class="tool' + (i === App.timetableSheet ? ' tab-on' : '') +
@@ -1375,7 +1327,7 @@
     var nextRow = today >= 0 ? nextPeriodIndex(model, now) : -1;
     renderTimetableNow(model, today, nowRow, nextRow, now);
     renderTimetableGrid(model, today, nowRow);
-    setTimetableStatus(data);
+    setTimetableStatus();
   }
 
   function periodLabel(row) {

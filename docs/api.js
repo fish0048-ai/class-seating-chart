@@ -1021,12 +1021,6 @@
       saveStore(store);
       return gradebookResult_(className, book);
     },
-    getTimetable: function () {
-      if (typeof CloudStore === 'undefined' || !CloudStore.getTimetable) {
-        return Promise.reject(new Error('尚未連上雲端資料庫'));
-      }
-      return CloudStore.getTimetable();
-    },
     exportJSON: function () {
       return JSON.stringify(loadStore());
     },

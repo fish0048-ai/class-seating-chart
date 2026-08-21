@@ -47,9 +47,11 @@ CSV 欄位：
 
 ## 課表
 
-教師模式 → **課表** 會顯示 [115 學年度課表](https://docs.google.com/spreadsheets/d/13VrWBx6hoKpUON_JNxIrynH_gyRV8HnhUt0MMscjkWg/edit)。今天這一節會標出來，點 801／802／803／804 就能切去該班上課。
+教師模式 → **課表** 只顯示 [115 學年度課表](https://docs.google.com/spreadsheets/d/13VrWBx6hoKpUON_JNxIrynH_gyRV8HnhUt0MMscjkWg/edit)（何時上哪一班）。
 
-課表試算表改了之後，按「重新讀取課表」。若讀不到，請把最新的 `Code.gs` 貼進 Apps Script 並**新增部署**（第一次會再問一次權限，請允許讀取課表）。
+- **這份不是成績資料庫**，不會寫入名單、加扣分或考卷
+- 成績仍存在 [這份雲端資料庫](https://docs.google.com/spreadsheets/d/1AES93Jv8l65YI2LQ-scVRPqYSLFxtVOD-UqIU99gQSA/edit)
+- 點 801／802／803／804 會切到該班座位表去上課
 
 ## 新增班級與學生（Excel）
 

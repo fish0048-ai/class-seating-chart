@@ -116,13 +116,16 @@
             <div class="tt-toolbar">
               <div id="timetableSheets" class="tt-sheets" role="tablist" aria-label="課表工作表"></div>
               <div class="tt-toolbar-actions">
-                <button type="button" class="tool" id="btnTimetableRefresh">重新讀取課表</button>
-                <a class="tool" id="timetableOpenLink" href="https://docs.google.com/spreadsheets/d/13VrWBx6hoKpUON_JNxIrynH_gyRV8HnhUt0MMscjkWg/edit" target="_blank" rel="noopener">在 Google 開啟</a>
+                <a class="tool" id="timetableOpenLink" href="https://docs.google.com/spreadsheets/d/13VrWBx6hoKpUON_JNxIrynH_gyRV8HnhUt0MMscjkWg/edit" target="_blank" rel="noopener">在 Google 開啟課表</a>
               </div>
             </div>
-            <p id="timetableStatus" class="hint">打開這一頁就會對照現在第幾節，點班級可直接去上課。</p>
+            <p id="timetableStatus" class="hint">這份是上課課表，不是成績資料庫。點班級可去上課；名單與成績仍存在另一份試算表。</p>
             <div id="timetableNow" class="tt-now-card"></div>
             <div id="timetableGrid" class="tt-wrap"></div>
+            <details class="tt-live">
+              <summary>看 Google 課表原貌（只讀，不會寫入成績）</summary>
+              <iframe id="timetableFrame" class="tt-embed" title="115學年度課表" loading="lazy" referrerpolicy="no-referrer"></iframe>
+            </details>
           </div>
 
           <div id="tabRoster" class="teacher-panel">
@@ -428,7 +431,7 @@
           <div id="tabSettings" class="teacher-panel settings-panel" hidden>
             <div class="cloud-box">
               <h3>雲端資料庫（平板與筆電共用）</h3>
-              <p class="hint">名單、座位、加扣分與成績都存在這份 Google 試算表，不再只存在這個瀏覽器。</p>
+              <p class="hint">名單、座位、加扣分與成績都存在「成績資料庫」這份試算表。上課課表是另一份檔案，不會寫進這裡。</p>
               <p id="cloudStatusLine" class="cloud-status">尚未連線</p>
               <p id="cloudSheetLink" class="hint"></p>
               <label>Apps Script 網頁應用程式網址

@@ -918,6 +918,30 @@
     cursor: pointer;
   }
 
+  .tt-live {
+    margin-top: 8px;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 8px 12px 12px;
+  }
+
+  .tt-live summary {
+    cursor: pointer;
+    font-weight: 700;
+    padding: 6px 0;
+  }
+
+  .tt-embed {
+    display: block;
+    width: 100%;
+    min-height: 460px;
+    margin-top: 8px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #fff;
+  }
+
   .stats-switch {
     display: flex;
     gap: 8px;
