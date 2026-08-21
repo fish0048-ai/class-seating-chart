@@ -806,6 +806,82 @@
     align-items: center;
   }
 
+  .tt-focus {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .tt-clock {
+    margin: 0;
+    font-size: 15px;
+    font-weight: 700;
+  }
+
+  .tt-focus-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .tt-focus-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 14px 16px;
+    border-radius: 14px;
+    min-height: 132px;
+  }
+
+  .tt-focus-now {
+    background: #e7f1f8;
+    border: 3px solid var(--primary);
+  }
+
+  .tt-focus-next {
+    background: #fff6ea;
+    border: 3px dashed var(--accent);
+  }
+
+  .tt-kicker {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+  }
+
+  .tt-focus-card h3 {
+    margin: 0;
+    font-size: 18px;
+  }
+
+  .tt-focus-body {
+    min-height: 36px;
+    display: flex;
+    align-items: center;
+  }
+
+  .tt-focus-item {
+    font-size: 20px;
+    font-weight: 700;
+  }
+
+  .tt-focus-empty {
+    color: var(--muted);
+  }
+
+  .tt-remain {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--primary);
+  }
+
+  .tt-focus-next .tt-remain {
+    color: #b56a16;
+  }
+
   .tt-now-card {
     display: flex;
     flex-wrap: wrap;
@@ -889,12 +965,42 @@
 
   .tt-table tr.tt-now td,
   .tt-table tr.tt-now th {
-    box-shadow: inset 0 0 0 2px #2f6f8f;
+    box-shadow: none;
+  }
+
+  .tt-table td.tt-current,
+  .tt-table td.tt-upcoming {
+    position: relative;
+    padding-top: 22px;
   }
 
   .tt-table td.tt-current {
     background: #d5eaf6;
-    box-shadow: inset 0 0 0 2px var(--primary);
+    box-shadow: inset 0 0 0 4px var(--primary);
+    z-index: 2;
+  }
+
+  .tt-table td.tt-upcoming {
+    background: #fff1dc;
+    box-shadow: inset 0 0 0 3px var(--accent);
+    z-index: 1;
+  }
+
+  .tt-badge {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: var(--primary);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.4;
+  }
+
+  .tt-upcoming .tt-badge {
+    background: var(--accent);
   }
 
   .tt-table tr.tt-break td,
@@ -1665,5 +1771,6 @@
     .form-grid { grid-template-columns: 1fr; }
     .seat-name { font-size: 14px; }
     .chart-grid { grid-template-columns: 1fr; }
+    .tt-focus-grid { grid-template-columns: 1fr; }
   }
   .setup-card ol { margin: 8px 0 0; padding-left: 20px; line-height: 1.7; color: var(--muted); }

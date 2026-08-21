@@ -1057,6 +1057,7 @@
     updateScoreDayLabel();
     if (App.teacherTab === 'settings' && changed) openSettings();
     if (App.teacherTab === 'timetable') {
+      App.ttFocusKey = '';
       loadTimetable();
       startTimetableClock();
     } else {
@@ -1132,7 +1133,7 @@
     stopTimetableClock();
     App.timetableTimer = setInterval(function () {
       if (App.teacherTab === 'timetable') renderTimetable();
-    }, 30000);
+    }, 10000);
   }
 
   function stopTimetableClock() {
@@ -1244,6 +1245,9 @@
       var period = row[periodCol] || '';
       var time = row[timeCol] || '';
       if (!period && !time && !dayCols.some(function (item) { return row[item.c]; })) continue;
+      if (!period && !time && dayCols.every(function (item) {
+        return /年級|^$/.test(row[item.c] || '');
+      })) continue;
       var range = parseTimeRange(time);
       rows.push({
         period: period || '　',
@@ -1254,10 +1258,47 @@
         cells: dayCols.map(function (item) { return row[item.c] || ''; })
       });
     }
+    fillMissingTimes(rows);
     return {
       days: dayCols.map(function (item) { return TT_DAYS[item.d]; }),
       rows: rows
     };
+  }
+
+  function fillMissingTimes(rows) {
+    var i;
+    for (i = 0; i < rows.length; i++) {
+      if (rows[i].start != null && rows[i].end != null) continue;
+      var prevEnd = null;
+      var nextStart = null;
+      var p;
+      var n;
+      for (p = i - 1; p >= 0; p--) {
+        if (rows[p].end != null) { prevEnd = rows[p].end; break; }
+      }
+      for (n = i + 1; n < rows.length; n++) {
+        if (rows[n].start != null) { nextStart = rows[n].start; break; }
+      }
+      if (prevEnd == null || nextStart == null || nextStart <= prevEnd) continue;
+      rows[i].start = prevEnd;
+      rows[i].end = nextStart;
+      if (!rows[i].time) rows[i].time = clockFromMins(prevEnd) + '~' + clockFromMins(nextStart);
+    }
+  }
+
+  function clockFromMins(n) {
+    var h = Math.floor(n / 60);
+    var m = n % 60;
+    return String(h).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+  }
+
+  function remainText(fromMins, toMins) {
+    var d = toMins - fromMins;
+    if (d <= 0) return '不到 1 分鐘';
+    if (d < 60) return d + ' 分鐘';
+    var h = Math.floor(d / 60);
+    var m = d % 60;
+    return h + ' 小時' + (m ? m + ' 分鐘' : '');
   }
 
   function matchClassName(text) {
@@ -1291,14 +1332,15 @@
     return -1;
   }
 
-  function nextPeriodIndex(model, now) {
+  function nextBusyIndex(model, today, afterIndex, nowMins) {
     if (!model || !model.rows) return -1;
-    var mins = minutesNow(now);
     var i;
-    for (i = 0; i < model.rows.length; i++) {
+    for (i = Math.max(0, afterIndex + 1); i < model.rows.length; i++) {
       var row = model.rows[i];
       if (row.start == null) continue;
-      if (row.start > mins && !row.isBreak) return i;
+      if (today >= 0 && !(row.cells[today] || '').trim()) continue;
+      if (afterIndex < 0 && (row.start == null || row.start <= nowMins)) continue;
+      return i;
     }
     return -1;
   }
@@ -1323,11 +1365,18 @@
     var model = parseTimetableSheet(sheet && sheet.values);
     var now = new Date();
     var today = weekdayIndex(now);
+    var mins = minutesNow(now);
     var nowRow = today >= 0 ? currentPeriodIndex(model, now) : -1;
-    var nextRow = today >= 0 ? nextPeriodIndex(model, now) : -1;
+    var nextRow = today >= 0 ? nextBusyIndex(model, today, nowRow, mins) : -1;
     renderTimetableNow(model, today, nowRow, nextRow, now);
-    renderTimetableGrid(model, today, nowRow);
+    renderTimetableGrid(model, today, nowRow, nextRow);
     setTimetableStatus();
+    var focusKey = nowRow + ':' + nextRow + ':' + today;
+    if (App.ttFocusKey !== focusKey) {
+      App.ttFocusKey = focusKey;
+      var mark = els.timetableGrid && (els.timetableGrid.querySelector('.tt-current') || els.timetableGrid.querySelector('.tt-upcoming'));
+      if (mark && mark.scrollIntoView) mark.scrollIntoView({ block: 'center', inline: 'nearest' });
+    }
   }
 
   function periodLabel(row) {
@@ -1343,32 +1392,67 @@
       '" style="background:' + classTone(cls) + '">' + escapeHtml(text) + '</button>';
   }
 
+  function slotText(row, today) {
+    if (!row || today < 0) return '';
+    return String(row.cells[today] || '').trim();
+  }
+
+  function renderFocusCard(kind, row, today, now, remainLabel) {
+    var mins = minutesNow(now);
+    var title = row ? periodLabel(row) : (kind === 'now' ? '現在沒有課' : '沒有下一節');
+    var text = slotText(row, today);
+    var cls = matchClassName(text);
+    var time = row && row.time ? row.time : '';
+    var remain = '';
+    if (row && remainLabel === 'end' && row.end != null) remain = '還有 ' + remainText(mins, row.end) + ' 下課';
+    if (row && remainLabel === 'start' && row.start != null) remain = '還有 ' + remainText(mins, row.start) + ' 開始';
+    var go = cls
+      ? '<button type="button" class="tool primary" data-tt-class="' + escapeHtml(cls) + '">前往 ' + escapeHtml(cls) + ' 上課</button>'
+      : '';
+    var body = text
+      ? (cls ? ttClassButton(text) : '<span class="tt-focus-item">' + escapeHtml(text) + '</span>')
+      : '<span class="tt-focus-empty">' + (kind === 'now' ? '這一節沒有排課' : '沒有下一節') + '</span>';
+    return '<article class="tt-focus-card tt-focus-' + kind + '">' +
+      '<p class="tt-kicker">' + (kind === 'now' ? '現在' : '接下來') + '</p>' +
+      '<h3>' + escapeHtml(title) + (time ? '　' + escapeHtml(time) : '') + '</h3>' +
+      '<div class="tt-focus-body">' + body + '</div>' +
+      (remain ? '<p class="tt-remain">' + escapeHtml(remain) + '</p>' : '') +
+      go + '</article>';
+  }
+
   function renderTimetableNow(model, today, nowRow, nextRow, now) {
     if (!els.timetableNow) return;
     var weekdays = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
     var clock = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
-    if (today < 0) {
-      els.timetableNow.innerHTML = '<div class="tt-now-main"><strong>今天是' + weekdays[now.getDay()] +
-        '　' + clock + '</strong><span>這週沒有排課。下面仍可看整週課表。</span></div>';
-      return;
-    }
     var current = nowRow >= 0 ? model.rows[nowRow] : null;
     var next = nextRow >= 0 ? model.rows[nextRow] : null;
-    var curText = current
-      ? (current.cells[today] ? current.cells[today] : '這一節沒有排課')
-      : '現在不是上課時間';
-    var curClass = current ? matchClassName(current.cells[today]) : '';
-    var nextText = next && next.cells[today] ? periodLabel(next) + '　' + next.cells[today] : '';
-    els.timetableNow.innerHTML =
-      '<div class="tt-now-main"><strong>' + weekdays[now.getDay()] + '　' + clock +
-      (current ? '　' + periodLabel(current) + (current.time ? '（' + escapeHtml(current.time) + '）' : '') : '') +
-      '</strong><span>' + (curClass ? ttClassButton(current.cells[today]) : escapeHtml(curText)) + '</span></div>' +
-      (curClass ? '<button type="button" class="tool primary" data-tt-class="' + escapeHtml(curClass) +
-        '">前往 ' + escapeHtml(curClass) + ' 上課</button>' : '') +
-      (nextText ? '<p class="hint">下一節：' + escapeHtml(nextText) + '</p>' : '');
+    var nowRemain = current ? 'end' : '';
+    var nextRemain = next ? 'start' : '';
+    var nowCard;
+    if (today < 0) {
+      nowCard = '<article class="tt-focus-card tt-focus-now"><p class="tt-kicker">現在</p><h3>今天是' +
+        weekdays[now.getDay()] + '</h3><p class="tt-focus-empty">週末沒有排課，下面仍可看整週課表。</p></article>';
+    } else if (!current && !next) {
+      nowCard = '<article class="tt-focus-card tt-focus-now"><p class="tt-kicker">現在</p><h3>今天的課上完了</h3>' +
+        '<p class="tt-focus-empty">目前沒有下一節。</p></article>';
+    } else if (!current) {
+      nowCard = '<article class="tt-focus-card tt-focus-now"><p class="tt-kicker">現在</p><h3>課間休息</h3>' +
+        '<p class="tt-focus-empty">先看接下來這一節。</p></article>';
+    } else {
+      nowCard = renderFocusCard('now', current, today, now, nowRemain);
+    }
+    var nextCard = renderFocusCard('next', next, today, now, nextRemain);
+    els.timetableNow.innerHTML = '<p class="tt-clock">' + weekdays[now.getDay()] + '　' + clock + '</p>' +
+      '<div class="tt-focus-grid">' + nowCard + nextCard + '</div>';
   }
 
-  function renderTimetableGrid(model, today, nowRow) {
+  function cellInner(cell, badge) {
+    var mark = badge ? '<span class="tt-badge">' + badge + '</span>' : '';
+    var body = cell ? (matchClassName(cell) ? ttClassButton(cell) : escapeHtml(cell)) : (badge ? '<span class="tt-focus-empty">空堂</span>' : '');
+    return mark + body;
+  }
+
+  function renderTimetableGrid(model, today, nowRow, nextRow) {
     if (!els.timetableGrid) return;
     if (model.raw) {
       els.timetableGrid.innerHTML = '<div class="tt-table-wrap"><table class="tt-table">' +
@@ -1383,12 +1467,20 @@
       return '<th class="' + (i === today ? 'tt-today' : '') + '">' + escapeHtml(day) + '</th>';
     }).join('');
     var body = model.rows.map(function (row, r) {
-      var trClass = (row.isBreak ? 'tt-break' : '') + (r === nowRow ? ' tt-now' : '');
-      return '<tr class="' + trClass.trim() + '"><th>' + escapeHtml(periodLabel(row)) + '</th><td>' +
+      var trClass = row.isBreak ? 'tt-break' : '';
+      return '<tr class="' + trClass + '"><th>' + escapeHtml(periodLabel(row)) + '</th><td>' +
         escapeHtml(row.time) + '</td>' + row.cells.map(function (cell, i) {
-          var cls = (i === today ? 'tt-today' : '') + (r === nowRow && i === today ? ' tt-current' : '');
-          var inner = cell ? (matchClassName(cell) ? ttClassButton(cell) : escapeHtml(cell)) : '';
-          return '<td class="' + cls.trim() + '">' + inner + '</td>';
+          var cls = [];
+          var badge = '';
+          if (i === today) cls.push('tt-today');
+          if (r === nowRow && i === today) {
+            cls.push('tt-current');
+            badge = '現在';
+          } else if (r === nextRow && i === today) {
+            cls.push('tt-upcoming');
+            badge = '接下來';
+          }
+          return '<td class="' + cls.join(' ') + '">' + cellInner(cell, badge) + '</td>';
         }).join('') + '</tr>';
     }).join('');
     els.timetableGrid.innerHTML = '<div class="tt-table-wrap"><table class="tt-table"><thead><tr>' +
