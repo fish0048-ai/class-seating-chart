@@ -78,6 +78,7 @@
 
       <nav class="toolbar teacher-tabs" role="tablist" aria-label="教師功能">
         <button type="button" class="tool tab-on" data-teacher-tab="roster">名單</button>
+        <button type="button" class="tool" data-teacher-tab="timetable">課表</button>
         <button type="button" class="tool" data-teacher-tab="daily">成績表</button>
         <button type="button" class="tool" data-teacher-tab="summary">成績統計表</button>
         <button type="button" class="tool" data-teacher-tab="stats">統計圖表</button>
@@ -111,6 +112,19 @@
         </div>
 
         <div class="teacher-body">
+          <div id="tabTimetable" class="teacher-panel timetable-panel" hidden>
+            <div class="tt-toolbar">
+              <div id="timetableSheets" class="tt-sheets" role="tablist" aria-label="課表工作表"></div>
+              <div class="tt-toolbar-actions">
+                <button type="button" class="tool" id="btnTimetableRefresh">重新讀取課表</button>
+                <a class="tool" id="timetableOpenLink" href="https://docs.google.com/spreadsheets/d/13VrWBx6hoKpUON_JNxIrynH_gyRV8HnhUt0MMscjkWg/edit" target="_blank" rel="noopener">在 Google 開啟</a>
+              </div>
+            </div>
+            <p id="timetableStatus" class="hint">打開這一頁就會對照現在第幾節，點班級可直接去上課。</p>
+            <div id="timetableNow" class="tt-now-card"></div>
+            <div id="timetableGrid" class="tt-wrap"></div>
+          </div>
+
           <div id="tabRoster" class="teacher-panel">
             <p class="hint" id="rosterHint">直接改班級、座號、姓名與這一天的分數。改完按「儲存名單」。</p>
             <div class="db-table-wrap">

@@ -128,6 +128,9 @@
     },
     putStore: function (store) {
       return postAction('putStore', { store: store });
+    },
+    getTimetable: function () {
+      return jsonpGet('getTimetable');
     }
   };
 })(window);

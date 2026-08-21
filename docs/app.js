@@ -23,7 +23,8 @@
     gradebook: null,
     weekKey: '',
     statsView: 'class',
-    statsSeatNo: ''
+    statsSeatNo: '',
+    timetableSheet: 0
   };
 
   const els = {
@@ -94,6 +95,11 @@
     chartPersonPct: document.getElementById('chartPersonPct'),
     chartPersonBand: document.getElementById('chartPersonBand'),
     chartPersonSeries: document.getElementById('chartPersonSeries'),
+    timetableSheets: document.getElementById('timetableSheets'),
+    timetableStatus: document.getElementById('timetableStatus'),
+    timetableNow: document.getElementById('timetableNow'),
+    timetableGrid: document.getElementById('timetableGrid'),
+    timetableOpenLink: document.getElementById('timetableOpenLink'),
     gradeTermWrap: document.getElementById('gradeTermWrap'),
     gradeWeekHead: document.getElementById('gradeWeekHead'),
     gradeWeekBody: document.getElementById('gradeWeekBody'),
@@ -209,6 +215,30 @@
       switchTeacherTab(btn.getAttribute('data-teacher-tab'));
     });
   });
+  var ttRefresh = document.getElementById('btnTimetableRefresh');
+  if (ttRefresh) ttRefresh.addEventListener('click', function () { loadTimetable(true); });
+  if (els.timetableSheets) {
+    els.timetableSheets.addEventListener('click', function (event) {
+      var btn = event.target.closest('[data-tt-sheet]');
+      if (!btn) return;
+      App.timetableSheet = Number(btn.getAttribute('data-tt-sheet')) || 0;
+      renderTimetable();
+    });
+  }
+  if (els.timetableGrid) {
+    els.timetableGrid.addEventListener('click', function (event) {
+      var btn = event.target.closest('[data-tt-class]');
+      if (!btn) return;
+      goToTimetableClass(btn.getAttribute('data-tt-class'));
+    });
+  }
+  if (els.timetableNow) {
+    els.timetableNow.addEventListener('click', function (event) {
+      var btn = event.target.closest('[data-tt-class]');
+      if (!btn) return;
+      goToTimetableClass(btn.getAttribute('data-tt-class'));
+    });
+  }
   var dbSave = document.getElementById('btnDatabaseSave');
   if (dbSave) dbSave.addEventListener('click', saveDatabase);
   var dbAdd = document.getElementById('btnDbAdd');
@@ -1001,11 +1031,13 @@
       btn.classList.toggle('tab-on', btn.getAttribute('data-teacher-tab') === App.teacherTab);
     });
     var roster = document.getElementById('tabRoster');
+    var timetable = document.getElementById('tabTimetable');
     var daily = document.getElementById('tabDaily');
     var summary = document.getElementById('tabSummary');
     var stats = document.getElementById('tabStats');
     var settings = document.getElementById('tabSettings');
     if (roster) roster.hidden = App.teacherTab !== 'roster';
+    if (timetable) timetable.hidden = App.teacherTab !== 'timetable';
     if (daily) daily.hidden = App.teacherTab !== 'daily';
     if (summary) summary.hidden = App.teacherTab !== 'summary';
     if (stats) stats.hidden = App.teacherTab !== 'stats';
@@ -1018,14 +1050,20 @@
     var footer = document.querySelector('.teacher-footer');
     if (footer) footer.hidden = App.teacherTab !== 'roster' || !viewingLiveScores();
     if (els.dbClassFilter && els.dbClassFilter.parentElement) {
-      els.dbClassFilter.parentElement.hidden = App.teacherTab === 'settings';
+      els.dbClassFilter.parentElement.hidden = App.teacherTab === 'settings' || App.teacherTab === 'timetable';
     }
     document.querySelectorAll('.teacher-date-only').forEach(function (el) {
-      el.hidden = App.teacherTab === 'settings' || App.teacherTab === 'stats' || App.teacherTab === 'summary';
+      el.hidden = App.teacherTab === 'settings' || App.teacherTab === 'stats' || App.teacherTab === 'summary' || App.teacherTab === 'timetable';
     });
     updateScoreDayLabel();
     if (App.teacherTab === 'settings' && changed) openSettings();
-    if (App.teacherTab !== 'roster' && App.teacherTab !== 'settings') refreshTeacherExtras();
+    if (App.teacherTab === 'timetable') {
+      loadTimetable(false);
+      startTimetableClock();
+    } else {
+      stopTimetableClock();
+    }
+    if (App.teacherTab !== 'roster' && App.teacherTab !== 'settings' && App.teacherTab !== 'timetable') refreshTeacherExtras();
   }
 
   function refreshTeacherExtras() {
@@ -1040,6 +1078,381 @@
       applyGradebook(data);
       renderGradebook();
     }).catch(function () {});
+  }
+
+  var TT_CACHE_KEY = 'class-seating-timetable-v1';
+  var TT_DAYS = ['週一', '週二', '週三', '週四', '週五'];
+  var TT_CLASS_COLORS = ['#dbeaf2', '#dcecdc', '#f3e3c6', '#ead8f0', '#f6d9d4', '#e8e4d4'];
+
+  function fallbackTimetable() {
+    return {
+      ok: true,
+      title: '115學年度課表',
+      url: timetableUrl(),
+      fetchedAt: '',
+      source: 'seed',
+      sheets: [{
+        name: '課表',
+        gid: '871518223',
+        values: [
+          ['', '', '周一', '週二', '週三', '週四', '週五'],
+          ['1', '8:35~9:15', '804', '803', '802', '', ''],
+          ['2', '9:20~10:00', '804', '803', '802', '', '802'],
+          ['大下課', '10:00~10:20', '', '3樓連廊露台 Terrace on the 3rd floor', '', '', ''],
+          ['3', '10:20~11:00', '', '社團(科展)', '', '領域會議', ''],
+          ['4', '11:05~11:45', '', '社團(科展)', '', '領域會議', ''],
+          ['午休', '', '', '', '', '', ''],
+          ['5', '12:50~13:30', '803', '804', '', '', '國中會議'],
+          ['6', '13:35~14:15', '803', '804', '', '', '國中會議'],
+          ['大下課', '14:15~14:40', '', '3樓連廊露台 Terrace on the 3rd floor', '', '', ''],
+          ['7', '14:40~15:20', '802', '', '801', '804', '801'],
+          ['8', '15:25~16:05', '', '', '801', '', ''],
+          ['9', '16:10~16:50', '', '801', '803', '801', '802'],
+          ['角落課程', '17:00~18:30', '801教室', '904教室', '', '804教室', '804教室'],
+          ['', '', '九年級', '九年級', '', '八年級', '八年級']
+        ]
+      }]
+    };
+  }
+
+  function timetableUrl() {
+    return String((window.SEAT_CONFIG && window.SEAT_CONFIG.timetableUrl) ||
+      'https://docs.google.com/spreadsheets/d/13VrWBx6hoKpUON_JNxIrynH_gyRV8HnhUt0MMscjkWg/edit').trim();
+  }
+
+  function readTimetableCache() {
+    try {
+      var raw = localStorage.getItem(TT_CACHE_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function writeTimetableCache(data) {
+    try {
+      localStorage.setItem(TT_CACHE_KEY, JSON.stringify(data));
+    } catch (err) {}
+  }
+
+  function loadTimetable(force) {
+    var cached = readTimetableCache();
+    if (!App.timetableData) {
+      App.timetableData = cached && cached.sheets && cached.sheets.length ? cached : fallbackTimetable();
+      renderTimetable();
+    } else if (!force) {
+      renderTimetable();
+    }
+    if (!force && cached && cached.fetchedAt && Date.now() - Date.parse(cached.fetchedAt) < 3 * 60 * 1000) {
+      App.timetableNote = '';
+      setTimetableStatus(cached);
+      return;
+    }
+    if (!force && App.timetableTried) {
+      setTimetableStatus(App.timetableData);
+      return;
+    }
+    App.timetableTried = true;
+    App.timetableNote = force ? '正在從 Google 課表讀取…' : '';
+    setTimetableStatus(App.timetableData);
+    api('getTimetable', []).then(function (data) {
+      if (!data || !data.sheets || !data.sheets.length) throw new Error('課表是空的');
+      data.source = 'cloud';
+      App.timetableNote = '';
+      App.timetableData = data;
+      if (App.timetableSheet >= data.sheets.length) App.timetableSheet = 0;
+      writeTimetableCache(data);
+      renderTimetable();
+      if (force) toast('已讀取最新課表');
+    }).catch(function (error) {
+      if (!App.timetableData) App.timetableData = cached || fallbackTimetable();
+      var msg = error && error.message ? error.message : '課表讀取失敗';
+      App.timetableNote = '還沒連上最新課表（' + msg + '）。請把最新 Code.gs 貼進 Apps Script 後再按「重新讀取」。';
+      renderTimetable();
+    });
+  }
+
+  function startTimetableClock() {
+    stopTimetableClock();
+    App.timetableTimer = setInterval(function () {
+      if (App.teacherTab === 'timetable') renderTimetable();
+    }, 30000);
+  }
+
+  function stopTimetableClock() {
+    if (App.timetableTimer) {
+      clearInterval(App.timetableTimer);
+      App.timetableTimer = null;
+    }
+  }
+
+  function setTimetableStatus(data) {
+    if (!els.timetableStatus) return;
+    if (App.timetableNote) {
+      els.timetableStatus.textContent = App.timetableNote;
+      return;
+    }
+    var when = data && data.fetchedAt ? formatTime(data.fetchedAt).replace('更新 ', '') : '';
+    els.timetableStatus.textContent = when
+      ? '已從 Google 課表更新 ' + when + '。點有班級的格子可直接去上課。'
+      : '點有班級的格子可直接去上課。課表改了請按「重新讀取課表」。';
+  }
+
+  function weekdayIndex(now) {
+    var d = (now || new Date()).getDay();
+    return d >= 1 && d <= 5 ? d - 1 : -1;
+  }
+
+  function minutesNow(now) {
+    var d = now || new Date();
+    return d.getHours() * 60 + d.getMinutes();
+  }
+
+  function parseClock(text) {
+    var m = String(text || '').match(/(\d{1,2})\s*[:：]\s*(\d{2})/);
+    if (!m) return null;
+    return Number(m[1]) * 60 + Number(m[2]);
+  }
+
+  function parseTimeRange(text) {
+    var s = String(text || '').replace(/－/g, '-').replace(/—/g, '-').replace(/~/g, '-').replace(/–/g, '-');
+    var parts = s.split('-').map(function (p) { return p.trim(); }).filter(Boolean);
+    if (parts.length < 2) return null;
+    var a = parseClock(parts[0]);
+    var b = parseClock(parts[1]);
+    if (a == null || b == null) return null;
+    return { start: a, end: b };
+  }
+
+  function dayColOf(text) {
+    var s = String(text || '').replace(/\s/g, '');
+    if (/週一|周一|星期一|^一$|^Mon/i.test(s)) return 0;
+    if (/週二|周二|星期二|^二$|^Tue/i.test(s)) return 1;
+    if (/週三|周三|星期三|^三$|^Wed/i.test(s)) return 2;
+    if (/週四|周四|星期四|^四$|^Thu/i.test(s)) return 3;
+    if (/週五|周五|星期五|^五$|^Fri/i.test(s)) return 4;
+    return -1;
+  }
+
+  function looksLikeIndexCol(grid) {
+    var hits = 0;
+    var i;
+    for (i = 0; i < Math.min(grid.length, 10); i++) {
+      if (String((grid[i] || [])[0] || '') === String(i + 1)) hits += 1;
+    }
+    return hits >= 4;
+  }
+
+  function isBreakPeriod(label) {
+    return /下課|午休|午餐|休息|導師時間/.test(String(label || ''));
+  }
+
+  function parseTimetableSheet(values) {
+    var grid = (values || []).map(function (row) {
+      return (row || []).map(function (cell) { return String(cell == null ? '' : cell).replace(/\r/g, '').trim(); });
+    }).filter(function (row) { return row.some(function (cell) { return cell; }); });
+    if (looksLikeIndexCol(grid)) {
+      grid = grid.map(function (row) { return row.slice(1); });
+    }
+    var headerAt = -1;
+    var dayCols = [];
+    grid.forEach(function (row, r) {
+      var found = [];
+      row.forEach(function (cell, c) {
+        var d = dayColOf(cell);
+        if (d >= 0) found.push({ d: d, c: c });
+      });
+      if (found.length >= 3 && headerAt < 0) {
+        headerAt = r;
+        dayCols = found.sort(function (a, b) { return a.d - b.d; });
+      }
+    });
+    if (headerAt < 0) {
+      return { days: TT_DAYS, rows: [], raw: true, values: grid };
+    }
+    var used = {};
+    dayCols.forEach(function (item) { used[item.c] = true; });
+    var periodCol = 0;
+    var timeCol = 1;
+    var header = grid[headerAt] || [];
+    header.forEach(function (cell, c) {
+      if (used[c]) return;
+      if (/節|時間/.test(cell) && /時間/.test(cell)) timeCol = c;
+      else if (/節/.test(cell)) periodCol = c;
+    });
+    if (used[periodCol]) {
+      periodCol = 0;
+      while (used[periodCol]) periodCol += 1;
+    }
+    if (timeCol === periodCol || used[timeCol]) {
+      timeCol = periodCol + 1;
+      while (used[timeCol]) timeCol += 1;
+    }
+    var rows = [];
+    var r;
+    for (r = headerAt + 1; r < grid.length; r++) {
+      var row = grid[r] || [];
+      var period = row[periodCol] || '';
+      var time = row[timeCol] || '';
+      if (!period && !time && !dayCols.some(function (item) { return row[item.c]; })) continue;
+      var range = parseTimeRange(time);
+      rows.push({
+        period: period || '　',
+        time: time,
+        start: range ? range.start : null,
+        end: range ? range.end : null,
+        isBreak: isBreakPeriod(period) || isBreakPeriod(time),
+        cells: dayCols.map(function (item) { return row[item.c] || ''; })
+      });
+    }
+    return {
+      days: dayCols.map(function (item) { return TT_DAYS[item.d]; }),
+      rows: rows
+    };
+  }
+
+  function matchClassName(text) {
+    var raw = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!raw) return '';
+    var names = App.classNames || [];
+    if (names.indexOf(raw) >= 0) return raw;
+    var stripped = raw.replace(/教室|班$/, '');
+    if (names.indexOf(stripped) >= 0) return stripped;
+    var m = raw.match(/(\d{3,4})/);
+    if (m && names.indexOf(m[1]) >= 0) return m[1];
+    if (m && /^\d{3,4}$/.test(stripped)) return stripped;
+    return '';
+  }
+
+  function classTone(name) {
+    var n = parseInt(String(name).replace(/\D/g, ''), 10);
+    if (!isFinite(n)) return TT_CLASS_COLORS[0];
+    return TT_CLASS_COLORS[n % TT_CLASS_COLORS.length];
+  }
+
+  function currentPeriodIndex(model, now) {
+    if (!model || !model.rows) return -1;
+    var mins = minutesNow(now);
+    var i;
+    for (i = 0; i < model.rows.length; i++) {
+      var row = model.rows[i];
+      if (row.start == null || row.end == null) continue;
+      if (mins >= row.start && mins < row.end) return i;
+    }
+    return -1;
+  }
+
+  function nextPeriodIndex(model, now) {
+    if (!model || !model.rows) return -1;
+    var mins = minutesNow(now);
+    var i;
+    for (i = 0; i < model.rows.length; i++) {
+      var row = model.rows[i];
+      if (row.start == null) continue;
+      if (row.start > mins && !row.isBreak) return i;
+    }
+    return -1;
+  }
+
+  function renderTimetable() {
+    var data = App.timetableData || fallbackTimetable();
+    var sheets = data.sheets || [];
+    if (App.timetableSheet >= sheets.length) App.timetableSheet = 0;
+    if (els.timetableOpenLink) {
+      els.timetableOpenLink.href = data.url || timetableUrl();
+    }
+    if (els.timetableSheets) {
+      els.timetableSheets.innerHTML = sheets.map(function (sheet, i) {
+        return '<button type="button" class="tool' + (i === App.timetableSheet ? ' tab-on' : '') +
+          '" data-tt-sheet="' + i + '">' + escapeHtml(sheet.name || ('工作表' + (i + 1))) + '</button>';
+      }).join('');
+    }
+    var sheet = sheets[App.timetableSheet] || sheets[0];
+    var model = parseTimetableSheet(sheet && sheet.values);
+    var now = new Date();
+    var today = weekdayIndex(now);
+    var nowRow = today >= 0 ? currentPeriodIndex(model, now) : -1;
+    var nextRow = today >= 0 ? nextPeriodIndex(model, now) : -1;
+    renderTimetableNow(model, today, nowRow, nextRow, now);
+    renderTimetableGrid(model, today, nowRow);
+    setTimetableStatus(data);
+  }
+
+  function periodLabel(row) {
+    if (!row) return '';
+    if (/^\d+$/.test(row.period)) return '第 ' + row.period + ' 節';
+    return row.period;
+  }
+
+  function ttClassButton(text) {
+    var cls = matchClassName(text);
+    if (!cls) return escapeHtml(text);
+    return '<button type="button" class="tt-class" data-tt-class="' + escapeHtml(cls) +
+      '" style="background:' + classTone(cls) + '">' + escapeHtml(text) + '</button>';
+  }
+
+  function renderTimetableNow(model, today, nowRow, nextRow, now) {
+    if (!els.timetableNow) return;
+    var weekdays = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
+    var clock = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+    if (today < 0) {
+      els.timetableNow.innerHTML = '<div class="tt-now-main"><strong>今天是' + weekdays[now.getDay()] +
+        '　' + clock + '</strong><span>這週沒有排課。下面仍可看整週課表。</span></div>';
+      return;
+    }
+    var current = nowRow >= 0 ? model.rows[nowRow] : null;
+    var next = nextRow >= 0 ? model.rows[nextRow] : null;
+    var curText = current
+      ? (current.cells[today] ? current.cells[today] : '這一節沒有排課')
+      : '現在不是上課時間';
+    var curClass = current ? matchClassName(current.cells[today]) : '';
+    var nextText = next && next.cells[today] ? periodLabel(next) + '　' + next.cells[today] : '';
+    els.timetableNow.innerHTML =
+      '<div class="tt-now-main"><strong>' + weekdays[now.getDay()] + '　' + clock +
+      (current ? '　' + periodLabel(current) + (current.time ? '（' + escapeHtml(current.time) + '）' : '') : '') +
+      '</strong><span>' + (curClass ? ttClassButton(current.cells[today]) : escapeHtml(curText)) + '</span></div>' +
+      (curClass ? '<button type="button" class="tool primary" data-tt-class="' + escapeHtml(curClass) +
+        '">前往 ' + escapeHtml(curClass) + ' 上課</button>' : '') +
+      (nextText ? '<p class="hint">下一節：' + escapeHtml(nextText) + '</p>' : '');
+  }
+
+  function renderTimetableGrid(model, today, nowRow) {
+    if (!els.timetableGrid) return;
+    if (model.raw) {
+      els.timetableGrid.innerHTML = '<div class="tt-table-wrap"><table class="tt-table">' +
+        (model.values || []).map(function (row) {
+          return '<tr>' + row.map(function (cell) {
+            return '<td>' + (matchClassName(cell) ? ttClassButton(cell) : escapeHtml(cell)) + '</td>';
+          }).join('') + '</tr>';
+        }).join('') + '</table></div>';
+      return;
+    }
+    var head = '<th>節次</th><th>時間</th>' + model.days.map(function (day, i) {
+      return '<th class="' + (i === today ? 'tt-today' : '') + '">' + escapeHtml(day) + '</th>';
+    }).join('');
+    var body = model.rows.map(function (row, r) {
+      var trClass = (row.isBreak ? 'tt-break' : '') + (r === nowRow ? ' tt-now' : '');
+      return '<tr class="' + trClass.trim() + '"><th>' + escapeHtml(periodLabel(row)) + '</th><td>' +
+        escapeHtml(row.time) + '</td>' + row.cells.map(function (cell, i) {
+          var cls = (i === today ? 'tt-today' : '') + (r === nowRow && i === today ? ' tt-current' : '');
+          var inner = cell ? (matchClassName(cell) ? ttClassButton(cell) : escapeHtml(cell)) : '';
+          return '<td class="' + cls.trim() + '">' + inner + '</td>';
+        }).join('') + '</tr>';
+    }).join('');
+    els.timetableGrid.innerHTML = '<div class="tt-table-wrap"><table class="tt-table"><thead><tr>' +
+      head + '</tr></thead><tbody>' + body + '</tbody></table></div>';
+  }
+
+  function goToTimetableClass(name) {
+    var className = matchClassName(name) || String(name || '').trim();
+    if (!className) return;
+    if ((App.classNames || []).indexOf(className) < 0) {
+      toast(className + ' 還沒有座位表，請先到「設定與上傳」匯入這個班');
+      return;
+    }
+    loadClass(className);
+    showClassView();
+    toast('已切到 ' + className + ' 上課');
   }
 
   function viewingLiveScores() {

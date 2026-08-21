@@ -779,6 +779,145 @@
     overflow: auto;
   }
 
+  a.tool {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+  }
+
+  .timetable-panel {
+    overflow: auto;
+  }
+
+  .tt-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .tt-sheets,
+  .tt-toolbar-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .tt-now-card {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px 14px;
+    align-items: center;
+    padding: 14px 16px;
+    background: #eef6fb;
+    border: 1px solid #cfe0ea;
+    border-radius: 14px;
+  }
+
+  .tt-now-main {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+    min-width: 180px;
+  }
+
+  .tt-now-main strong {
+    font-size: 16px;
+  }
+
+  .tt-wrap,
+  .tt-table-wrap {
+    overflow: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .tt-table {
+    width: 100%;
+    min-width: 640px;
+    border-collapse: separate;
+    border-spacing: 0;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    font-size: 14px;
+  }
+
+  .tt-table th,
+  .tt-table td {
+    border-bottom: 1px solid #eee4d6;
+    border-right: 1px solid #f3ebe0;
+    padding: 8px 6px;
+    text-align: center;
+    vertical-align: middle;
+  }
+
+  .tt-table thead th {
+    background: #f7f1e6;
+    font-weight: 700;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+
+  .tt-table th:first-child,
+  .tt-table td:first-child {
+    width: 88px;
+    background: #fbf7f0;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .tt-table td:nth-child(2) {
+    width: 108px;
+    color: var(--muted);
+    white-space: nowrap;
+    background: #fff7ee;
+  }
+
+  .tt-table .tt-today {
+    background: #e7f3ea;
+  }
+
+  .tt-table thead .tt-today {
+    background: #cfe6d4;
+  }
+
+  .tt-table tr.tt-now td,
+  .tt-table tr.tt-now th {
+    box-shadow: inset 0 0 0 2px #2f6f8f;
+  }
+
+  .tt-table td.tt-current {
+    background: #d5eaf6;
+    box-shadow: inset 0 0 0 2px var(--primary);
+  }
+
+  .tt-table tr.tt-break td,
+  .tt-table tr.tt-break th {
+    background: #f4f1ea;
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .tt-class {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 52px;
+    min-height: 36px;
+    padding: 4px 10px;
+    border: 0;
+    border-radius: 10px;
+    font-weight: 700;
+    color: var(--ink);
+    cursor: pointer;
+  }
+
   .stats-switch {
     display: flex;
     gap: 8px;

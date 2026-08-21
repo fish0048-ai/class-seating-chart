@@ -7,6 +7,7 @@
 - 抽籤
 - 加分／扣分（可復原）
 - 成績簿、學期統計、Excel 匯入匯出
+- 教師課表（對照現在第幾節，點班級可直接去上課）
 
 線上網址：<https://fish0048-ai.github.io/class-seating-chart/>
 
@@ -43,6 +44,12 @@ CSV 欄位：
 ```
 
 範本：教師模式 → 設定與上傳 →「下載 Excel 範本」
+
+## 課表
+
+教師模式 → **課表** 會顯示 [115 學年度課表](https://docs.google.com/spreadsheets/d/13VrWBx6hoKpUON_JNxIrynH_gyRV8HnhUt0MMscjkWg/edit)。今天這一節會標出來，點 801／802／803／804 就能切去該班上課。
+
+課表試算表改了之後，按「重新讀取課表」。若讀不到，請把最新的 `Code.gs` 貼進 Apps Script 並**新增部署**（第一次會再問一次權限，請允許讀取課表）。
 
 ## 新增班級與學生（Excel）
 

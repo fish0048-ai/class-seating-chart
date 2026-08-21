@@ -1,6 +1,8 @@
 /**
  * 班級座位表 — Google Apps Script 後端
  * 以試算表為唯一資料來源，支援跨載具同步。
+ *
+ * @NotOnlyCurrentDoc
  */
 
 const SHEETS = {
@@ -23,6 +25,9 @@ const MAX_HISTORY_ROWS = 800;
 
 /** 你的座位表資料庫（Google 試算表 ID） */
 const SPREADSHEET_ID = '1AES93Jv8l65YI2LQ-scVRPqYSLFxtVOD-UqIU99gQSA';
+
+/** 115 學年度課表（另一份試算表） */
+const TIMETABLE_ID = '13VrWBx6hoKpUON_JNxIrynH_gyRV8HnhUt0MMscjkWg';
 
 /**
  * GitHub Pages 前端會呼叫這個 API。
@@ -133,6 +138,8 @@ function handleRequest_(req) {
         return getCloudStore();
       case 'putStore':
         return putCloudStore(req.store || payload);
+      case 'getTimetable':
+        return getTimetable_();
       default:
         return { ok: false, error: '未知的操作：' + action };
     }
@@ -535,6 +542,31 @@ function putCloudStore(store) {
     writeCloudChunks_(sheet, JSON.stringify(store));
     return { ok: true, updatedAt: store.updatedAt };
   });
+}
+
+function getTimetable_() {
+  var ss;
+  try {
+    ss = SpreadsheetApp.openById(TIMETABLE_ID);
+  } catch (err) {
+    throw new Error('讀不到課表試算表。請重新部署 Apps Script 並允許存取這份課表。');
+  }
+  var sheets = ss.getSheets().map(function (sh) {
+    var range = sh.getDataRange();
+    var values = range.getDisplayValues();
+    return {
+      name: sh.getName(),
+      gid: String(sh.getSheetId()),
+      values: values
+    };
+  });
+  return {
+    ok: true,
+    title: ss.getName(),
+    url: 'https://docs.google.com/spreadsheets/d/' + TIMETABLE_ID + '/edit',
+    sheets: sheets,
+    fetchedAt: new Date().toISOString()
+  };
 }
 
 function ensureCloudSheet_(ss) {
