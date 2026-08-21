@@ -788,58 +788,86 @@
 
   .timetable-panel {
     overflow: auto;
+    gap: 12px;
   }
 
-  .tt-toolbar {
+  .tt-head {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
-    align-items: center;
+    gap: 10px 16px;
+    align-items: flex-end;
     justify-content: space-between;
+    flex-shrink: 0;
   }
 
-  .tt-sheets,
-  .tt-toolbar-actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    align-items: center;
-  }
-
-  .tt-focus {
+  .tt-head-copy {
     display: flex;
     flex-direction: column;
+    gap: 2px;
+    min-width: 200px;
+  }
+
+  .tt-head-actions {
+    display: flex;
+    flex-wrap: wrap;
     gap: 8px;
+    align-items: center;
+  }
+
+  .tt-head-actions .tool {
+    min-height: 40px;
+    font-size: 13px;
+  }
+
+  .tt-sheets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+
+  .tt-sheets:empty,
+  .tt-sheets[hidden] {
+    display: none;
   }
 
   .tt-clock {
     margin: 0;
-    font-size: 15px;
-    font-weight: 700;
+    font-size: 18px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+  }
+
+  .tt-head .hint {
+    margin: 0;
+  }
+
+  .tt-focus {
+    flex-shrink: 0;
   }
 
   .tt-focus-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
+    gap: 12px;
   }
 
   .tt-focus-card {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 14px 16px;
-    border-radius: 14px;
-    min-height: 132px;
+    display: grid;
+    grid-template-rows: auto auto auto 1fr auto auto;
+    gap: 4px;
+    padding: 14px 16px 12px;
+    border-radius: 16px;
+    min-height: 168px;
   }
 
   .tt-focus-now {
-    background: #e7f1f8;
+    background: #eaf4fb;
     border: 3px solid var(--primary);
   }
 
   .tt-focus-next {
-    background: #fff6ea;
+    background: #fff7ec;
     border: 3px dashed var(--accent);
   }
 
@@ -847,24 +875,35 @@
     margin: 0;
     font-size: 12px;
     font-weight: 700;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.12em;
     color: var(--muted);
   }
 
-  .tt-focus-card h3 {
+  .tt-period {
     margin: 0;
-    font-size: 18px;
+    font-size: 20px;
+    font-weight: 800;
+    line-height: 1.2;
+  }
+
+  .tt-time {
+    margin: 0;
+    font-size: 13px;
+    color: var(--muted);
+    min-height: 1.2em;
   }
 
   .tt-focus-body {
-    min-height: 36px;
+    min-height: 44px;
     display: flex;
     align-items: center;
   }
 
-  .tt-focus-item {
-    font-size: 20px;
-    font-weight: 700;
+  .tt-focus-item,
+  .tt-focus-body .tt-class {
+    font-size: 28px;
+    min-width: 72px;
+    min-height: 44px;
   }
 
   .tt-focus-empty {
@@ -873,6 +912,7 @@
 
   .tt-remain {
     margin: 0;
+    min-height: 1.3em;
     font-size: 14px;
     font-weight: 700;
     color: var(--primary);
@@ -882,46 +922,32 @@
     color: #b56a16;
   }
 
-  .tt-now-card {
+  .tt-focus-action {
+    min-height: 44px;
     display: flex;
-    flex-wrap: wrap;
-    gap: 10px 14px;
-    align-items: center;
-    padding: 14px 16px;
-    background: #eef6fb;
-    border: 1px solid #cfe0ea;
-    border-radius: 14px;
-  }
-
-  .tt-now-main {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    flex: 1;
-    min-width: 180px;
-  }
-
-  .tt-now-main strong {
-    font-size: 16px;
+    align-items: end;
   }
 
   .tt-wrap,
   .tt-table-wrap {
     overflow: auto;
     -webkit-overflow-scrolling: touch;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 14px;
   }
 
   .tt-table {
     width: 100%;
-    min-width: 640px;
+    min-width: 720px;
     border-collapse: separate;
     border-spacing: 0;
-    background: #fff;
-    border: 1px solid var(--line);
-    border-radius: 12px;
-    overflow: hidden;
+    table-layout: fixed;
     font-size: 14px;
   }
+
+  .tt-col-period { width: 72px; }
+  .tt-col-time { width: 108px; }
 
   .tt-table th,
   .tt-table td {
@@ -930,6 +956,7 @@
     padding: 8px 6px;
     text-align: center;
     vertical-align: middle;
+    height: 48px;
   }
 
   .tt-table thead th {
@@ -937,66 +964,77 @@
     font-weight: 700;
     position: sticky;
     top: 0;
-    z-index: 1;
+    z-index: 4;
   }
 
-  .tt-table th:first-child,
-  .tt-table td:first-child {
-    width: 88px;
+  .tt-table .tt-col-period {
+    position: sticky;
+    left: 0;
+    z-index: 3;
     background: #fbf7f0;
     font-weight: 700;
-    white-space: nowrap;
   }
 
-  .tt-table td:nth-child(2) {
-    width: 108px;
+  .tt-table thead .tt-col-period {
+    z-index: 5;
+  }
+
+  .tt-table .tt-col-time {
+    position: sticky;
+    left: 72px;
+    z-index: 3;
     color: var(--muted);
+    background: #fff8f0;
     white-space: nowrap;
-    background: #fff7ee;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .tt-table thead .tt-col-time {
+    z-index: 5;
+    color: var(--ink);
   }
 
   .tt-table .tt-today {
-    background: #e7f3ea;
+    background: #eef6f1;
   }
 
   .tt-table thead .tt-today {
     background: #cfe6d4;
   }
 
-  .tt-table tr.tt-now td,
-  .tt-table tr.tt-now th {
-    box-shadow: none;
-  }
-
   .tt-table td.tt-current,
   .tt-table td.tt-upcoming {
     position: relative;
-    padding-top: 22px;
+    padding-top: 18px;
   }
 
   .tt-table td.tt-current {
     background: #d5eaf6;
-    box-shadow: inset 0 0 0 4px var(--primary);
+    outline: 3px solid var(--primary);
+    outline-offset: -3px;
     z-index: 2;
   }
 
   .tt-table td.tt-upcoming {
     background: #fff1dc;
-    box-shadow: inset 0 0 0 3px var(--accent);
+    outline: 3px dashed var(--accent);
+    outline-offset: -3px;
     z-index: 1;
   }
 
   .tt-badge {
     position: absolute;
-    top: 4px;
-    left: 4px;
-    padding: 1px 6px;
+    top: 3px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 1px 7px;
     border-radius: 999px;
     background: var(--primary);
     color: #fff;
     font-size: 11px;
     font-weight: 700;
-    line-height: 1.4;
+    line-height: 1.35;
+    white-space: nowrap;
   }
 
   .tt-upcoming .tt-badge {
@@ -1005,9 +1043,15 @@
 
   .tt-table tr.tt-break td,
   .tt-table tr.tt-break th {
-    background: #f4f1ea;
+    background: #f6f2ea;
     color: var(--muted);
-    font-size: 13px;
+    font-size: 12px;
+    height: 36px;
+  }
+
+  .tt-table tr.tt-break .tt-col-period,
+  .tt-table tr.tt-break .tt-col-time {
+    background: #f6f2ea;
   }
 
   .tt-class {
@@ -1015,7 +1059,7 @@
     align-items: center;
     justify-content: center;
     min-width: 52px;
-    min-height: 36px;
+    min-height: 32px;
     padding: 4px 10px;
     border: 0;
     border-radius: 10px;
@@ -1025,24 +1069,24 @@
   }
 
   .tt-live {
-    margin-top: 8px;
+    flex-shrink: 0;
     background: #fff;
     border: 1px solid var(--line);
-    border-radius: 12px;
-    padding: 8px 12px 12px;
+    border-radius: 14px;
+    padding: 4px 14px 12px;
   }
 
   .tt-live summary {
     cursor: pointer;
     font-weight: 700;
-    padding: 6px 0;
+    padding: 10px 0;
+    color: var(--muted);
   }
 
   .tt-embed {
     display: block;
     width: 100%;
-    min-height: 460px;
-    margin-top: 8px;
+    min-height: 420px;
     border: 1px solid var(--line);
     border-radius: 10px;
     background: #fff;

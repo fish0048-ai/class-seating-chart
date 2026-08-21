@@ -113,13 +113,16 @@
 
         <div class="teacher-body">
           <div id="tabTimetable" class="teacher-panel timetable-panel" hidden>
-            <div class="tt-toolbar">
-              <div id="timetableSheets" class="tt-sheets" role="tablist" aria-label="課表工作表"></div>
-              <div class="tt-toolbar-actions">
+            <div class="tt-head">
+              <div class="tt-head-copy">
+                <p id="timetableClock" class="tt-clock">—</p>
+                <p id="timetableStatus" class="hint">這份是上課課表，不是成績資料庫。點班級可去上課。</p>
+              </div>
+              <div class="tt-head-actions">
+                <div id="timetableSheets" class="tt-sheets" role="tablist" aria-label="課表工作表"></div>
                 <a class="tool" id="timetableOpenLink" href="https://docs.google.com/spreadsheets/d/13VrWBx6hoKpUON_JNxIrynH_gyRV8HnhUt0MMscjkWg/edit" target="_blank" rel="noopener">在 Google 開啟課表</a>
               </div>
             </div>
-            <p id="timetableStatus" class="hint">這份是上課課表，不是成績資料庫。點班級可去上課；名單與成績仍存在另一份試算表。</p>
             <div id="timetableNow" class="tt-focus"></div>
             <div id="timetableGrid" class="tt-wrap"></div>
             <details class="tt-live">

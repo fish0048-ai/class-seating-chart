@@ -97,6 +97,7 @@
     chartPersonSeries: document.getElementById('chartPersonSeries'),
     timetableSheets: document.getElementById('timetableSheets'),
     timetableStatus: document.getElementById('timetableStatus'),
+    timetableClock: document.getElementById('timetableClock'),
     timetableNow: document.getElementById('timetableNow'),
     timetableGrid: document.getElementById('timetableGrid'),
     timetableOpenLink: document.getElementById('timetableOpenLink'),
@@ -1145,7 +1146,7 @@
 
   function setTimetableStatus() {
     if (!els.timetableStatus) return;
-    els.timetableStatus.textContent = '這份是上課課表，不是成績資料庫。點班級可去上課；名單與成績仍存在另一份試算表。';
+    els.timetableStatus.textContent = '這份是上課課表，不是成績資料庫。點班級可去上課。';
   }
 
   function weekdayIndex(now) {
@@ -1356,7 +1357,8 @@
       els.timetableFrame.src = timetableEmbedUrl();
     }
     if (els.timetableSheets) {
-      els.timetableSheets.innerHTML = sheets.map(function (sheet, i) {
+      els.timetableSheets.hidden = sheets.length < 2;
+      els.timetableSheets.innerHTML = sheets.length < 2 ? '' : sheets.map(function (sheet, i) {
         return '<button type="button" class="tool' + (i === App.timetableSheet ? ' tab-on' : '') +
           '" data-tt-sheet="' + i + '">' + escapeHtml(sheet.name || ('工作表' + (i + 1))) + '</button>';
       }).join('');
@@ -1379,10 +1381,14 @@
     }
   }
 
-  function periodLabel(row) {
+  function periodLabel(row, compact) {
     if (!row) return '';
-    if (/^\d+$/.test(row.period)) return '第 ' + row.period + ' 節';
+    if (/^\d+$/.test(row.period)) return compact ? row.period : ('第 ' + row.period + ' 節');
     return row.period;
+  }
+
+  function prettyTime(text) {
+    return String(text || '').replace(/~/g, '–').replace(/－/g, '–').replace(/—/g, '–');
   }
 
   function ttClassButton(text) {
@@ -1402,7 +1408,7 @@
     var title = row ? periodLabel(row) : (kind === 'now' ? '現在沒有課' : '沒有下一節');
     var text = slotText(row, today);
     var cls = matchClassName(text);
-    var time = row && row.time ? row.time : '';
+    var time = prettyTime(row && row.time ? row.time : '');
     var remain = '';
     if (row && remainLabel === 'end' && row.end != null) remain = '還有 ' + remainText(mins, row.end) + ' 下課';
     if (row && remainLabel === 'start' && row.start != null) remain = '還有 ' + remainText(mins, row.start) + ' 開始';
@@ -1414,36 +1420,44 @@
       : '<span class="tt-focus-empty">' + (kind === 'now' ? '這一節沒有排課' : '沒有下一節') + '</span>';
     return '<article class="tt-focus-card tt-focus-' + kind + '">' +
       '<p class="tt-kicker">' + (kind === 'now' ? '現在' : '接下來') + '</p>' +
-      '<h3>' + escapeHtml(title) + (time ? '　' + escapeHtml(time) : '') + '</h3>' +
+      '<p class="tt-period">' + escapeHtml(title) + '</p>' +
+      '<p class="tt-time">' + escapeHtml(time || '　') + '</p>' +
       '<div class="tt-focus-body">' + body + '</div>' +
-      (remain ? '<p class="tt-remain">' + escapeHtml(remain) + '</p>' : '') +
-      go + '</article>';
+      '<p class="tt-remain">' + escapeHtml(remain || '　') + '</p>' +
+      '<div class="tt-focus-action">' + go + '</div>' +
+      '</article>';
   }
 
   function renderTimetableNow(model, today, nowRow, nextRow, now) {
     if (!els.timetableNow) return;
     var weekdays = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
     var clock = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+    if (els.timetableClock) els.timetableClock.textContent = weekdays[now.getDay()] + '　' + clock;
     var current = nowRow >= 0 ? model.rows[nowRow] : null;
     var next = nextRow >= 0 ? model.rows[nextRow] : null;
     var nowRemain = current ? 'end' : '';
     var nextRemain = next ? 'start' : '';
     var nowCard;
     if (today < 0) {
-      nowCard = '<article class="tt-focus-card tt-focus-now"><p class="tt-kicker">現在</p><h3>今天是' +
-        weekdays[now.getDay()] + '</h3><p class="tt-focus-empty">週末沒有排課，下面仍可看整週課表。</p></article>';
+      nowCard = '<article class="tt-focus-card tt-focus-now">' +
+        '<p class="tt-kicker">現在</p><p class="tt-period">週末</p>' +
+        '<p class="tt-time">　</p><div class="tt-focus-body"><span class="tt-focus-empty">今天沒有排課</span></div>' +
+        '<p class="tt-remain">　</p><div class="tt-focus-action"></div></article>';
     } else if (!current && !next) {
-      nowCard = '<article class="tt-focus-card tt-focus-now"><p class="tt-kicker">現在</p><h3>今天的課上完了</h3>' +
-        '<p class="tt-focus-empty">目前沒有下一節。</p></article>';
+      nowCard = '<article class="tt-focus-card tt-focus-now">' +
+        '<p class="tt-kicker">現在</p><p class="tt-period">今天的課上完了</p>' +
+        '<p class="tt-time">　</p><div class="tt-focus-body"><span class="tt-focus-empty">目前沒有下一節</span></div>' +
+        '<p class="tt-remain">　</p><div class="tt-focus-action"></div></article>';
     } else if (!current) {
-      nowCard = '<article class="tt-focus-card tt-focus-now"><p class="tt-kicker">現在</p><h3>課間休息</h3>' +
-        '<p class="tt-focus-empty">先看接下來這一節。</p></article>';
+      nowCard = '<article class="tt-focus-card tt-focus-now">' +
+        '<p class="tt-kicker">現在</p><p class="tt-period">課間休息</p>' +
+        '<p class="tt-time">　</p><div class="tt-focus-body"><span class="tt-focus-empty">先看接下來這一節</span></div>' +
+        '<p class="tt-remain">　</p><div class="tt-focus-action"></div></article>';
     } else {
       nowCard = renderFocusCard('now', current, today, now, nowRemain);
     }
     var nextCard = renderFocusCard('next', next, today, now, nextRemain);
-    els.timetableNow.innerHTML = '<p class="tt-clock">' + weekdays[now.getDay()] + '　' + clock + '</p>' +
-      '<div class="tt-focus-grid">' + nowCard + nextCard + '</div>';
+    els.timetableNow.innerHTML = '<div class="tt-focus-grid">' + nowCard + nextCard + '</div>';
   }
 
   function cellInner(cell, badge) {
@@ -1463,14 +1477,17 @@
         }).join('') + '</table></div>';
       return;
     }
-    var head = '<th>節次</th><th>時間</th>' + model.days.map(function (day, i) {
-      return '<th class="' + (i === today ? 'tt-today' : '') + '">' + escapeHtml(day) + '</th>';
+    var colgroup = '<colgroup><col class="tt-col-period"><col class="tt-col-time">' +
+      model.days.map(function () { return '<col class="tt-col-day">'; }).join('') + '</colgroup>';
+    var head = '<th class="tt-col-period">節次</th><th class="tt-col-time">時間</th>' + model.days.map(function (day, i) {
+      return '<th class="tt-col-day' + (i === today ? ' tt-today' : '') + '">' + escapeHtml(day) + '</th>';
     }).join('');
     var body = model.rows.map(function (row, r) {
       var trClass = row.isBreak ? 'tt-break' : '';
-      return '<tr class="' + trClass + '"><th>' + escapeHtml(periodLabel(row)) + '</th><td>' +
-        escapeHtml(row.time) + '</td>' + row.cells.map(function (cell, i) {
-          var cls = [];
+      return '<tr class="' + trClass + '"><th class="tt-col-period">' + escapeHtml(periodLabel(row, true)) +
+        '</th><td class="tt-col-time">' + escapeHtml(prettyTime(row.time)) + '</td>' +
+        row.cells.map(function (cell, i) {
+          var cls = ['tt-col-day'];
           var badge = '';
           if (i === today) cls.push('tt-today');
           if (r === nowRow && i === today) {
@@ -1483,8 +1500,8 @@
           return '<td class="' + cls.join(' ') + '">' + cellInner(cell, badge) + '</td>';
         }).join('') + '</tr>';
     }).join('');
-    els.timetableGrid.innerHTML = '<div class="tt-table-wrap"><table class="tt-table"><thead><tr>' +
-      head + '</tr></thead><tbody>' + body + '</tbody></table></div>';
+    els.timetableGrid.innerHTML = '<div class="tt-table-wrap"><table class="tt-table">' + colgroup +
+      '<thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table></div>';
   }
 
   function goToTimetableClass(name) {
