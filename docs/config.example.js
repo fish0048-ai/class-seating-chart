@@ -4,5 +4,7 @@ window.SEAT_CONFIG = {
   spreadsheetUrl: 'https://docs.google.com/spreadsheets/d/1AES93Jv8l65YI2LQ-scVRPqYSLFxtVOD-UqIU99gQSA/edit',
   // 上課課表（只顯示，不寫成績）
   timetableUrl: 'https://docs.google.com/spreadsheets/d/13VrWBx6hoKpUON_JNxIrynH_gyRV8HnhUt0MMscjkWg/edit',
-  timetableId: '13VrWBx6hoKpUON_JNxIrynH_gyRV8HnhUt0MMscjkWg'
+  timetableId: '13VrWBx6hoKpUON_JNxIrynH_gyRV8HnhUt0MMscjkWg',
+  googleClientId: '',
+  teacherEmails: ['chunhsinkuo@kcis.hc.edu.tw']
 };

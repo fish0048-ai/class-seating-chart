@@ -13,6 +13,21 @@
 
 線上網址：<https://fish0048-ai.github.io/class-seating-chart/>
 
+## Google 帳號登入
+
+打開網頁後請用 Google 登入。
+
+- **教師**（目前只有 `chunhsinkuo@kcis.hc.edu.tw`）可加扣分、調座位、抽籤、分組，並進入教師模式
+- **其他 Google 帳號**只能看座位表，看不到教師模式，也不能改資料
+
+第一次請先建立 Google 登入（只要做一次）：
+
+1. 打開 [Google Cloud 憑證](https://console.cloud.google.com/apis/credentials)
+2. 建立「OAuth 用戶端 ID」，類型選「網頁應用程式」
+3. 授權的 JavaScript 來源加上 `https://fish0048-ai.github.io`
+4. 把用戶端 ID 貼進登入畫面（或 `docs/config.js` 的 `googleClientId`）
+5. 把最新的 `Code.gs` 貼進 Apps Script 並**新增部署**（後端會檢查登入，只有教師能寫入）
+
 ## 第一次連上雲端（兩台裝置共用）
 
 請先做一次，之後平板、筆電都讀同一份試算表。
@@ -23,7 +38,7 @@
 4. 「部署」→「新增部署作業」→類型選「網頁應用程式」
 5. 執行身分選「我」，對象選「任何人」，再部署
 6. 複製結尾是 `/exec` 的網址（不要用 `/dev` 測試網址）
-7. 打開座位表 → 教師模式 → 設定 → 貼上網址 →「連上雲端」
+7. 用教師 Google 帳號登入後，到教師模式 → 設定 → 貼上網址 →「連上雲端」
 
 建議再把同一個網址貼進 `docs/config.js` 的 `apiUrl`，這樣兩台都不必各貼一次。
 
@@ -35,7 +50,7 @@
 
 `docs/index.html`
 
-線上請用 GitHub Pages 網址。第一次會看到「範例班」。接著按 **教師模式** 把學生匯入即可。
+線上請用 GitHub Pages 網址。請先用 Google 登入。教師帳號可按 **教師模式** 匯入學生；其他帳號只能看。
 
 CSV 欄位：
 

@@ -82,12 +82,16 @@
     });
   }
 
+  function authToken_() {
+    return (global.GoogleAuth && GoogleAuth.getIdToken && GoogleAuth.getIdToken()) || '';
+  }
+
   function postAction(action, body) {
     var url = apiUrl();
     if (!url) {
       return Promise.reject(new Error('尚未連上雲端資料庫'));
     }
-    var payload = Object.assign({ action: action }, body || {});
+    var payload = Object.assign({ action: action, idToken: authToken_() }, body || {});
     var raw = JSON.stringify(payload);
     return fetch(url, {
       method: 'POST',
@@ -127,6 +131,9 @@
     spreadsheetUrl: function () {
       return String((global.SEAT_CONFIG && global.SEAT_CONFIG.spreadsheetUrl) || '').trim();
     },
+    verifyAuth: function (idToken) {
+      return postAction('verifyAuth', { idToken: idToken || authToken_() });
+    },
     getStore: function () {
       var url = apiUrl();
       if (!url) {
@@ -135,7 +142,7 @@
       return fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'getStore' }),
+        body: JSON.stringify({ action: 'getStore', idToken: authToken_() }),
         redirect: 'follow'
       }).then(function (res) {
         return res.text();

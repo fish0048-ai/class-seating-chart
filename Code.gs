@@ -24,6 +24,79 @@ const MAX_HISTORY_ROWS = 800;
 /** 你的座位表／成績資料庫（Google 試算表 ID）。課表不在這份裡。 */
 const SPREADSHEET_ID = '1AES93Jv8l65YI2LQ-scVRPqYSLFxtVOD-UqIU99gQSA';
 
+/** 只有這些 Google 帳號能改資料、進教師模式。其餘登入只能看。 */
+const TEACHER_EMAILS = ['chunhsinkuo@kcis.hc.edu.tw'];
+
+/**
+ * Google Cloud「網頁應用程式」OAuth 用戶端 ID（結尾 .apps.googleusercontent.com）。
+ * 與 docs/config.js 的 googleClientId 相同。還沒填時仍會檢查 Google 登入信箱。
+ */
+const GOOGLE_CLIENT_ID = '';
+
+var WRITE_ACTIONS_ = {
+  save: true,
+  layout: true,
+  score: true,
+  undo: true,
+  settings: true,
+  students: true,
+  clearClass: true,
+  lottery: true,
+  putStore: true
+};
+
+function googleClientId_() {
+  var fromCode = String(GOOGLE_CLIENT_ID || '').trim();
+  if (fromCode) return fromCode;
+  try {
+    return String(PropertiesService.getScriptProperties().getProperty('GOOGLE_CLIENT_ID') || '').trim();
+  } catch (err) {
+    return '';
+  }
+}
+
+function teacherEmailList_() {
+  return TEACHER_EMAILS.map(function (email) {
+    return String(email || '').trim().toLowerCase();
+  }).filter(Boolean);
+}
+
+function verifyIdToken_(idToken) {
+  idToken = String(idToken || '').trim();
+  if (!idToken) throw new Error('請先用 Google 帳號登入');
+  var res = UrlFetchApp.fetch(
+    'https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken),
+    { muteHttpExceptions: true, followRedirects: true }
+  );
+  var data = {};
+  try {
+    data = JSON.parse(res.getContentText() || '{}');
+  } catch (err) {
+    throw new Error('無法確認 Google 登入，請再登入一次');
+  }
+  if (data.error || data.error_description) {
+    throw new Error('登入已過期，請再按一次 Google 登入');
+  }
+  var expectedAud = googleClientId_();
+  if (expectedAud && String(data.aud || '') !== expectedAud) {
+    throw new Error('登入憑證與這個座位表不符');
+  }
+  if (String(data.email_verified) !== 'true' && data.email_verified !== true) {
+    throw new Error('這個 Google 帳號尚未驗證信箱');
+  }
+  var email = String(data.email || '').trim().toLowerCase();
+  if (!email) throw new Error('Google 登入沒有信箱');
+  return {
+    email: email,
+    teacher: teacherEmailList_().indexOf(email) >= 0
+  };
+}
+
+function verifyAuthPayload_(idToken) {
+  var user = verifyIdToken_(idToken);
+  return { ok: true, email: user.email, teacher: user.teacher };
+}
+
 /**
  * GitHub Pages 前端會呼叫這個 API。
  * GET  ?action=bootstrap&callback=seatCb123
@@ -90,6 +163,16 @@ function handleRequest_(req) {
   try {
     req = req || {};
     var action = String(req.action || 'bootstrap');
+    if (action === 'verifyAuth') {
+      return verifyAuthPayload_(req.idToken);
+    }
+    var user = verifyIdToken_(req.idToken);
+    if ((action === 'getStore' || action === 'bootstrap' || action === 'load') && !user) {
+      throw new Error('請先用 Google 帳號登入');
+    }
+    if (WRITE_ACTIONS_[action] && (!user || !user.teacher)) {
+      throw new Error('只有教師可以修改資料');
+    }
     var payload = parseMaybeJson_(req.payload);
     if (payload && typeof payload === 'object' && !req.className && payload.className) {
       var merged = {};

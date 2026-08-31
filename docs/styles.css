@@ -1988,3 +1988,129 @@
     .lab-board { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(140px, 1fr)); }
   }
   .setup-card ol { margin: 8px 0 0; padding-left: 20px; line-height: 1.7; color: var(--muted); }
+
+  body.need-login #app,
+  body.need-login #teacherView {
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  .login-gate {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: var(--paper);
+  }
+
+  .login-gate[hidden] {
+    display: none !important;
+  }
+
+  .login-card {
+    width: min(440px, 100%);
+    padding: 28px 24px;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    box-shadow: var(--shadow);
+    display: grid;
+    gap: 12px;
+    justify-items: center;
+    text-align: center;
+  }
+
+  .login-card h1 {
+    margin: 0;
+    font-size: 22px;
+  }
+
+  .login-card .brand-mark {
+    width: 48px;
+    height: 48px;
+    border-radius: 14px;
+    display: grid;
+    place-items: center;
+    background: var(--primary);
+    color: #fff;
+    font-weight: 700;
+  }
+
+  .login-card .hint,
+  .login-note {
+    margin: 0;
+    line-height: 1.6;
+  }
+
+  .google-setup {
+    width: 100%;
+    text-align: left;
+    display: grid;
+    gap: 10px;
+    padding: 12px;
+    background: #f7f4ee;
+    border-radius: 14px;
+  }
+
+  .google-setup ol {
+    margin: 0;
+    padding-left: 20px;
+    color: var(--muted);
+    line-height: 1.7;
+    font-size: 13px;
+  }
+
+  .google-setup code {
+    font-size: 12px;
+    word-break: break-all;
+  }
+
+  .google-setup label,
+  .google-setup input {
+    width: 100%;
+  }
+
+  .google-setup input {
+    margin-top: 6px;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    font-size: 13px;
+  }
+
+  #googleSignInBtn {
+    min-height: 44px;
+    display: grid;
+    place-items: center;
+  }
+
+  .account-chip {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
+  .account-chip [data-account-label] {
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  body.role-viewer [data-app-view="teacher"],
+  body.role-viewer #btnDatabase,
+  body.role-viewer #app > .toolbar,
+  body.role-viewer #labBar,
+  body.role-viewer #groupBar,
+  body.role-viewer #btnGroup,
+  body.role-viewer #rankEmpty {
+    display: none !important;
+  }
+
+  body.role-viewer .board .seat-card {
+    cursor: default;
+  }

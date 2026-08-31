@@ -319,6 +319,9 @@
   function saveStore(store) {
     memStore = store;
     if (!hydrated) return;
+    if (typeof GoogleAuth !== 'undefined' && GoogleAuth.isSignedIn && GoogleAuth.isSignedIn() && !GoogleAuth.isTeacher()) {
+      return;
+    }
     store.updatedAt = nowIso();
     if (!cloudOn()) {
       try {
@@ -1293,32 +1296,6 @@
         lines.push([room.className, s.seatNo, s.name, s.score].join(','));
       });
       return '\uFEFF' + lines.join('\r\n');
-    }
-  };
-})(window);
-
-(function (global) {
-  var SESSION_KEY = 'class-seating-teacher-ok';
-  var OFFICIAL_PASSWORD = 'Ff128256033';
-
-  global.TeacherAuth = {
-    hasPassword: function () {
-      return true;
-    },
-    isUnlocked: function () {
-      return sessionStorage.getItem(SESSION_KEY) === '1';
-    },
-    unlock: function () {
-      sessionStorage.setItem(SESSION_KEY, '1');
-    },
-    lock: function () {
-      sessionStorage.removeItem(SESSION_KEY);
-    },
-    setPassword: function () {
-      return Promise.resolve();
-    },
-    verify: function (password) {
-      return Promise.resolve(String(password) === OFFICIAL_PASSWORD);
     }
   };
 })(window);

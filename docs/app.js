@@ -259,25 +259,9 @@
   if (lockBtn) {
     lockBtn.addEventListener('click', lockTeacher);
   }
-  var authCancel = document.getElementById('btnAuthCancel');
-  if (authCancel) {
-    authCancel.addEventListener('click', function () {
-      if (els.authModal) els.authModal.hidden = true;
-      App.teacherNext = null;
-    });
-  }
-  var authSubmit = document.getElementById('btnAuthSubmit');
-  if (authSubmit) authSubmit.addEventListener('click', submitAuth);
-  if (els.authPassword) {
-    els.authPassword.addEventListener('keydown', function (event) {
-      if (event.key === 'Enter') submitAuth();
-    });
-  }
-  if (els.authPassword2) {
-    els.authPassword2.addEventListener('keydown', function (event) {
-      if (event.key === 'Enter') submitAuth();
-    });
-  }
+  document.querySelectorAll('[data-sign-out]').forEach(function (btn) {
+    btn.addEventListener('click', lockTeacher);
+  });
   document.querySelectorAll('[data-teacher-tab]').forEach(function (btn) {
     btn.addEventListener('click', function () {
       switchTeacherTab(btn.getAttribute('data-teacher-tab'));
@@ -512,11 +496,31 @@
     });
   });
 
-  bootstrap();
   applyTeacherUi();
+  if (window.GoogleAuth) {
+    GoogleAuth.start({
+      onSignedIn: function (account, alreadyBooted) {
+        applyTeacherUi();
+        if (alreadyBooted) {
+          if (!account.teacher && App.appView === 'teacher') showClassView();
+          else renderAll();
+          return;
+        }
+        bootstrap();
+      }
+    });
+  } else {
+    bootstrap();
+  }
+
+  function canEdit() {
+    return !!(window.GoogleAuth && GoogleAuth.isTeacher());
+  }
 
   function applyTeacherUi() {
-    document.body.classList.toggle('teacher-on', !!(window.TeacherAuth && TeacherAuth.isUnlocked()));
+    var teacher = canEdit();
+    document.body.classList.toggle('teacher-on', teacher);
+    if (!teacher && App.appView === 'teacher') showClassView();
   }
 
   function isLabView() {
@@ -546,11 +550,16 @@
       btn.classList.toggle('tab-on', btn.getAttribute('data-app-view') === 'lab');
     });
     fillMissingLabAssign();
-    if (fillMissingLabAssign.changed) persistLab();
+    if (fillMissingLabAssign.changed && canEdit()) persistLab();
     renderAll();
   }
 
   function showTeacherView() {
+    if (!canEdit()) {
+      toast('檢視模式沒有教師功能');
+      showClassView();
+      return;
+    }
     App.appView = 'teacher';
     if (els.app) els.app.hidden = true;
     if (els.teacherView) els.teacherView.hidden = false;
@@ -562,54 +571,19 @@
   }
 
   function requireTeacher(nextFn) {
-    if (window.TeacherAuth && TeacherAuth.isUnlocked()) {
+    if (canEdit()) {
       nextFn();
       return;
     }
-    App.teacherNext = nextFn;
-    openAuthModal('unlock');
+    if (window.GoogleAuth && GoogleAuth.isViewer()) {
+      toast('檢視模式只能看座位表，無法使用教師功能');
+      return;
+    }
+    toast('請先用教師 Google 帳號登入');
   }
 
   function lockTeacher() {
-    if (window.TeacherAuth) TeacherAuth.lock();
-    if (els.authModal) els.authModal.hidden = true;
-    applyTeacherUi();
-    showClassView();
-    toast('已鎖定並回到上課模式');
-  }
-
-  function openAuthModal(mode) {
-    App.authMode = 'unlock';
-    if (els.authPassword) els.authPassword.value = '';
-    if (els.authPassword2) els.authPassword2.value = '';
-    if (els.authPassword2Wrap) els.authPassword2Wrap.hidden = true;
-    if (els.authTitle) els.authTitle.textContent = '教師模式';
-    if (els.authHint) els.authHint.textContent = '請輸入教師密碼後進入教師頁。';
-    var submit = document.getElementById('btnAuthSubmit');
-    if (submit) submit.textContent = '進入';
-    if (els.authModal) els.authModal.hidden = false;
-    setTimeout(function () {
-      if (els.authPassword) els.authPassword.focus();
-    }, 50);
-  }
-
-  function submitAuth() {
-    if (!window.TeacherAuth) {
-      toast('無法使用教師密碼');
-      return;
-    }
-    var password = els.authPassword ? els.authPassword.value : '';
-    TeacherAuth.verify(password).then(function (ok) {
-      if (!ok) {
-        toast('密碼不正確');
-        return;
-      }
-      TeacherAuth.unlock();
-      if (els.authModal) els.authModal.hidden = true;
-      applyTeacherUi();
-      toast('已進入教師模式');
-      finishTeacherNext();
-    });
+    if (window.GoogleAuth) GoogleAuth.signOut();
   }
 
   function finishTeacherNext() {
@@ -902,6 +876,10 @@
       return;
     }
     App.selectedSeatNo = seatNo;
+    if (!canEdit()) {
+      renderAll();
+      return;
+    }
     if (App.groupAssign && App.groupPanel) {
       toggleStudentGroup(student);
       return;
@@ -915,6 +893,7 @@
   }
 
   function onPointerDown(event) {
+    if (!canEdit()) return;
     if (event.button !== undefined && event.button !== 0) {
       return;
     }
@@ -1080,6 +1059,10 @@
   }
 
   function setMode(mode) {
+    if (!canEdit() && (mode === 'plus' || mode === 'minus')) {
+      toast('檢視模式不能加扣分');
+      return;
+    }
     App.mode = mode;
     if (mode === 'plus' || mode === 'minus') App.groupAssign = false;
     renderMode();
@@ -1147,7 +1130,7 @@
   var labSaveSeq = 0;
 
   function persistLab(message) {
-    if (!App.classroom) return;
+    if (!App.classroom || !canEdit()) return;
     var seq = ++labSaveSeq;
     var lab = classLab();
     var snapshot = {
@@ -1233,6 +1216,10 @@
   }
 
   function assignLabGroups(shuffle) {
+    if (!canEdit()) {
+      toast('檢視模式不能改實驗分組');
+      return;
+    }
     if (!App.classroom) return;
     var students = App.classroom.students || [];
     if (!students.length) {
@@ -1252,6 +1239,7 @@
   }
 
   function assignLabStudent(seatNo, gid) {
+    if (!canEdit()) return;
     gid = parseInt(gid, 10);
     if (gid < 1 || gid > 6) return;
     var student = findStudent(seatNo);
@@ -1456,7 +1444,7 @@
   var groupsSaveSeq = 0;
 
   function persistGroups(message) {
-    if (!App.classroom) return;
+    if (!App.classroom || !canEdit()) return;
     var seq = ++groupsSaveSeq;
     var g = classGroups();
     var snapshot = {
@@ -1490,6 +1478,10 @@
   }
 
   function randomGroups() {
+    if (!canEdit()) {
+      toast('檢視模式不能改分組');
+      return;
+    }
     if (!App.classroom) return;
     var students = (App.classroom.students || []).slice();
     if (!students.length) {
@@ -1531,6 +1523,10 @@
   }
 
   function changeScore(student, delta, forceGroup, causeSeatNo) {
+    if (!canEdit()) {
+      toast('檢視模式不能加扣分');
+      return;
+    }
     if (!delta) {
       return;
     }
@@ -5276,6 +5272,10 @@
   }
 
   function openLottery(fromButton) {
+    if (!canEdit()) {
+      toast('檢視模式不能抽籤');
+      return;
+    }
     if (App.lotteryBusy) return;
     const unique = els.lotteryUnique.checked;
     const drawn = App.drawn[App.classroom.className] || [];
@@ -5352,6 +5352,10 @@
   }
 
   function saveAll() {
+    if (!canEdit()) {
+      toast('檢視模式不能改資料');
+      return;
+    }
     run('saveClassroomState', [serializeClassroom()], function (data) {
       applyPayload(data, true);
       if (typeof SeatDB !== 'undefined' && SeatDB.flushCloud) {
