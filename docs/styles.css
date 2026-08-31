@@ -1288,6 +1288,28 @@
     padding: 12px 14px 14px;
   }
 
+  .group-deduct-box {
+    margin-top: 12px;
+  }
+
+  .deduct-sub {
+    margin: 14px 0 8px;
+    font-size: 14px;
+  }
+
+  .deduct-log {
+    margin: 0;
+    padding-left: 1.2em;
+    display: grid;
+    gap: 8px;
+    font-size: 14px;
+    line-height: 1.45;
+  }
+
+  .deduct-summary-wrap {
+    margin-top: 8px;
+  }
+
   .stats-block h3 {
     margin: 0 0 10px;
     font-size: 16px;

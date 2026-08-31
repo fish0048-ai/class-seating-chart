@@ -27,7 +27,8 @@
     timetableSheet: 0,
     groupPanel: false,
     groupAssign: false,
-    groupPick: 1
+    groupPick: 1,
+    groupDeductions: []
   };
 
   const GROUP_COLORS = [
@@ -79,6 +80,8 @@
     statsCards: document.getElementById('statsCards'),
     statsWatch: document.getElementById('statsWatch'),
     statsInsights: document.getElementById('statsInsights'),
+    statsGroupDeduct: document.getElementById('statsGroupDeduct'),
+    personGroupDeduct: document.getElementById('personGroupDeduct'),
     statsAssess: document.getElementById('statsAssess'),
     chartTrend: document.getElementById('chartTrend'),
     chartAssess: document.getElementById('chartAssess'),
@@ -946,7 +949,7 @@
   function renderRoster() {
     if (!els.roster || !App.classroom) return;
     const ranked = App.classroom.students.filter(function (student) {
-      return Number(student.score) !== 0;
+      return Number(student.score) > 0;
     }).sort(function (a, b) {
       const diff = Number(b.score) - Number(a.score);
       if (diff) return diff;
@@ -1104,12 +1107,16 @@
       if (sb !== sa) return sb - sa;
       return a - b;
     });
-    els.groupRoster.innerHTML = ranked.map(function (gid, index) {
+    var positiveIds = ranked.filter(function (gid) {
+      return (Number(g.scores[String(gid)]) || 0) > 0;
+    });
+    els.groupRoster.innerHTML = ranked.map(function (gid) {
       var score = Number(g.scores[String(gid)]) || 0;
       var signed = (score > 0 ? '+' : '') + score;
       var names = buckets[gid].map(function (s) { return s.name; }).join('、');
       var selected = buckets[gid].some(function (s) { return s.seatNo === App.selectedSeatNo; }) ? ' selected' : '';
-      var medal = index === 0 ? ' gold' : index === 1 ? ' silver' : index === 2 ? ' bronze' : '';
+      var posIndex = positiveIds.indexOf(gid);
+      var medal = score > 0 && posIndex === 0 ? ' gold' : score > 0 && posIndex === 1 ? ' silver' : score > 0 && posIndex === 2 ? ' bronze' : '';
       return '<li><button type="button" class="' + selected + medal + '" data-group="' + gid + '" style="--group-color:' + groupColor(gid) + '">' +
         '<span class="rank-no">' + gid + '</span>' +
         '<span class="rank-main"><span class="rank-name">第' + gid + '組</span>' +
@@ -1120,10 +1127,15 @@
       button.addEventListener('click', function () {
         var gid = parseInt(button.getAttribute('data-group'), 10);
         var members = buckets[gid] || [];
-        if (members[0]) App.selectedSeatNo = members[0].seatNo;
+        var selected = members.filter(function (s) { return String(s.seatNo) === String(App.selectedSeatNo); })[0];
+        var actor = selected || members[0];
+        if (actor) App.selectedSeatNo = actor.seatNo;
         if (App.mode === 'plus' || App.mode === 'minus') {
           var sign = App.mode === 'plus' ? 1 : -1;
-          if (members[0]) changeScore(members[0], sign * App.delta, true);
+          if (App.mode === 'minus' && !selected) {
+            toast('請先點座位上那位同學，再點小組扣分，成績統計才會記下是因為誰');
+          }
+          if (actor) changeScore(actor, sign * App.delta, true, selected ? selected.seatNo : '');
         } else {
           renderAll();
         }
@@ -1208,17 +1220,21 @@
     persistGroups('已清除分組');
   }
 
-  function changeScore(student, delta, forceGroup) {
+  function changeScore(student, delta, forceGroup, causeSeatNo) {
     if (!delta) {
       return;
     }
     var applyGroup = forceGroup === true || !!(els.groupApplyScore && els.groupApplyScore.checked);
-    run('applyScoreChange', [{
+    var body = {
       className: App.classroom.className,
       seatNo: student.seatNo,
       delta: delta,
       applyGroup: applyGroup
-    }], function (data) {
+    };
+    if (applyGroup) {
+      body.causeSeatNo = causeSeatNo == null ? student.seatNo : causeSeatNo;
+    }
+    run('applyScoreChange', [body], function (data) {
       App.classroom = data.classroom;
       App.selectedSeatNo = student.seatNo;
       var seats = data.changedSeatNos && data.changedSeatNos.length ? data.changedSeatNos : [student.seatNo];
@@ -3175,6 +3191,117 @@
     fillPersonSelect(people);
     renderPersonStats();
     applyStatsView();
+    renderGroupDeductStats();
+  }
+
+  function formatHistoryTime(value) {
+    if (!value) return '';
+    var date = new Date(value);
+    if (isNaN(date.getTime())) return '';
+    var y = date.getFullYear();
+    var m = String(date.getMonth() + 1).padStart(2, '0');
+    var d = String(date.getDate()).padStart(2, '0');
+    var hh = String(date.getHours()).padStart(2, '0');
+    var mm = String(date.getMinutes()).padStart(2, '0');
+    return formatZhDate(y + '-' + m + '-' + d) + ' ' + hh + ':' + mm;
+  }
+
+  function renderGroupDeductStats() {
+    if (!els.statsGroupDeduct || !App.classroom) return;
+    run('listGroupDeductions', [App.classroom.className], function (data) {
+      App.groupDeductions = data.rows || [];
+      paintGroupDeductBox();
+      paintPersonGroupDeduct();
+    }, true);
+  }
+
+  function paintGroupDeductBox() {
+    var box = els.statsGroupDeduct;
+    if (!box) return;
+    var rows = App.groupDeductions || [];
+    if (!rows.length) {
+      box.innerHTML = '<p class="hint">還沒有小組扣分紀錄。上課時先點那位同學，再扣整組，這裡就會出現是哪一組、因為誰。</p>';
+      return;
+    }
+    var agg = {};
+    rows.forEach(function (r) {
+      var gid = String(r.groupId || '?');
+      if (!agg[gid]) agg[gid] = { groupId: gid, groupName: r.groupName, total: 0, causes: {} };
+      agg[gid].total += Number(r.delta) || 0;
+      var key = r.causeName ? (String(r.causeSeatNo) + '\t' + r.causeName) : '\t未指定同學';
+      if (!agg[gid].causes[key]) {
+        agg[gid].causes[key] = { seatNo: r.causeSeatNo || '', name: r.causeName || '', n: 0, sum: 0 };
+      }
+      agg[gid].causes[key].n += 1;
+      agg[gid].causes[key].sum += Number(r.delta) || 0;
+    });
+    var summary = Object.keys(agg).sort(function (a, b) {
+      return (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0);
+    }).map(function (gid) {
+      var g = agg[gid];
+      var causes = Object.keys(g.causes).map(function (key) { return g.causes[key]; })
+        .sort(function (a, b) { return a.sum - b.sum; })
+        .map(function (c) {
+          if (!c.name) return '未指定同學 ' + c.n + ' 次（共 ' + c.sum + '）';
+          return escapeHtml(c.seatNo + ' ' + c.name) + ' ' + c.n + ' 次（共 ' + c.sum + '）';
+        }).join('；');
+      return '<tr>' +
+        '<td>' + escapeHtml(g.groupName || ('第' + gid + '組')) + '</td>' +
+        '<td class="day-minus">' + g.total + '</td>' +
+        '<td>' + causes + '</td>' +
+        '</tr>';
+    }).join('');
+    var log = rows.map(function (r) {
+      var who = r.causeName
+        ? ('因 ' + escapeHtml(r.causeSeatNo + ' ' + r.causeName) + ' 被扣 ' + Math.abs(Number(r.delta) || 0) + ' 分')
+        : ('整組扣 ' + Math.abs(Number(r.delta) || 0) + ' 分（未指定同學）');
+      var when = formatHistoryTime(r.time);
+      return '<li><strong>' + escapeHtml(r.groupName) + '</strong>　' + who +
+        (when ? '<span class="rank-meta">　' + escapeHtml(when) + '</span>' : '') +
+        (r.members ? '<div class="rank-meta">組員：' + escapeHtml(r.members) + '</div>' : '') +
+        '</li>';
+    }).join('');
+    box.innerHTML =
+      '<div class="sheet-wrap deduct-summary-wrap">' +
+      '<table class="sheet-table report-table">' +
+      '<thead><tr><th>小組</th><th>扣分合計</th><th>因為誰</th></tr></thead>' +
+      '<tbody>' + summary + '</tbody></table></div>' +
+      '<h4 class="deduct-sub">逐筆紀錄</h4>' +
+      '<ol class="deduct-log">' + log + '</ol>';
+  }
+
+  function paintPersonGroupDeduct() {
+    var box = els.personGroupDeduct;
+    if (!box) return;
+    var seatNo = String(App.statsSeatNo || '');
+    var mine = (App.groupDeductions || []).filter(function (r) {
+      return String(r.causeSeatNo) === seatNo && r.causeName;
+    });
+    if (!seatNo) {
+      box.innerHTML = '';
+      return;
+    }
+    if (!mine.length) {
+      box.innerHTML = '<p class="hint">這位同學目前沒有「讓小組被扣分」的紀錄。</p>';
+      return;
+    }
+    var byGroup = {};
+    mine.forEach(function (r) {
+      var gid = String(r.groupId || '?');
+      if (!byGroup[gid]) byGroup[gid] = { name: r.groupName, n: 0, sum: 0 };
+      byGroup[gid].n += 1;
+      byGroup[gid].sum += Number(r.delta) || 0;
+    });
+    var bits = Object.keys(byGroup).sort().map(function (gid) {
+      var g = byGroup[gid];
+      return escapeHtml(g.name) + ' ' + g.n + ' 次（共 ' + g.sum + '）';
+    }).join('；');
+    var log = mine.map(function (r) {
+      var when = formatHistoryTime(r.time);
+      return '<li>' + escapeHtml(r.groupName) + ' 被扣 ' + Math.abs(Number(r.delta) || 0) + ' 分' +
+        (when ? '　' + escapeHtml(when) : '') + '</li>';
+    }).join('');
+    box.innerHTML = '<h4 class="deduct-sub">讓小組被扣分</h4><p>' + bits + '</p><ol class="deduct-log">' + log + '</ol>';
   }
 
   function applyStatsView() {
@@ -3324,6 +3451,12 @@
       cards.push(watchCard(person.leaveCount ? 'warn' : 'info',
         '請假', person.leaveCount ? '考試請假 ' + person.leaveCount + ' 次' : '沒有請假紀錄'));
       if (!person.activeDays) cards.push(watchCard('warn', '上課參與', '還沒有加扣分紀錄'));
+      var caused = (App.groupDeductions || []).filter(function (r) {
+        return String(r.causeSeatNo) === String(person.seatNo) && r.causeName;
+      });
+      if (caused.length) {
+        cards.push(watchCard('alert', '讓小組被扣分', '共 ' + caused.length + ' 次'));
+      }
       els.personWatch.innerHTML = cards.join('');
     }
 
@@ -3411,6 +3544,7 @@
           }).join('') + '</tbody></table>'
         : '<p class="chart-empty">還沒有個人考卷或作業紀錄。</p>';
     }
+    paintPersonGroupDeduct();
   }
 
   function renderAssessStats(people) {

@@ -75,9 +75,9 @@
             <ol id="groupRoster" class="roster rank-list"></ol>
           </div>
           <h2>分數排行</h2>
-          <p class="hint">只顯示有加分或扣分的同學，分數高的在上面。</p>
+          <p class="hint">只顯示有加分的同學，分數高的在上面。扣分不會出現在這裡，以鼓勵為主。</p>
           <ol id="roster" class="roster rank-list"></ol>
-          <p id="rankEmpty" class="rank-empty" hidden>還沒有人加分或扣分。點「加分／扣分」再點學生，就會出現在這裡。</p>
+          <p id="rankEmpty" class="rank-empty" hidden>還沒有人加分。點「加分」再點學生，就會出現在這裡。</p>
         </aside>
       </main>
     </div>
@@ -264,6 +264,12 @@
             <div id="statsWatch" class="stats-watch"></div>
             <div id="statsInsights" class="insight-list"></div>
 
+            <section class="stats-block" id="statsGroupDeductBlock">
+              <h3>小組扣分（因誰）</h3>
+              <p class="hint">上課時點某位同學扣整組，這裡會記下是哪一組、因為誰。座位表排行只顯示加分，扣分細節只在教師模式。</p>
+              <div id="statsGroupDeduct"></div>
+            </section>
+
             <section class="stats-block">
               <h3>上課加扣表現</h3>
               <figure class="chart-card chart-wide">
@@ -426,6 +432,7 @@
                     <div id="chartPersonHw"></div>
                   </figure>
                 </div>
+                <div id="personGroupDeduct" class="group-deduct-box"></div>
               </section>
               <section class="stats-block">
                 <h3>在全班中的位置</h3>

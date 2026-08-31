@@ -588,7 +588,9 @@
       undoable: item.undoable === true,
       undone: false,
       groupId: item.groupId ? String(item.groupId) : '',
-      seatNos: Array.isArray(item.seatNos) ? item.seatNos.map(String) : []
+      seatNos: Array.isArray(item.seatNos) ? item.seatNos.map(String) : [],
+      causeSeatNo: item.causeSeatNo ? String(item.causeSeatNo) : '',
+      causeName: item.causeName ? String(item.causeName) : ''
     });
     if (store.history.length > 800) store.history = store.history.slice(-800);
   }
@@ -745,6 +747,25 @@
         room.groups.scores[String(gid)] = (Number(room.groups.scores[String(gid)]) || 0) + delta;
       }
       persistRoom(store, room, false);
+      var causeSeatNo = '';
+      var causeName = '';
+      if (gid) {
+        if (Object.prototype.hasOwnProperty.call(body, 'causeSeatNo')) {
+          causeSeatNo = String(body.causeSeatNo || '').trim();
+        } else {
+          causeSeatNo = seatNo;
+        }
+        var cause = causeSeatNo
+          ? room.students.filter(function (s) { return String(s.seatNo) === causeSeatNo; })[0]
+          : null;
+        if (cause) {
+          causeSeatNo = String(cause.seatNo);
+          causeName = cause.name;
+        } else {
+          causeSeatNo = '';
+          causeName = '';
+        }
+      }
       addHistory(store, {
         className: className,
         type: gid ? (delta > 0 ? '小組加分' : '小組扣分') : (delta > 0 ? '加分' : '扣分'),
@@ -757,7 +778,9 @@
           : ((delta > 0 ? '+' : '') + delta),
         undoable: true,
         groupId: gid || '',
-        seatNos: seatNos
+        seatNos: seatNos,
+        causeSeatNo: causeSeatNo,
+        causeName: causeName
       });
       saveStore(store);
       var data = payload(store, className);
@@ -915,6 +938,52 @@
         });
       });
       return wrap(withRoll_({ ok: true, rows: rows, classNames: classNames(store) }, store));
+    },
+    listGroupDeductions: function (className) {
+      var store = loadStore();
+      className = String(className || '').trim();
+      var room = className ? ensureClass(store, className) : null;
+      var bySeat = {};
+      if (room) {
+        (room.students || []).forEach(function (s) {
+          bySeat[String(s.seatNo)] = s;
+        });
+      }
+      var rows = [];
+      (store.history || []).forEach(function (item) {
+        if (!item || item.undone) return;
+        if (className && item.className !== className) return;
+        if (item.type !== '小組扣分') return;
+        var delta = Number(item.delta) || 0;
+        if (delta >= 0) return;
+        var causeSeatNo = '';
+        var causeName = '';
+        if (item.causeSeatNo != null && String(item.causeSeatNo) !== '') {
+          causeSeatNo = String(item.causeSeatNo);
+          causeName = String(item.causeName || '');
+        } else if (item.causeSeatNo === '') {
+          causeSeatNo = '';
+          causeName = '';
+        } else {
+          causeSeatNo = String(item.seatNo || '');
+          causeName = '';
+        }
+        if (causeSeatNo && !causeName && bySeat[causeSeatNo]) {
+          causeName = bySeat[causeSeatNo].name;
+        }
+        rows.push({
+          time: item.time,
+          className: item.className,
+          groupId: String(item.groupId || ''),
+          groupName: item.name || (item.groupId ? ('第' + item.groupId + '組') : '小組'),
+          delta: delta,
+          causeSeatNo: causeSeatNo,
+          causeName: causeName,
+          members: item.detail || ''
+        });
+      });
+      rows.reverse();
+      return wrap({ ok: true, rows: rows });
     },
     saveRecords: function (body) {
       var store = loadStore();
