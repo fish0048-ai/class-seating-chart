@@ -31,7 +31,7 @@ const TEACHER_EMAILS = ['chunhsinkuo@kcis.hc.edu.tw'];
  * Google Cloud「網頁應用程式」OAuth 用戶端 ID（結尾 .apps.googleusercontent.com）。
  * 與 docs/config.js 的 googleClientId 相同。還沒填時仍會檢查 Google 登入信箱。
  */
-const GOOGLE_CLIENT_ID = '';
+const GOOGLE_CLIENT_ID = '556988999591-tc3b8orn6ov3guinfiq5p0c9u6g0n802.apps.googleusercontent.com';
 
 var WRITE_ACTIONS_ = {
   save: true,

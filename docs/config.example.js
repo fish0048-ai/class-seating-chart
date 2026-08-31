@@ -5,6 +5,6 @@ window.SEAT_CONFIG = {
   // 上課課表（只顯示，不寫成績）
   timetableUrl: 'https://docs.google.com/spreadsheets/d/13VrWBx6hoKpUON_JNxIrynH_gyRV8HnhUt0MMscjkWg/edit',
   timetableId: '13VrWBx6hoKpUON_JNxIrynH_gyRV8HnhUt0MMscjkWg',
-  googleClientId: '',
+  googleClientId: '你的OAuth用戶端ID.apps.googleusercontent.com',
   teacherEmails: ['chunhsinkuo@kcis.hc.edu.tw']
 };
