@@ -76,6 +76,17 @@
     return data;
   }
 
+  function hwFriendlyCloudError_(err) {
+    var msg = err && err.message ? err.message : String(err || '連線失敗');
+    if (msg.indexOf('未知的操作') >= 0) {
+      return '後端還沒更新作業檢核。請把最新 Code.gs 與 HwStudent.html 貼進 Apps Script，再「部署 → 管理部署 → 編輯」同一個 /exec（不要另外產生新網址）。';
+    }
+    if (/Failed to fetch|NetworkError|Load failed|雲端回應不是資料/i.test(msg)) {
+      return '連不上作業 API。請確認已用教師帳號登入，並用同一個 /exec 更新部署。';
+    }
+    return msg;
+  }
+
   function wait_(ms) {
     return new Promise(function (resolve) {
       setTimeout(resolve, ms);
@@ -166,7 +177,9 @@
         redirect: 'follow'
       }).then(function (res) {
         return res.text();
-      }).then(parseCloudText_);
+      }).then(parseCloudText_).catch(function (err) {
+        throw new Error(hwFriendlyCloudError_(err));
+      });
     }
   };
 })(window);

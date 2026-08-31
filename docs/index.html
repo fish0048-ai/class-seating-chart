@@ -508,6 +508,9 @@
             <p class="hint">紙本作業檢核不連 Classroom API。建立作業後複製學生連結，貼到 Classroom 當入口即可。學生只會看到自己的成績。</p>
             <p id="hwApiNote" class="hint">Classroom 成績回寫：關閉（第一版）。</p>
             <div class="form-grid hw-create">
+              <label>班級
+                <input id="hwClassName" type="text" maxlength="40" placeholder="例如 801" />
+              </label>
               <label>作業名稱
                 <input id="hwTitle" type="text" maxlength="80" placeholder="例如 講義第 3 回" />
               </label>
@@ -607,8 +610,8 @@
               <ol class="cloud-steps">
                 <li>打開 Google 試算表（上方會顯示連結）。</li>
                 <li>「擴充功能」→「Apps Script」，把最新的 Code.gs 全部貼上並儲存；作業檢核還要新增／更新 <code>HwStudent.html</code>。</li>
-                <li>「部署」→「新增部署作業」，類型選「網頁應用程式」。</li>
-                <li>執行身分「我」，對象「任何人」，把結尾是 /exec 的網址貼上來，按「連上雲端」。</li>
+                <li>「部署」→「管理部署」→編輯現有網頁應用程式，版本選「新版本」（網址不要換）。第一次才用「新增部署作業」。</li>
+                <li>執行身分「我」，對象「任何人」。若 /exec 網址有變，貼上來再按「連上雲端」。</li>
               </ol>
               <div class="modal-actions">
                 <button type="button" class="tool primary" id="btnCloudConnect">連上雲端</button>

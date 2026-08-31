@@ -1208,13 +1208,20 @@ function hwReadObjects_(sheetName, headerKey) {
 }
 
 function hwAppend_(sheetName, headerKey, obj) {
+  hwAppendMany_(sheetName, headerKey, [obj]);
+}
+
+function hwAppendMany_(sheetName, headerKey, objs) {
+  if (!objs || !objs.length) return;
   var sheet = ensureSheetWithHeaders_(getSs_(), sheetName, HEADERS[headerKey]);
   var headers = HEADERS[headerKey];
-  var row = headers.map(function (h) {
-    var v = obj[h];
-    return v === undefined || v === null ? '' : v;
+  var values = objs.map(function (obj) {
+    return headers.map(function (h) {
+      var v = obj[h];
+      return v === undefined || v === null ? '' : v;
+    });
   });
-  sheet.appendRow(row);
+  sheet.getRange(sheet.getLastRow() + 1, 1, values.length, headers.length).setValues(values);
 }
 
 function hwUpdateRow_(sheetName, headerKey, rowIndex, obj) {
@@ -1760,6 +1767,37 @@ function hwIndexByStudent_(rows, assignmentId) {
   return map;
 }
 
+function hwImportStudentsFromSeating_(className) {
+  var cn = hwNormClass_(className);
+  if (!cn) throw new Error('請先選班級');
+  var cloud = getCloudStore();
+  var store = cloud && cloud.store ? cloud.store : null;
+  var room = store && store.classes && store.classes[cn];
+  if (!room || !room.students || !room.students.length) {
+    throw new Error('座位表這個班還沒有學生');
+  }
+  var existing = hwReadObjects_(SHEETS.HW_STUDENTS, 'HW_STUDENTS');
+  var toAdd = [];
+  room.students.forEach(function (s) {
+    var seat = hwNormSeat_(s.seatNo);
+    var name = hwNormName_(s.name);
+    var found = existing.some(function (r) {
+      return hwNormClass_(r['班級']) === cn && hwNormSeat_(r['座號']) === seat;
+    });
+    if (found || !seat || !name) return;
+    toAdd.push({
+      '班級': cn,
+      '座號': seat,
+      '姓名': name,
+      'Email': ''
+    });
+    existing.push({ '班級': cn, '座號': seat, '姓名': name });
+  });
+  hwAppendMany_(SHEETS.HW_STUDENTS, 'HW_STUDENTS', toAdd);
+  ClassroomSyncService.syncRoster();
+  return { ok: true, added: toAdd.length, className: cn };
+}
+
 function handleHwTeacher_(req, action, user) {
   req = req || {};
   if (action === 'hwListStudents') {
@@ -1780,32 +1818,8 @@ function handleHwTeacher_(req, action, user) {
   }
 
   if (action === 'hwImportStudents') {
-    var cn = hwNormClass_(req.className);
-    if (!cn) throw new Error('請先選班級');
-    var cloud = getCloudStore();
-    var store = cloud && cloud.store ? cloud.store : null;
-    var room = store && store.classes && store.classes[cn];
-    if (!room || !room.students || !room.students.length) throw new Error('座位表這個班還沒有學生');
-    var existing = hwReadObjects_(SHEETS.HW_STUDENTS, 'HW_STUDENTS');
-    var added = 0;
-    room.students.forEach(function (s) {
-      var seat = hwNormSeat_(s.seatNo);
-      var name = hwNormName_(s.name);
-      var found = existing.some(function (r) {
-        return hwNormClass_(r['班級']) === cn && hwNormSeat_(r['座號']) === seat;
-      });
-      if (found || !seat || !name) return;
-      hwAppend_(SHEETS.HW_STUDENTS, 'HW_STUDENTS', {
-        '班級': cn,
-        '座號': seat,
-        '姓名': name,
-        'Email': ''
-      });
-      existing.push({ '班級': cn, '座號': seat, '姓名': name });
-      added += 1;
-    });
-    ClassroomSyncService.syncRoster();
-    return { ok: true, added: added, className: cn };
+    var imported = hwImportStudentsFromSeating_(req.className);
+    return { ok: true, added: imported.added, className: imported.className };
   }
 
   if (action === 'hwListAssignments') {
@@ -1819,50 +1833,59 @@ function handleHwTeacher_(req, action, user) {
   }
 
   if (action === 'hwCreateAssignment') {
-    var classN = hwNormClass_(req.className);
-    var title = String(req.title || '').trim();
-    if (!classN || !title) throw new Error('請填作業名稱與班級');
-    var id = hwNextId_();
-    var maxScore = Number(req.maxScore);
-    if (!isFinite(maxScore)) maxScore = 100;
-    var latePenalty = Number(req.latePenalty);
-    if (!isFinite(latePenalty)) latePenalty = 10;
-    var minScore = Number(req.minScore);
-    if (!isFinite(minScore)) minScore = 0;
-    var qCount = clampInt_(req.questionCount, 1, 200, 10);
-    var spot = clampInt_(req.spotCount, 1, 20, 2);
-    var startAt = req.startAt ? hwIso_(req.startAt) : new Date().toISOString();
-    var dueAt = req.dueAt ? hwIso_(req.dueAt) : '';
-    if (!dueAt) throw new Error('請填截止時間');
-    var studentUrl = hwStudentUrl_(id);
-    hwAppend_(SHEETS.HW_ASSIGNMENTS, 'HW_ASSIGNMENTS', {
-      '作業編號': id,
-      '名稱': title,
-      '班級': classN,
-      '題數': qCount,
-      '抽查題數': spot,
-      '開始時間': startAt,
-      '截止時間': dueAt,
-      '滿分': maxScore,
-      '每工作天扣分': latePenalty,
-      '最低分': minScore,
-      '學生連結': studentUrl,
-      '建立時間': new Date().toISOString()
-    });
-    var qi;
-    for (qi = 1; qi <= qCount; qi++) {
-      hwAppend_(SHEETS.HW_QUESTIONS, 'HW_QUESTIONS', {
+    return withLock_(function () {
+      var classN = hwNormClass_(req.className);
+      var title = String(req.title || '').trim();
+      if (!classN) throw new Error('請先選班級');
+      if (!title) throw new Error('請填作業名稱');
+      var id = hwNextId_();
+      var maxScore = Number(req.maxScore);
+      if (!isFinite(maxScore)) maxScore = 100;
+      var latePenalty = Number(req.latePenalty);
+      if (!isFinite(latePenalty)) latePenalty = 10;
+      var minScore = Number(req.minScore);
+      if (!isFinite(minScore)) minScore = 0;
+      var qCount = clampInt_(req.questionCount, 1, 200, 10);
+      var spot = clampInt_(req.spotCount, 1, Math.max(1, qCount), 2);
+      if (spot > qCount) spot = qCount;
+      var startAt = req.startAt ? hwIso_(req.startAt) : new Date().toISOString();
+      var dueAt = req.dueAt ? hwIso_(req.dueAt) : '';
+      if (!dueAt) throw new Error('請填截止時間');
+      var studentUrl = hwStudentUrl_(id);
+      hwAppend_(SHEETS.HW_ASSIGNMENTS, 'HW_ASSIGNMENTS', {
         '作業編號': id,
-        '題號': qi,
-        '詳解': ''
+        '名稱': title,
+        '班級': classN,
+        '題數': qCount,
+        '抽查題數': spot,
+        '開始時間': startAt,
+        '截止時間': dueAt,
+        '滿分': maxScore,
+        '每工作天扣分': latePenalty,
+        '最低分': minScore,
+        '學生連結': studentUrl,
+        '建立時間': new Date().toISOString()
       });
-    }
-    ClassroomSyncService.createCourseWork();
-    return {
-      ok: true,
-      assignment: hwGetAssignment_(id),
-      studentUrl: studentUrl
-    };
+      var qRows = [];
+      var qi;
+      for (qi = 1; qi <= qCount; qi++) {
+        qRows.push({ '作業編號': id, '題號': qi, '詳解': '' });
+      }
+      hwAppendMany_(SHEETS.HW_QUESTIONS, 'HW_QUESTIONS', qRows);
+      var imported = { added: 0 };
+      try {
+        imported = hwImportStudentsFromSeating_(classN);
+      } catch (importErr) {
+        imported = { added: 0, error: String(importErr && importErr.message ? importErr.message : importErr) };
+      }
+      ClassroomSyncService.createCourseWork();
+      return {
+        ok: true,
+        assignment: hwGetAssignment_(id),
+        studentUrl: studentUrl,
+        imported: imported.added || 0
+      };
+    });
   }
 
   if (action === 'hwDashboard' || action === 'hwExportCsv') {

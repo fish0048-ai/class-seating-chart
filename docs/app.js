@@ -314,7 +314,11 @@
       App.dbFilter = els.dbClassFilter.value;
       renderDatabaseTable(App.dbRows || []);
       refreshTeacherExtras();
-      if (App.teacherTab === 'homework') loadHomeworkTab();
+      if (App.teacherTab === 'homework') {
+        var hwClass = document.getElementById('hwClassName');
+        if (hwClass) hwClass.value = teacherTargetClass();
+        loadHomeworkTab();
+      }
     });
   }
   if (els.dbDateFilter) {
@@ -1727,9 +1731,38 @@
   }
 
   function fromDatetimeLocal(value) {
-    if (!value) return '';
-    var d = new Date(value);
+    var raw = String(value || '').trim();
+    var m = raw.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+    if (m) {
+      var parsed = new Date(
+        Number(m[1]), Number(m[2]) - 1, Number(m[3]),
+        Number(m[4]), Number(m[5]), 0, 0
+      );
+      return isNaN(parsed.getTime()) ? '' : parsed.toISOString();
+    }
+    if (!raw) return '';
+    var d = new Date(raw);
     return isNaN(d.getTime()) ? '' : d.toISOString();
+  }
+
+  function hwFriendlyError(err) {
+    var msg = err && err.message ? err.message : String(err || '操作失敗');
+    if (msg.indexOf('未知的操作') >= 0) {
+      return '後端還沒更新作業檢核。請把最新 Code.gs 與 HwStudent.html 貼進 Apps Script，再「部署 → 管理部署 → 編輯」同一個 /exec（不要另外產生新網址）。';
+    }
+    return msg;
+  }
+
+  function homeworkClassName() {
+    var typed = document.getElementById('hwClassName');
+    var value = typed ? String(typed.value || '').trim() : '';
+    return value || teacherTargetClass();
+  }
+
+  function fillHomeworkClass() {
+    var input = document.getElementById('hwClassName');
+    if (!input) return;
+    if (!input.value) input.value = teacherTargetClass();
   }
 
   function defaultHwTimes() {
@@ -1786,10 +1819,11 @@
 
   function loadHomeworkTab() {
     defaultHwTimes();
-    var className = teacherTargetClass();
+    fillHomeworkClass();
+    var className = homeworkClassName();
     var note = document.getElementById('hwApiNote');
     if (!className) {
-      if (note) note.textContent = '請先在上方選一個班級。';
+      if (note) note.textContent = '請先填班級，或在上方選一個班（不要選「全部班級」）。';
       return;
     }
     hwApi('hwListAssignments', { className: className }).then(function (data) {
@@ -1814,7 +1848,7 @@
       }
       return App.hwAssignmentId ? loadHwDashboard() : Promise.resolve();
     }).catch(function (err) {
-      toast(err.message || '作業資料載入失敗。若剛更新後端，請先新增部署。');
+      toast(hwFriendlyError(err));
     });
   }
 
@@ -1844,7 +1878,9 @@
     if (!body) return;
     var rows = App.hwRows || [];
     if (!rows.length) {
-      body.innerHTML = '<tr><td colspan="10">這個班還沒有作業名單。請先按「從座位表匯入本班名單」。</td></tr>';
+      body.innerHTML = App.hwAssignmentId
+        ? '<tr><td colspan="10">作業已建立，但這個班還沒有作業名單。請按「從座位表匯入本班名單」。</td></tr>'
+        : '<tr><td colspan="10">還沒有作業。填名稱後按「建立作業」（會一併匯入本班名單）。</td></tr>';
       if (paste) paste.value = '';
       return;
     }
@@ -1903,42 +1939,56 @@
   function bindHomework() {
     var createBtn = document.getElementById('btnHwCreate');
     if (createBtn) createBtn.addEventListener('click', function () {
-      var className = teacherTargetClass();
+      var className = homeworkClassName();
+      var title = String((document.getElementById('hwTitle') || {}).value || '').trim();
+      var dueAt = fromDatetimeLocal((document.getElementById('hwDueAt') || {}).value);
       if (!className) {
-        toast('請先選班級');
+        toast('請先填班級，不要選「全部班級」');
         return;
       }
+      if (!title) {
+        toast('請先填作業名稱');
+        return;
+      }
+      if (!dueAt) {
+        toast('請填截止時間');
+        return;
+      }
+      createBtn.disabled = true;
       hwApi('hwCreateAssignment', {
         className: className,
-        title: (document.getElementById('hwTitle') || {}).value,
+        title: title,
         questionCount: (document.getElementById('hwQuestionCount') || {}).value,
         spotCount: (document.getElementById('hwSpotCount') || {}).value,
         startAt: fromDatetimeLocal((document.getElementById('hwStartAt') || {}).value),
-        dueAt: fromDatetimeLocal((document.getElementById('hwDueAt') || {}).value),
+        dueAt: dueAt,
         maxScore: (document.getElementById('hwMaxScore') || {}).value,
         latePenalty: (document.getElementById('hwLatePenalty') || {}).value,
         minScore: 0
       }).then(function (data) {
         App.hwAssignmentId = data.assignment && data.assignment.assignmentId;
         App.hwStudentUrl = data.studentUrl || (data.assignment && data.assignment.studentUrl) || '';
-        toast('已建立 ' + App.hwAssignmentId + '，可複製學生連結貼到 Classroom');
+        var imported = Number(data.imported) || 0;
+        toast('已建立 ' + App.hwAssignmentId + (imported ? '，並匯入 ' + imported + ' 人' : '') + '，可複製學生連結');
         return loadHomeworkTab();
       }).catch(function (err) {
-        toast(err.message || '建立作業失敗');
+        toast(hwFriendlyError(err));
+      }).then(function () {
+        createBtn.disabled = false;
       });
     });
     var importBtn = document.getElementById('btnHwImportStudents');
     if (importBtn) importBtn.addEventListener('click', function () {
-      var className = teacherTargetClass();
+      var className = homeworkClassName();
       if (!className) {
-        toast('請先選班級');
+        toast('請先填班級');
         return;
       }
       hwApi('hwImportStudents', { className: className }).then(function (data) {
         toast('已匯入 ' + (data.added || 0) + ' 人到作業名單（Email 請在試算表 HW_Students 補上）');
         loadHwDashboard();
       }).catch(function (err) {
-        toast(err.message || '匯入失敗');
+        toast(hwFriendlyError(err));
       });
     });
     var sel = document.getElementById('hwAssignmentSelect');
