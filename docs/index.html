@@ -611,10 +611,14 @@
                 <li>打開 Google 試算表（上方會顯示連結）。</li>
                 <li>「擴充功能」→「Apps Script」，把最新的 Code.gs 全部貼上並儲存；作業檢核還要新增／更新 <code>HwStudent.html</code>。</li>
                 <li>「部署」→「管理部署」→編輯現有網頁應用程式，版本選「新版本」（網址不要換）。第一次才用「新增部署作業」。</li>
-                <li>執行身分「我」，對象「任何人」。若 /exec 網址有變，貼上來再按「連上雲端」。</li>
+                <li>執行身分「我」，對象「任何人」。若 /exec 網址有變，貼上來再按「連上雲端」。若 Google 要再登入，請在這一頁登入，不要按右上角「登出」。</li>
               </ol>
               <div class="modal-actions">
                 <button type="button" class="tool primary" id="btnCloudConnect">連上雲端</button>
+              </div>
+              <div id="cloudRelogin" class="cloud-relogin" hidden>
+                <p class="hint">連線需要有效的教師登入。請在這裡再登入一次，會留在設定頁，不會跑掉。</p>
+                <div id="googleSignInBtnSettings"></div>
               </div>
             </div>
             <h3 class="subhead">新增班級與學生</h3>

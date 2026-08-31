@@ -140,9 +140,28 @@
       locale: 'zh-TW',
       width: 280
     });
-    try {
-      google.accounts.id.prompt();
-    } catch (err) {}
+    paintExtraButtons();
+    if (!user) {
+      try {
+        google.accounts.id.prompt();
+      } catch (err) {}
+    }
+  }
+
+  function paintExtraButtons() {
+    var extra = document.getElementById('googleSignInBtnSettings');
+    if (!extra || !window.google || !google.accounts || !google.accounts.id || !clientId()) return;
+    extra.innerHTML = '';
+    google.accounts.id.renderButton(extra, {
+      type: 'standard',
+      theme: 'outline',
+      size: 'medium',
+      text: 'continue_with',
+      shape: 'pill',
+      logo_alignment: 'left',
+      locale: 'zh-TW',
+      width: 260
+    });
   }
 
   function waitGsi(cb) {
@@ -219,6 +238,11 @@
     getIdToken: function () {
       return user && user.idToken ? user.idToken : '';
     },
+    tokenExpired: function () {
+      if (!user || !user.exp) return true;
+      return user.exp * 1000 < Date.now() + 60000;
+    },
+    renderExtraButtons: paintExtraButtons,
     email: function () {
       return user && user.email ? user.email : '';
     },

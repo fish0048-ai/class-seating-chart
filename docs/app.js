@@ -490,6 +490,9 @@
   if (cloudBtn) cloudBtn.addEventListener('click', connectCloud);
   var cloudUrl = document.getElementById('cloudApiUrl');
   if (cloudUrl) {
+    cloudUrl.addEventListener('input', function () {
+      rememberCloudUrl(cloudUrl.value);
+    });
     cloudUrl.addEventListener('keydown', function (event) {
       if (event.key === 'Enter') {
         event.preventDefault();
@@ -512,6 +515,7 @@
     GoogleAuth.start({
       onSignedIn: function (account, alreadyBooted) {
         applyTeacherUi();
+        if (resumeAfterSignIn(account, alreadyBooted)) return;
         if (alreadyBooted) {
           if (!account.teacher && App.appView === 'teacher') showClassView();
           else renderAll();
@@ -721,17 +725,127 @@
     });
   }
 
-  function connectCloud() {
+  var RESUME_KEY = 'seat-resume';
+
+  function rememberCloudUrl(url) {
+    url = String(url || '').trim();
+    if (!url || url.indexOf('/exec') < 0) return;
+    if (window.CloudStore && CloudStore.setUrl) CloudStore.setUrl(url);
+  }
+
+  function saveResume(extra) {
+    try {
+      var urlInput = document.getElementById('cloudApiUrl');
+      sessionStorage.setItem(RESUME_KEY, JSON.stringify(Object.assign({
+        view: App.appView || 'teacher',
+        tab: App.teacherTab || 'settings',
+        cloudUrl: urlInput ? String(urlInput.value || '').trim() : '',
+        retryConnect: false
+      }, extra || {})));
+    } catch (err) {}
+  }
+
+  function readResume() {
+    try {
+      var raw = sessionStorage.getItem(RESUME_KEY);
+      return raw ? JSON.parse(raw) : null;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function clearResume() {
+    try { sessionStorage.removeItem(RESUME_KEY); } catch (err) {}
+  }
+
+  function showCloudRelogin(show) {
+    var box = document.getElementById('cloudRelogin');
+    if (box) box.hidden = !show;
+    if (show && window.GoogleAuth && GoogleAuth.renderExtraButtons) {
+      GoogleAuth.renderExtraButtons();
+    }
+  }
+
+  function needsCloudLogin(msg) {
+    msg = String(msg || '');
+    return /請先用 Google|登入已過期|登入憑證|尚未驗證|沒有信箱|打開該網址/.test(msg);
+  }
+
+  function resumeAfterSignIn(account, alreadyBooted) {
+    var resume = readResume();
+    if (!resume || !account || !account.teacher) return false;
+    if (resume.cloudUrl && window.CloudStore && CloudStore.setUrl) {
+      CloudStore.setUrl(resume.cloudUrl);
+      var urlInput = document.getElementById('cloudApiUrl');
+      if (urlInput) urlInput.value = resume.cloudUrl;
+    }
+    App.pendingTeacherTab = resume.tab || 'settings';
+    showCloudRelogin(false);
+    var retry = !!resume.retryConnect;
+    clearResume();
+    function goSettingsAndMaybeConnect() {
+      App.pendingTeacherTab = 'settings';
+      openDatabase();
+      if (retry) {
+        whenIdle(function () {
+          connectCloud({ skipResume: true });
+        });
+      }
+    }
+
+    function whenIdle(fn) {
+      var n = 0;
+      (function tick() {
+        if (!App.busy || n > 25) {
+          fn();
+          return;
+        }
+        n += 1;
+        setTimeout(tick, 200);
+      })();
+    }
+    if (!alreadyBooted || !App.classroom) {
+      App.busy = false;
+      api('getBootstrapData', []).then(function (data) {
+        applyPayload(data, true);
+        fillCloudSettings();
+        goSettingsAndMaybeConnect();
+      }).catch(function () {
+        goSettingsAndMaybeConnect();
+      });
+    } else {
+      goSettingsAndMaybeConnect();
+    }
+    return true;
+  }
+
+  function connectCloud(opts) {
+    opts = opts || {};
     var urlInput = document.getElementById('cloudApiUrl');
     var url = urlInput ? urlInput.value.trim() : '';
     if (!url) {
-      toast('請先貼上 Apps Script 網頁應用程式網址');
+      toast('請先貼上 Apps Script 網頁應用程式網址', 4000);
+      return;
+    }
+    rememberCloudUrl(url);
+    if (!opts.skipResume) {
+      saveResume({ view: 'teacher', tab: 'settings', cloudUrl: url, retryConnect: true });
+    }
+    if (window.GoogleAuth && (!GoogleAuth.isTeacher() || GoogleAuth.tokenExpired())) {
+      showTeacherView();
+      switchTeacherTab('settings');
+      showCloudRelogin(true);
+      toast('請在設定頁再登入一次教師帳號，登入後會自動連上，不會離開這一頁', 6000);
       return;
     }
     run('connectCloud', [url, App.classroom && App.classroom.className], function (data) {
+      clearResume();
+      showCloudRelogin(false);
       applyPayload(data, true);
       fillCloudSettings();
-      toast('已連上雲端，之後平板和筆電都會用這份資料');
+      showTeacherView();
+      switchTeacherTab('settings');
+      toast('已連上雲端，之後平板和筆電都會用這份資料', 4000);
     });
   }
 
@@ -6372,6 +6486,13 @@
           els.syncMeta.textContent = '載入失敗：' + msg;
           showLoadingBoard(msg, true);
         }
+        if (fnName === 'connectCloud') {
+          showTeacherView();
+          switchTeacherTab('settings');
+          if (needsCloudLogin(msg)) showCloudRelogin(true);
+          toast(msg, 7000);
+          return;
+        }
         toast(msg);
       });
   }
@@ -6385,13 +6506,13 @@
     });
   }
 
-  function toast(message) {
+  function toast(message, ms) {
     els.toast.hidden = false;
     els.toast.textContent = message;
     clearTimeout(toast.timer);
     toast.timer = setTimeout(function () {
       els.toast.hidden = true;
-    }, 2200);
+    }, ms || 2200);
   }
 
   function formatTime(value) {

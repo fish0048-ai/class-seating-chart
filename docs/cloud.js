@@ -66,9 +66,13 @@
   }
 
   function parseCloudText_(text) {
+    var raw = String(text || '').trim();
+    if (!raw || raw.charAt(0) === '<' || /accounts\.google\.com/i.test(raw)) {
+      throw new Error('新的 /exec 第一次請先用瀏覽器打開該網址，用同一個教師帳號登入授權，再回到座位表按「連上雲端」。不要按登出。');
+    }
     var data;
     try {
-      data = JSON.parse(text);
+      data = JSON.parse(raw);
     } catch (err) {
       throw new Error('雲端回應不是資料，請確認 Apps Script 已部署成網頁應用程式');
     }

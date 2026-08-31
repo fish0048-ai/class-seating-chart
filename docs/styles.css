@@ -2094,6 +2094,14 @@
     color: var(--muted);
   }
 
+  .cloud-relogin {
+    margin-top: 12px;
+    padding: 12px;
+    border: 1px dashed var(--accent);
+    border-radius: 12px;
+    background: #fff7ea;
+  }
+
   .account-chip [data-account-label] {
     max-width: 220px;
     overflow: hidden;
