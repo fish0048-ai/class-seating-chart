@@ -103,11 +103,15 @@
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: raw
       }).then(function () {
-        return wait_(900).then(function () {
+        return wait_(2500).then(function () {
           return jsonpGet('getStore');
         }).then(function (data) {
           var remoteAt = data && data.store && data.store.updatedAt;
+          var expected = payload.store && payload.store.updatedAt;
           if (!remoteAt) throw new Error('雲端存檔後讀不到資料，請再試一次');
+          if (expected && remoteAt < expected) {
+            throw new Error('雲端還沒收到這次名單，請再按一次匯入');
+          }
           return { ok: true, updatedAt: remoteAt };
         });
       });

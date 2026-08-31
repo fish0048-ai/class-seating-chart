@@ -530,9 +530,11 @@ function putCloudStore(store) {
   }
   return withLock_(function () {
     var ss = getSs_();
+    ensureSheets_(ss);
     var sheet = ensureCloudSheet_(ss);
     store.updatedAt = new Date().toISOString();
     writeCloudChunks_(sheet, JSON.stringify(store));
+    syncVisibleRoster_(ss, store);
     return { ok: true, updatedAt: store.updatedAt };
   });
 }
@@ -574,6 +576,58 @@ function readCloudChunks_(sheet) {
     out += String(values[i][0] || '');
   }
   return out;
+}
+
+/** 把 JSON 裡的班級／學生同步到「學生」「班級設定」，方便在試算表後台直接看到。 */
+function syncVisibleRoster_(ss, store) {
+  var classes = (store && store.classes) || {};
+  var names = Object.keys(classes).sort();
+  var studentRows = [];
+  var configRows = [];
+  names.forEach(function (cn) {
+    var room = classes[cn] || {};
+    var className = String(room.className || cn || '').trim();
+    if (!className) return;
+    (room.students || []).forEach(function (s) {
+      if (!s) return;
+      var seatNo = String(s.seatNo || '').trim();
+      var name = String(s.name || '').trim();
+      if (!seatNo || !name) return;
+      studentRows.push([
+        className,
+        seatNo,
+        name,
+        Number(s.score) || 0,
+        s.row == null || s.row === '' ? '' : Number(s.row) + 1,
+        s.col == null || s.col === '' ? '' : Number(s.col) + 1,
+        s.note || ''
+      ]);
+    });
+    configRows.push([
+      className,
+      Number(room.rows) || 6,
+      Number(room.cols) || 7,
+      Number(room.version) || 1,
+      room.updatedAt ? new Date(room.updatedAt) : new Date()
+    ]);
+  });
+  var studentSheet = ss.getSheetByName(SHEETS.STUDENTS);
+  var configSheet = ss.getSheetByName(SHEETS.CONFIG);
+  if (!studentSheet || !configSheet) return;
+  var lastS = studentSheet.getLastRow();
+  if (lastS >= 2) {
+    studentSheet.getRange(2, 1, lastS - 1, HEADERS.STUDENTS.length).clearContent();
+  }
+  if (studentRows.length) {
+    studentSheet.getRange(2, 1, studentRows.length, HEADERS.STUDENTS.length).setValues(studentRows);
+  }
+  var lastC = configSheet.getLastRow();
+  if (lastC >= 2) {
+    configSheet.getRange(2, 1, lastC - 1, HEADERS.CONFIG.length).clearContent();
+  }
+  if (configRows.length) {
+    configSheet.getRange(2, 1, configRows.length, HEADERS.CONFIG.length).setValues(configRows);
+  }
 }
 
 function ensureSheets_(ss) {
@@ -622,6 +676,7 @@ function ensureHelpSheet_(ss) {
     ['2. 每一列填：班級、座號、姓名。分數可留 0。'],
     ['3. 「列」「欄」可空白，系統會依座號自動排座位。'],
     ['4. 同一個班級請使用相同的班級名稱，例如：301。'],
+    ['5. 從網頁「設定與上傳」匯入的名單，也會寫進「學生」與「班級設定」。'],
     [''],
     ['二、發布網頁給平板使用'],
     ['1. 上方選單：擴充功能 > Apps Script。'],

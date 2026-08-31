@@ -4702,15 +4702,15 @@
 
   function importPendingRoster() {
     var className = els.settingClassName.value.trim();
-    var pasted = parseRosterText(els.settingStudents.value, className);
+    var rows = rosterRowsToImport();
     var replace = !!(els.settingReplace && els.settingReplace.checked);
-    if (!pasted.length) {
+    if (!rows.length) {
       toast('請先上傳 Excel，或在下方貼上名單');
       return;
     }
     if (App.busy) return;
     App.busy = true;
-    importRoster(pasted, replace, className)
+    importRoster(rows, replace, className)
       .then(function () {
         App.busy = false;
       })
@@ -4770,7 +4770,7 @@
     const className = els.settingClassName.value.trim();
     const rows = Number(els.settingRows.value);
     const cols = Number(els.settingCols.value);
-    const pasted = parseRosterText(els.settingStudents.value, className);
+    const pasted = rosterRowsToImport();
     const imported = pasted;
     const replace = !!(els.settingReplace && els.settingReplace.checked);
     if (!className) {
@@ -4784,7 +4784,14 @@
         if (!imported.length) {
           return api('loadClassroom', [className]).then(function (data) {
             applyPayload(data, true);
-            toast('班級行列設定已儲存');
+            if (!cloudConnected() || typeof SeatDB === 'undefined' || !SeatDB.flushCloud) {
+              toast('班級行列設定已儲存');
+              return;
+            }
+            return SeatDB.flushCloud().then(function () {
+              fillCloudSettings();
+              toast('班級行列設定已儲存並寫入資料庫');
+            });
           });
         }
         return importRoster(imported, replace, className);
@@ -4823,7 +4830,35 @@
       applyPayload(data, true);
       els.classSelect.value = data.classroom.className;
       App.pendingImport = null;
-      toast('已匯入 ' + rows.length + ' 位學生');
+      renderUploadPreview(null);
+      return flushRosterToCloud(rows.length);
+    });
+  }
+
+  function rosterRowsToImport() {
+    if (App.pendingImport && App.pendingImport.length) {
+      return App.pendingImport.slice();
+    }
+    return parseRosterText(els.settingStudents.value, els.settingClassName.value.trim());
+  }
+
+  function flushRosterToCloud(count) {
+    if (!cloudConnected() || typeof SeatDB === 'undefined' || !SeatDB.flushCloud) {
+      toast('已匯入 ' + count + ' 位學生，但還沒連上雲端。請到設定連上雲端，資料庫才會出現');
+      return Promise.resolve();
+    }
+    toast('正在寫入雲端資料庫…');
+    return SeatDB.flushCloud().then(function (info) {
+      fillCloudSettings();
+      renderMeta();
+      if (info && info.error) {
+        throw new Error(info.error);
+      }
+      toast('已匯入 ' + count + ' 位學生，並寫進資料庫「學生／班級設定」');
+    }).catch(function (error) {
+      fillCloudSettings();
+      throw new Error((error && error.message ? error.message : '雲端寫入失敗') +
+        '。畫面已有名單，請按「立即同步」，並確認 Apps Script 已貼上最新 Code.gs');
     });
   }
 
