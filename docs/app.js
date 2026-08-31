@@ -28,7 +28,8 @@
     groupPanel: false,
     groupAssign: false,
     groupPick: 1,
-    groupDeductions: []
+    groupDeductions: [],
+    appView: 'class'
   };
 
   const GROUP_COLORS = [
@@ -50,6 +51,10 @@
     groupApplyScore: document.getElementById('groupApplyScore'),
     groupRankWrap: document.getElementById('groupRankWrap'),
     groupRoster: document.getElementById('groupRoster'),
+    labBar: document.getElementById('labBar'),
+    blackboard: document.getElementById('blackboard'),
+    classModeTitle: document.getElementById('classModeTitle'),
+    groupRankTitle: document.getElementById('groupRankTitle'),
     toast: document.getElementById('toast'),
     lotteryModal: document.getElementById('lotteryModal'),
     lotteryName: document.getElementById('lotteryName'),
@@ -181,8 +186,10 @@
       toast(App.groupAssign ? '手動分組：先選組別再點學生，再點一次可移出' : '已離開手動分組');
     });
   }
-  var btnGroupClear = document.getElementById('btnGroupClear');
-  if (btnGroupClear) btnGroupClear.addEventListener('click', clearGroups);
+  var btnLabBySeat = document.getElementById('btnLabBySeat');
+  if (btnLabBySeat) btnLabBySeat.addEventListener('click', function () { assignLabGroups(false); });
+  var btnLabRandom = document.getElementById('btnLabRandom');
+  if (btnLabRandom) btnLabRandom.addEventListener('click', function () { assignLabGroups(true); });
   if (els.groupSize) {
     els.groupSize.addEventListener('change', function () {
       var g = classGroups();
@@ -216,6 +223,10 @@
       var view = btn.getAttribute('data-app-view');
       if (view === 'teacher') {
         requireTeacher(openDatabase);
+        return;
+      }
+      if (view === 'lab') {
+        showLabView();
         return;
       }
       showClassView();
@@ -508,14 +519,34 @@
     document.body.classList.toggle('teacher-on', !!(window.TeacherAuth && TeacherAuth.isUnlocked()));
   }
 
+  function isLabView() {
+    return App.appView === 'lab';
+  }
+
   function showClassView() {
     App.appView = 'class';
     if (els.app) els.app.hidden = false;
     if (els.teacherView) els.teacherView.hidden = true;
-    document.body.classList.remove('view-teacher');
+    document.body.classList.remove('view-teacher', 'view-lab');
     document.querySelectorAll('[data-app-view]').forEach(function (btn) {
       btn.classList.toggle('tab-on', btn.getAttribute('data-app-view') === 'class');
     });
+    renderAll();
+  }
+
+  function showLabView() {
+    App.appView = 'lab';
+    App.groupPanel = false;
+    App.groupAssign = false;
+    if (els.app) els.app.hidden = false;
+    if (els.teacherView) els.teacherView.hidden = true;
+    document.body.classList.remove('view-teacher');
+    document.body.classList.add('view-lab');
+    document.querySelectorAll('[data-app-view]').forEach(function (btn) {
+      btn.classList.toggle('tab-on', btn.getAttribute('data-app-view') === 'lab');
+    });
+    ensureLabReady();
+    renderAll();
   }
 
   function showTeacherView() {
@@ -523,6 +554,7 @@
     if (els.app) els.app.hidden = true;
     if (els.teacherView) els.teacherView.hidden = false;
     document.body.classList.add('view-teacher');
+    document.body.classList.remove('view-lab');
     document.querySelectorAll('[data-app-view]').forEach(function (btn) {
       btn.classList.toggle('tab-on', btn.getAttribute('data-app-view') === 'teacher');
     });
@@ -725,6 +757,7 @@
     }
     renderClassSelect();
     renderMeta();
+    renderClassChrome();
     renderBoard();
     renderRoster();
     renderGroupBar();
@@ -758,6 +791,11 @@
 
   function renderBoard() {
     const room = App.classroom;
+    if (isLabView()) {
+      renderLabBoard();
+      return;
+    }
+    els.board.classList.remove('lab-board');
     els.board.style.gridTemplateColumns = 'repeat(' + room.cols + ', minmax(0, 1fr))';
     if (!room.students.length) {
       els.board.innerHTML = '<div class="empty-state">' +
@@ -901,6 +939,12 @@
       App.suppressClick = false;
     }, 350);
     const target = document.elementFromPoint(event.clientX, event.clientY);
+    if (isLabView()) {
+      const zone = target && target.closest ? target.closest('.lab-zone') : null;
+      if (!zone) return;
+      assignLabStudent(drag.seatNo, Number(zone.getAttribute('data-group')));
+      return;
+    }
     const seat = target && target.closest ? target.closest('.seat') : null;
     if (!seat) {
       return;
@@ -911,10 +955,16 @@
   function highlightDropTarget(x, y) {
     clearDropTargets();
     const target = document.elementFromPoint(x, y);
+    if (isLabView()) {
+      const zone = target && target.closest ? target.closest('.lab-zone') : null;
+      if (zone) zone.classList.add('drop-target');
+      return;
+    }
     const seat = target && target.closest ? target.closest('.seat') : null;
     if (seat) {
       seat.classList.add('drop-target');
     }
+  }
   }
 
   function clearDropTargets() {
@@ -1029,7 +1079,204 @@
   }
 
   function studentGroupId(seatNo) {
+    if (isLabView()) return studentLabGroupId(seatNo);
     return parseInt(classGroups().assign[String(seatNo)], 10) || 0;
+  }
+
+  function classLab() {
+    if (!App.classroom) return { assign: {}, scores: {} };
+    if (!App.classroom.lab) App.classroom.lab = { assign: {}, scores: {} };
+    if (!App.classroom.lab.assign) App.classroom.lab.assign = {};
+    if (!App.classroom.lab.scores) App.classroom.lab.scores = {};
+    return App.classroom.lab;
+  }
+
+  function studentLabGroupId(seatNo) {
+    return parseInt(classLab().assign[String(seatNo)], 10) || 0;
+  }
+
+  function renderClassChrome() {
+    if (els.classModeTitle) els.classModeTitle.textContent = isLabView() ? '實驗室模式' : '上課模式';
+    if (els.blackboard) els.blackboard.textContent = isLabView() ? '講台／實驗桌' : '講台／黑板';
+    if (els.groupRankTitle) els.groupRankTitle.textContent = isLabView() ? '實驗小組' : '小組分數';
+  }
+
+  var labSaveSeq = 0;
+
+  function persistLab(message) {
+    if (!App.classroom) return;
+    var seq = ++labSaveSeq;
+    var lab = classLab();
+    var snapshot = {
+      assign: Object.assign({}, lab.assign),
+      scores: Object.assign({}, lab.scores)
+    };
+    run('saveLab', [{
+      className: App.classroom.className,
+      lab: snapshot
+    }], function (data) {
+      if (seq !== labSaveSeq) return;
+      App.classroom = data.classroom;
+      renderAll();
+      if (message) toast(message);
+    }, true);
+  }
+
+  function splitIntoSix(list, shuffle) {
+    var students = (list || []).slice();
+    if (shuffle) {
+      var i;
+      for (i = students.length - 1; i > 0; i--) {
+        var j = Math.floor(Math.random() * (i + 1));
+        var tmp = students[i];
+        students[i] = students[j];
+        students[j] = tmp;
+      }
+    } else {
+      students.sort(seatOrder);
+    }
+    var assign = {};
+    var n = students.length;
+    var base = Math.floor(n / 6);
+    var extra = n % 6;
+    var idx = 0;
+    var g;
+    for (g = 1; g <= 6; g++) {
+      var size = base + (g <= extra ? 1 : 0);
+      var k;
+      for (k = 0; k < size; k++) {
+        assign[String(students[idx].seatNo)] = g;
+        idx += 1;
+      }
+    }
+    return assign;
+  }
+
+  function ensureLabReady() {
+    if (!App.classroom) return;
+    var students = App.classroom.students || [];
+    if (!students.length) return;
+    var lab = classLab();
+    var missing = students.filter(function (s) { return !studentLabGroupId(s.seatNo); });
+    if (!Object.keys(lab.assign).length || missing.length === students.length) {
+      lab.assign = splitIntoSix(students, false);
+      persistLab();
+      return;
+    }
+    if (missing.length) {
+      missing.forEach(function (s) {
+        var counts = [0, 0, 0, 0, 0, 0, 0];
+        Object.keys(lab.assign).forEach(function (seat) {
+          var gid = parseInt(lab.assign[seat], 10);
+          if (gid >= 1 && gid <= 6) counts[gid] += 1;
+        });
+        var best = 1;
+        var g;
+        for (g = 2; g <= 6; g++) {
+          if (counts[g] < counts[best]) best = g;
+        }
+        lab.assign[String(s.seatNo)] = best;
+      });
+      persistLab();
+    }
+  }
+
+  function assignLabGroups(shuffle) {
+    if (!App.classroom) return;
+    var students = App.classroom.students || [];
+    if (!students.length) {
+      toast('沒有學生可以分組');
+      return;
+    }
+    if (Object.keys(classLab().assign).length && !window.confirm(shuffle
+      ? '重新隨機會蓋掉目前的實驗分組，小組分數也會歸零。確定嗎？'
+      : '依座號重分六組會蓋掉目前的實驗分組，小組分數也會歸零。確定嗎？')) {
+      return;
+    }
+    classLab().assign = splitIntoSix(students, shuffle);
+    classLab().scores = {};
+    persistLab(shuffle ? '已隨機分成六組' : '已依座號分成六組');
+  }
+
+  function assignLabStudent(seatNo, gid) {
+    gid = parseInt(gid, 10);
+    if (gid < 1 || gid > 6) return;
+    var student = findStudent(seatNo);
+    if (!student) return;
+    var prev = studentLabGroupId(seatNo);
+    if (prev === gid) return;
+    classLab().assign[String(seatNo)] = gid;
+    persistLab(student.name + ' → 實驗第' + gid + '組');
+  }
+
+  function renderLabBoard() {
+    var room = App.classroom;
+    els.board.classList.add('lab-board');
+    els.board.style.gridTemplateColumns = '';
+    if (!room.students.length) {
+      els.board.classList.remove('lab-board');
+      els.board.innerHTML = '<div class="empty-state">' +
+        '<div>「' + escapeHtml(room.className) + '」目前沒有學生</div>' +
+        '<div>請先到教師模式匯入名單</div></div>';
+      return;
+    }
+    ensureLabReady();
+    var lab = classLab();
+    var buckets = { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] };
+    (room.students || []).forEach(function (s) {
+      var gid = studentLabGroupId(s.seatNo);
+      if (gid >= 1 && gid <= 6) buckets[gid].push(s);
+    });
+    var html = '';
+    var g;
+    for (g = 1; g <= 6; g++) {
+      buckets[g].sort(seatOrder);
+      var score = Number(lab.scores[String(g)]) || 0;
+      var signed = (score > 0 ? '+' : '') + score;
+      html += '<div class="lab-zone" data-group="' + g + '" style="--group-color:' + groupColor(g) + '">' +
+        '<div class="lab-zone-head"><span>第' + g + '組　' + buckets[g].length + '人</span>' +
+        '<strong class="' + scoreClass(score) + '">' + signed + '</strong></div>' +
+        '<div class="lab-zone-seats">' +
+        buckets[g].map(function (student) { return labSeatCard(student, g); }).join('') +
+        '</div></div>';
+    }
+    els.board.innerHTML = html;
+    bindSeatEvents();
+    els.board.querySelectorAll('.lab-zone').forEach(function (zone) {
+      zone.addEventListener('click', onLabZoneClick);
+    });
+  }
+
+  function labSeatCard(student, gid) {
+    var selected = student.seatNo === App.selectedSeatNo ? ' selected' : '';
+    return '<article class="seat-card has-group' + selected + '" data-seat="' + escapeHtml(student.seatNo) + '" style="--group-color:' + groupColor(gid) + '">' +
+      '<span class="seat-no">' + escapeHtml(student.seatNo) + '</span>' +
+      '<span class="seat-name">' + escapeHtml(student.name) + '</span>' +
+      '<span class="seat-score ' + scoreClass(student.score) + '">' + student.score + '</span>' +
+      '</article>';
+  }
+
+  function onLabZoneClick(event) {
+    if (event.target.closest('.seat-card')) return;
+    if (App.suppressClick || (App.drag && App.drag.moved)) return;
+    var gid = parseInt(event.currentTarget.getAttribute('data-group'), 10);
+    var members = (App.classroom.students || []).filter(function (s) {
+      return studentLabGroupId(s.seatNo) === gid;
+    }).sort(seatOrder);
+    if (!members.length) return;
+    var selected = members.filter(function (s) { return String(s.seatNo) === String(App.selectedSeatNo); })[0];
+    if (App.mode === 'plus' || App.mode === 'minus') {
+      var sign = App.mode === 'plus' ? 1 : -1;
+      if (App.mode === 'minus' && !selected) {
+        toast('請先點那位同學，再點這一組扣分，成績統計才會記下是因為誰');
+      }
+      var actor = selected || members[0];
+      App.selectedSeatNo = actor.seatNo;
+      changeScore(actor, sign * App.delta, true, selected ? selected.seatNo : '');
+    } else {
+      App.selectedSeatNo = (selected || members[0]).seatNo;
+      renderAll();
+    }
   }
 
   function assignedCount() {
@@ -1067,10 +1314,11 @@
   }
 
   function renderGroupBar() {
+    if (els.labBar) els.labBar.hidden = !isLabView();
     if (!els.groupBar) return;
-    els.groupBar.hidden = !App.groupPanel;
+    els.groupBar.hidden = isLabView() || !App.groupPanel;
     var btnGroup = document.getElementById('btnGroup');
-    if (btnGroup) btnGroup.classList.toggle('active-group', App.groupPanel);
+    if (btnGroup) btnGroup.classList.toggle('active-group', !isLabView() && App.groupPanel);
     var btnGroupManual = document.getElementById('btnGroupManual');
     if (btnGroupManual) btnGroupManual.classList.toggle('active-group', App.groupAssign);
     var g = classGroups();
@@ -1087,16 +1335,23 @@
 
   function renderGroupRoster() {
     if (!els.groupRoster || !els.groupRankWrap || !App.classroom) return;
-    var g = classGroups();
+    var lab = isLabView();
+    var g = lab ? classLab() : classGroups();
     var buckets = {};
+    if (lab) {
+      buckets[1] = []; buckets[2] = []; buckets[3] = [];
+      buckets[4] = []; buckets[5] = []; buckets[6] = [];
+    }
     (App.classroom.students || []).forEach(function (s) {
       var gid = parseInt(g.assign[String(s.seatNo)], 10);
       if (!gid) return;
+      if (lab && (gid < 1 || gid > 6)) return;
       if (!buckets[gid]) buckets[gid] = [];
       buckets[gid].push(s);
     });
     var ids = Object.keys(buckets).map(Number).sort(function (a, b) { return a - b; });
-    els.groupRankWrap.hidden = ids.length === 0;
+    if (lab) ids = [1, 2, 3, 4, 5, 6];
+    els.groupRankWrap.hidden = !lab && ids.length === 0;
     if (!ids.length) {
       els.groupRoster.innerHTML = '';
       return;
@@ -1113,14 +1368,14 @@
     els.groupRoster.innerHTML = ranked.map(function (gid) {
       var score = Number(g.scores[String(gid)]) || 0;
       var signed = (score > 0 ? '+' : '') + score;
-      var names = buckets[gid].map(function (s) { return s.name; }).join('、');
-      var selected = buckets[gid].some(function (s) { return s.seatNo === App.selectedSeatNo; }) ? ' selected' : '';
+      var names = (buckets[gid] || []).map(function (s) { return s.name; }).join('、');
+      var selected = (buckets[gid] || []).some(function (s) { return s.seatNo === App.selectedSeatNo; }) ? ' selected' : '';
       var posIndex = positiveIds.indexOf(gid);
       var medal = score > 0 && posIndex === 0 ? ' gold' : score > 0 && posIndex === 1 ? ' silver' : score > 0 && posIndex === 2 ? ' bronze' : '';
       return '<li><button type="button" class="' + selected + medal + '" data-group="' + gid + '" style="--group-color:' + groupColor(gid) + '">' +
         '<span class="rank-no">' + gid + '</span>' +
-        '<span class="rank-main"><span class="rank-name">第' + gid + '組</span>' +
-        '<span class="rank-meta">' + buckets[gid].length + '人 · ' + escapeHtml(names) + '</span></span>' +
+        '<span class="rank-main"><span class="rank-name">' + (lab ? '實驗第' : '第') + gid + '組</span>' +
+        '<span class="rank-meta">' + (buckets[gid] || []).length + '人 · ' + escapeHtml(names) + '</span></span>' +
         '<strong class="' + scoreClass(score) + '">' + signed + '</strong></button></li>';
     }).join('');
     els.groupRoster.querySelectorAll('button').forEach(function (button) {
@@ -1224,13 +1479,14 @@
     if (!delta) {
       return;
     }
-    var applyGroup = forceGroup === true || !!(els.groupApplyScore && els.groupApplyScore.checked);
+    var applyGroup = isLabView() || forceGroup === true || !!(els.groupApplyScore && els.groupApplyScore.checked);
     var body = {
       className: App.classroom.className,
       seatNo: student.seatNo,
       delta: delta,
       applyGroup: applyGroup
     };
+    if (isLabView()) body.lab = true;
     if (applyGroup) {
       body.causeSeatNo = causeSeatNo == null ? student.seatNo : causeSeatNo;
     }
@@ -1245,7 +1501,9 @@
         spawnScoreFloat(sn, delta);
       });
       if (delta > 0) spawnConfetti(18, ['#2c7a4b', '#7dce9a', '#f3c84b']);
-      var label = data.groupId ? ('第' + data.groupId + '組（' + seats.length + '人）') : student.name;
+      var label = data.groupId
+        ? ((data.lab ? '實驗第' : '第') + data.groupId + '組（' + seats.length + '人）')
+        : student.name;
       var extra = (applyGroup && !data.groupId) ? '（尚未分組，只加個人）' : '';
       toast(label + ' ' + (delta > 0 ? '+' : '') + delta + ' 分' + extra);
       setTimeout(function () {
@@ -5493,7 +5751,8 @@
           note: s.note || ''
         };
       }),
-      groups: classGroups()
+      groups: classGroups(),
+      lab: classLab()
     };
   }
 

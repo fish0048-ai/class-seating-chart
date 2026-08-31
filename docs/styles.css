@@ -270,6 +270,57 @@
     touch-action: pan-y;
   }
 
+  .lab-board {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: repeat(2, minmax(150px, 1fr));
+    align-content: stretch;
+    gap: 10px;
+  }
+
+  .lab-zone {
+    min-height: 150px;
+    border: 2px solid var(--group-color, var(--line));
+    border-radius: 16px;
+    background: #fffdf8;
+    box-shadow: inset 0 4px 0 var(--group-color, var(--line));
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .lab-zone.drop-target {
+    background: #fff4e4;
+    box-shadow: inset 0 4px 0 var(--group-color), 0 0 0 3px rgba(217, 133, 43, 0.28);
+  }
+
+  .lab-zone-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    font-weight: 700;
+    font-size: 14px;
+  }
+
+  .lab-zone-seats {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(86px, 1fr));
+    gap: 6px;
+    flex: 1;
+    align-content: start;
+  }
+
+  .lab-board .seat-card {
+    position: relative;
+    inset: auto;
+    min-height: 68px;
+  }
+
+  body.view-lab #btnGroup {
+    display: none;
+  }
+
   .seat {
     min-height: 72px;
     border-radius: 14px;
@@ -1934,5 +1985,6 @@
     .seat-name { font-size: 14px; }
     .chart-grid { grid-template-columns: 1fr; }
     .tt-focus-grid { grid-template-columns: 1fr; }
+    .lab-board { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(140px, 1fr)); }
   }
   .setup-card ol { margin: 8px 0 0; padding-left: 20px; line-height: 1.7; color: var(--muted); }

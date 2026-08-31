@@ -504,6 +504,51 @@
     });
   }
 
+  function emptyLab() {
+    return { assign: {}, scores: {} };
+  }
+
+  function normalizeLab(raw, students) {
+    raw = raw || {};
+    var seats = {};
+    (students || []).forEach(function (s) {
+      seats[String(s.seatNo)] = true;
+    });
+    var assign = {};
+    Object.keys(raw.assign || {}).forEach(function (seat) {
+      if (!seats[seat]) return;
+      var gid = parseInt(raw.assign[seat], 10);
+      if (gid >= 1 && gid <= 6) assign[seat] = gid;
+    });
+    var scores = {};
+    var i;
+    for (i = 1; i <= 6; i++) {
+      var key = String(i);
+      scores[key] = Number((raw.scores || {})[key]) || 0;
+    }
+    return { assign: assign, scores: scores };
+  }
+
+  function ensureLab(classroom) {
+    classroom.lab = normalizeLab(classroom.lab, classroom.students);
+    return classroom.lab;
+  }
+
+  function groupIdFromPack(pack, seatNo) {
+    var assign = pack && pack.assign;
+    if (!assign) return 0;
+    return parseInt(assign[String(seatNo)], 10) || 0;
+  }
+
+  function membersFromPack(room, pack, gid) {
+    gid = parseInt(gid, 10);
+    if (!gid) return [];
+    var assign = (pack && pack.assign) || {};
+    return (room.students || []).filter(function (s) {
+      return parseInt(assign[String(s.seatNo)], 10) === gid;
+    });
+  }
+
   function ensureClass(store, className) {
     if (!store.classes[className]) {
       store.classes[className] = {
@@ -513,7 +558,8 @@
         version: 1,
         updatedAt: nowIso(),
         students: [],
-        groups: emptyGroups(4)
+        groups: emptyGroups(4),
+        lab: emptyLab()
       };
     }
     return store.classes[className];
@@ -558,6 +604,7 @@
     var room = ensureClass(store, className);
     autoPlace(room);
     ensureGroups(room);
+    ensureLab(room);
     return withRoll_({
       ok: true,
       classNames: classNames(store),
@@ -568,6 +615,7 @@
   function persistRoom(store, classroom, bump) {
     autoPlace(classroom);
     ensureGroups(classroom);
+    ensureLab(classroom);
     if (bump) classroom.version = (Number(classroom.version) || 1) + 1;
     classroom.updatedAt = nowIso();
     store.classes[classroom.className] = classroom;
@@ -590,7 +638,8 @@
       groupId: item.groupId ? String(item.groupId) : '',
       seatNos: Array.isArray(item.seatNos) ? item.seatNos.map(String) : [],
       causeSeatNo: item.causeSeatNo ? String(item.causeSeatNo) : '',
-      causeName: item.causeName ? String(item.causeName) : ''
+      causeName: item.causeName ? String(item.causeName) : '',
+      lab: item.lab === true
     });
     if (store.history.length > 800) store.history = store.history.slice(-800);
   }
@@ -615,7 +664,8 @@
       version: Number(state.version) || 1,
       updatedAt: state.updatedAt || nowIso(),
       students: students,
-      groups: normalizeGroups(state.groups, students)
+      groups: normalizeGroups(state.groups, students),
+      lab: normalizeLab(state.lab, students)
     };
   }
 
@@ -714,6 +764,7 @@
         if (Object.prototype.hasOwnProperty.call(scores, String(s.seatNo))) s.score = scores[String(s.seatNo)];
       });
       incoming.groups = normalizeGroups(state.groups || current.groups, incoming.students);
+      incoming.lab = normalizeLab(state.lab || current.lab, incoming.students);
       persistRoom(store, incoming, false);
       return wrap(payload(store, incoming.className));
     },
@@ -726,6 +777,15 @@
       persistRoom(store, room, false);
       return wrap(payload(store, className));
     },
+    saveLab: function (body) {
+      var store = loadStore();
+      var className = String(body.className || '').trim();
+      if (!className) throw new Error('缺少班級名稱');
+      var room = ensureClass(store, className);
+      room.lab = normalizeLab(body.lab, room.students);
+      persistRoom(store, room, false);
+      return wrap(payload(store, className));
+    },
     applyScoreChange: function (body) {
       var store = loadStore();
       var className = String(body.className || '').trim();
@@ -733,18 +793,20 @@
       var delta = Number(body.delta);
       if (!className || !seatNo || !isFinite(delta) || delta === 0) throw new Error('加扣分資料不完整');
       var room = ensureClass(store, className);
-      ensureGroups(room);
+      var useLab = body.lab === true;
+      var pack = useLab ? ensureLab(room) : ensureGroups(room);
       var student = room.students.filter(function (s) { return String(s.seatNo) === seatNo; })[0];
       if (!student) throw new Error('找不到座號 ' + seatNo);
-      var gid = body.applyGroup ? groupIdOf(room, seatNo) : 0;
-      var members = gid ? groupMembers(room, gid) : [student];
+      var gid = body.applyGroup ? groupIdFromPack(pack, seatNo) : 0;
+      if (useLab && gid && (gid < 1 || gid > 6)) gid = 0;
+      var members = gid ? membersFromPack(room, pack, gid) : [student];
       if (!members.length) members = [student];
       members.forEach(function (s) {
         s.score = (Number(s.score) || 0) + delta;
       });
       var seatNos = members.map(function (s) { return String(s.seatNo); });
       if (gid) {
-        room.groups.scores[String(gid)] = (Number(room.groups.scores[String(gid)]) || 0) + delta;
+        pack.scores[String(gid)] = (Number(pack.scores[String(gid)]) || 0) + delta;
       }
       persistRoom(store, room, false);
       var causeSeatNo = '';
@@ -766,13 +828,14 @@
           causeName = '';
         }
       }
+      var groupLabel = gid ? ((useLab ? '實驗第' : '第') + gid + '組') : '';
       addHistory(store, {
         className: className,
         type: gid ? (delta > 0 ? '小組加分' : '小組扣分') : (delta > 0 ? '加分' : '扣分'),
         seatNo: seatNo,
-        name: gid ? ('第' + gid + '組') : student.name,
+        name: gid ? groupLabel : student.name,
         delta: delta,
-        newScore: gid ? (Number(room.groups.scores[String(gid)]) || 0) : student.score,
+        newScore: gid ? (Number(pack.scores[String(gid)]) || 0) : student.score,
         detail: gid
           ? (members.map(function (s) { return s.name; }).join('、') + ' 各 ' + (delta > 0 ? '+' : '') + delta)
           : ((delta > 0 ? '+' : '') + delta),
@@ -780,12 +843,14 @@
         groupId: gid || '',
         seatNos: seatNos,
         causeSeatNo: causeSeatNo,
-        causeName: causeName
+        causeName: causeName,
+        lab: useLab
       });
       saveStore(store);
       var data = payload(store, className);
       data.changedSeatNos = seatNos;
       data.groupId = gid || 0;
+      data.lab = useLab;
       return wrap(data);
     },
     undoLastAction: function (className) {
@@ -802,7 +867,7 @@
       if (idx < 0) throw new Error('沒有可復原的加扣分');
       var item = history[idx];
       var room = ensureClass(store, className);
-      ensureGroups(room);
+      var pack = item.lab ? ensureLab(room) : ensureGroups(room);
       var seatNos = (item.seatNos && item.seatNos.length) ? item.seatNos.map(String) : [String(item.seatNo)];
       var touched = [];
       seatNos.forEach(function (sn) {
@@ -815,7 +880,7 @@
       if (!touched.length) throw new Error('找不到要復原的學生');
       if (item.groupId) {
         var gidKey = String(item.groupId);
-        room.groups.scores[gidKey] = (Number(room.groups.scores[gidKey]) || 0) - Number(item.delta || 0);
+        pack.scores[gidKey] = (Number(pack.scores[gidKey]) || 0) - Number(item.delta || 0);
       }
       item.undone = true;
       persistRoom(store, room, false);
@@ -826,10 +891,11 @@
         name: item.name || touched[0].name,
         delta: -Number(item.delta || 0),
         newScore: touched[0].score,
-        detail: item.groupId ? ('復原第' + item.groupId + '組') : '復原',
+        detail: item.groupId ? ('復原' + (item.name || ('第' + item.groupId + '組'))) : '復原',
         undoable: false,
         groupId: item.groupId || '',
-        seatNos: seatNos
+        seatNos: seatNos,
+        lab: item.lab === true
       });
       saveStore(store);
       var data = payload(store, className);
@@ -852,6 +918,8 @@
       });
       ensureGroups(room);
       room.groups.scores = {};
+      ensureLab(room);
+      room.lab.scores = {};
       (store.history || []).forEach(function (item) {
         if (item.className === className && item.undoable) item.undone = true;
       });

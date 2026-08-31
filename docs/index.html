@@ -15,7 +15,7 @@
         <div class="brand">
           <span class="brand-mark">座</span>
           <div>
-            <h1>上課模式</h1>
+            <h1 id="classModeTitle">上課模式</h1>
             <p id="syncMeta">正在載入…</p>
           </div>
         </div>
@@ -26,6 +26,7 @@
           </label>
           <div class="mode-switch" role="group" aria-label="切換模式">
             <button type="button" class="tool tab-on" data-app-view="class">上課模式</button>
+            <button type="button" class="tool" data-app-view="lab">實驗室模式</button>
             <button type="button" class="tool" data-app-view="teacher" id="btnDatabase">教師模式</button>
           </div>
         </div>
@@ -47,7 +48,7 @@
 
       <main class="stage">
         <section class="board-wrap">
-          <div class="blackboard">講台／黑板</div>
+          <div class="blackboard" id="blackboard">講台／黑板</div>
           <div id="groupBar" class="group-bar" hidden>
             <div class="group-bar-row">
               <label class="group-size-label">每組人數
@@ -66,11 +67,18 @@
             </label>
             <p class="hint" id="groupHint">隨機：依每組人數打散。手動：先選組別再點學生，再點一次可移出。</p>
           </div>
+          <div id="labBar" class="group-bar" hidden>
+            <div class="group-bar-row">
+              <button type="button" class="tool" id="btnLabBySeat">依座號分成六組</button>
+              <button type="button" class="tool" id="btnLabRandom">隨機分成六組</button>
+            </div>
+            <p class="hint">實驗室固定 6 組、座位分成六個區塊。把學生拖到別的區塊即可換組。加扣分會套用整組。</p>
+          </div>
           <div id="board" class="board" aria-label="座位表"></div>
         </section>
         <aside class="side">
           <div id="groupRankWrap" class="group-rank-wrap" hidden>
-            <h2>小組分數</h2>
+            <h2 id="groupRankTitle">小組分數</h2>
             <p class="hint">點小組可一次加扣整組。小組分會加進每位組員的上課加扣，列入平時成績。</p>
             <ol id="groupRoster" class="roster rank-list"></ol>
           </div>
@@ -94,6 +102,7 @@
         <div class="topbar-actions">
           <div class="mode-switch" role="group" aria-label="切換模式">
             <button type="button" class="tool" data-app-view="class">上課模式</button>
+            <button type="button" class="tool" data-app-view="lab">實驗室模式</button>
             <button type="button" class="tool tab-on" data-app-view="teacher">教師模式</button>
           </div>
           <button type="button" class="tool" id="btnTeacherLock">鎖定</button>
