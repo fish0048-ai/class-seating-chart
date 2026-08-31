@@ -41,7 +41,7 @@
       var timer = setTimeout(function () {
         cleanup();
         reject(new Error('雲端連線逾時，請檢查網路或部署網址'));
-      }, 25000);
+      }, 12000);
       function cleanup() {
         clearTimeout(timer);
         try { delete global[cb]; } catch (err) { global[cb] = undefined; }
@@ -128,7 +128,20 @@
       return String((global.SEAT_CONFIG && global.SEAT_CONFIG.spreadsheetUrl) || '').trim();
     },
     getStore: function () {
-      return jsonpGet('getStore');
+      var url = apiUrl();
+      if (!url) {
+        return Promise.reject(new Error('尚未連上雲端資料庫'));
+      }
+      return fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ action: 'getStore' }),
+        redirect: 'follow'
+      }).then(function (res) {
+        return res.text();
+      }).then(parseCloudText_).catch(function () {
+        return jsonpGet('getStore');
+      });
     },
     putStore: function (store) {
       return postAction('putStore', { store: store });

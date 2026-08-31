@@ -509,19 +509,17 @@ function withLock_(fn) {
 }
 
 function getCloudStore() {
-  return withLock_(function () {
-    var ss = getSs_();
-    var sheet = ensureCloudSheet_(ss);
-    var json = readCloudChunks_(sheet);
-    if (json) {
-      try {
-        return { ok: true, empty: false, store: JSON.parse(json) };
-      } catch (err) {
-        throw new Error('雲端資料損壞，請從備份還原');
-      }
+  var ss = getSs_();
+  var sheet = ensureCloudSheet_(ss);
+  var json = readCloudChunks_(sheet);
+  if (json) {
+    try {
+      return { ok: true, empty: false, store: JSON.parse(json) };
+    } catch (err) {
+      throw new Error('雲端資料損壞，請從備份還原');
     }
-    return { ok: true, empty: true, store: null };
-  });
+  }
+  return { ok: true, empty: true, store: null };
 }
 
 function putCloudStore(store) {

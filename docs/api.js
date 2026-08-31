@@ -562,11 +562,19 @@
         lab: emptyLab()
       };
     }
-    return store.classes[className];
+    var room = store.classes[className];
+    if (!Array.isArray(room.students)) room.students = [];
+    if (!room.groups) room.groups = emptyGroups(4);
+    if (!room.lab) room.lab = emptyLab();
+    return room;
   }
 
   function autoPlace(classroom) {
     var taken = {};
+    if (!classroom || !Array.isArray(classroom.students)) {
+      if (classroom) classroom.students = [];
+      return classroom;
+    }
     classroom.students.forEach(function (s) {
       if (s.row == null || s.col == null || s.row < 0 || s.col < 0 || s.row >= classroom.rows || s.col >= classroom.cols) {
         s.row = null;

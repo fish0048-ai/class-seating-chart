@@ -545,7 +545,8 @@
     document.querySelectorAll('[data-app-view]').forEach(function (btn) {
       btn.classList.toggle('tab-on', btn.getAttribute('data-app-view') === 'lab');
     });
-    ensureLabReady();
+    fillMissingLabAssign();
+    if (fillMissingLabAssign.changed) persistLab();
     renderAll();
   }
 
@@ -617,8 +618,45 @@
     if (typeof next === 'function') next();
   }
 
+  function showLoadingBoard(text, canRetry) {
+    if (!els.board || App.classroom) return;
+    els.board.innerHTML = '<div class="empty-state"><div>' + escapeHtml(text) + '</div>' +
+      (canRetry ? '<button type="button" class="tool primary" id="btnReloadCloud">重新載入</button>' : '') +
+      '</div>';
+    var btn = document.getElementById('btnReloadCloud');
+    if (btn) {
+      btn.addEventListener('click', function () {
+        bootstrap();
+      });
+    }
+  }
+
   function bootstrap() {
-    run('getBootstrapData', [], function (data) {
+    App.busy = true;
+    if (els.syncMeta && !App.classroom) els.syncMeta.textContent = '正在載入…';
+    showLoadingBoard('正在從雲端載入班級…', false);
+    var finished = false;
+    var slowTimer = setTimeout(function () {
+      if (finished || App.classroom) return;
+      if (els.syncMeta) els.syncMeta.textContent = '載入時間較久，仍在連雲端…';
+    }, 6000);
+    var failTimer = setTimeout(function () {
+      if (finished || App.classroom) return;
+      App.busy = false;
+      if (els.syncMeta) els.syncMeta.textContent = '載入逾時，請再試一次';
+      showLoadingBoard('雲端回應較慢，資料還沒進來。請再按一次重新載入。', true);
+      toast('載入逾時，請再試一次');
+    }, 15000);
+    function settle() {
+      if (finished) return false;
+      finished = true;
+      App.busy = false;
+      clearTimeout(slowTimer);
+      clearTimeout(failTimer);
+      return true;
+    }
+    api('getBootstrapData', []).then(function (data) {
+      if (!settle()) return;
       applyPayload(data, true);
       fillCloudSettings();
       if (!cloudConnected()) {
@@ -628,6 +666,12 @@
       } else {
         toast('已從雲端載入，平板與筆電會看到同一份資料');
       }
+    }).catch(function (error) {
+      settle();
+      var msg = error && error.message ? error.message : '載入失敗，請再試一次';
+      if (els.syncMeta) els.syncMeta.textContent = '載入失敗：' + msg;
+      showLoadingBoard(msg, true);
+      toast(msg);
     });
   }
 
@@ -965,7 +1009,6 @@
       seat.classList.add('drop-target');
     }
   }
-  }
 
   function clearDropTargets() {
     els.board.querySelectorAll('.drop-target').forEach(function (node) {
@@ -1116,8 +1159,13 @@
       lab: snapshot
     }], function (data) {
       if (seq !== labSaveSeq) return;
-      App.classroom = data.classroom;
-      renderAll();
+      if (data && data.classroom) {
+        if (data.classroom.lab) App.classroom.lab = data.classroom.lab;
+        if (data.classroom.updatedAt) App.classroom.updatedAt = data.classroom.updatedAt;
+      }
+      renderMeta();
+      renderGroupRoster();
+      if (isLabView()) renderLabBoard();
       if (message) toast(message);
     }, true);
   }
@@ -1152,16 +1200,17 @@
     return assign;
   }
 
-  function ensureLabReady() {
-    if (!App.classroom) return;
+  function fillMissingLabAssign() {
+    fillMissingLabAssign.changed = false;
+    if (!App.classroom) return false;
     var students = App.classroom.students || [];
-    if (!students.length) return;
+    if (!students.length) return false;
     var lab = classLab();
     var missing = students.filter(function (s) { return !studentLabGroupId(s.seatNo); });
     if (!Object.keys(lab.assign).length || missing.length === students.length) {
       lab.assign = splitIntoSix(students, false);
-      persistLab();
-      return;
+      fillMissingLabAssign.changed = true;
+      return true;
     }
     if (missing.length) {
       missing.forEach(function (s) {
@@ -1177,8 +1226,10 @@
         }
         lab.assign[String(s.seatNo)] = best;
       });
-      persistLab();
+      fillMissingLabAssign.changed = true;
+      return true;
     }
+    return false;
   }
 
   function assignLabGroups(shuffle) {
@@ -1195,6 +1246,8 @@
     }
     classLab().assign = splitIntoSix(students, shuffle);
     classLab().scores = {};
+    if (isLabView()) renderLabBoard();
+    renderGroupRoster();
     persistLab(shuffle ? '已隨機分成六組' : '已依座號分成六組');
   }
 
@@ -1206,21 +1259,23 @@
     var prev = studentLabGroupId(seatNo);
     if (prev === gid) return;
     classLab().assign[String(seatNo)] = gid;
+    if (isLabView()) renderLabBoard();
     persistLab(student.name + ' → 實驗第' + gid + '組');
   }
 
   function renderLabBoard() {
     var room = App.classroom;
+    if (!room) return;
     els.board.classList.add('lab-board');
     els.board.style.gridTemplateColumns = '';
-    if (!room.students.length) {
+    if (!(room.students || []).length) {
       els.board.classList.remove('lab-board');
       els.board.innerHTML = '<div class="empty-state">' +
         '<div>「' + escapeHtml(room.className) + '」目前沒有學生</div>' +
         '<div>請先到教師模式匯入名單</div></div>';
       return;
     }
-    ensureLabReady();
+    fillMissingLabAssign();
     var lab = classLab();
     var buckets = { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] };
     (room.students || []).forEach(function (s) {
@@ -5874,6 +5929,7 @@
         var msg = error && error.message ? error.message : '操作失敗，請再試一次';
         if (fnName === 'getBootstrapData' || fnName === 'loadClassroom') {
           els.syncMeta.textContent = '載入失敗：' + msg;
+          showLoadingBoard(msg, true);
         }
         toast(msg);
       });
