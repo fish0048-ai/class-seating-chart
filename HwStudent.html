@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+  <head>
+    <base target="_top" />
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+    <title>作業檢核</title>
+    <style>
+      :root {
+        --ink: #16303c;
+        --muted: #5b7380;
+        --paper: #f3efe4;
+        --line: #d9d0c1;
+        --accent: #d9852b;
+        --primary: #1b3a4b;
+        --plus: #2c7a4b;
+        --minus: #b4413c;
+        --seat: #fffdf8;
+      }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        min-height: 100%;
+        background: var(--paper);
+        color: var(--ink);
+        font-family: "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+      }
+      .wrap { max-width: 720px; margin: 0 auto; padding: 16px 14px 40px; }
+      .card {
+        background: var(--seat);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 16px;
+        box-shadow: 0 10px 24px rgba(22, 48, 60, 0.12);
+      }
+      .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+      .mark {
+        width: 42px; height: 42px; border-radius: 12px;
+        background: var(--primary); color: #fff; display: grid; place-items: center; font-weight: 700;
+      }
+      h1 { margin: 0; font-size: 20px; }
+      p { margin: 6px 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+      label { display: block; margin: 10px 0; font-size: 14px; }
+      input, select, button, textarea {
+        font: inherit; width: 100%;
+      }
+      input, select {
+        margin-top: 4px; padding: 10px 12px;
+        border: 1px solid var(--line); border-radius: 10px; background: #fff;
+      }
+      .row { display: grid; grid-template-columns: 1fr 1fr 1.2fr; gap: 8px; }
+      @media (max-width: 640px) { .row { grid-template-columns: 1fr; } }
+      .tool {
+        width: auto; border: 1px solid var(--line); background: #fff;
+        border-radius: 12px; padding: 10px 14px; cursor: pointer;
+      }
+      .primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+      .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+      .q-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
+      .q-item {
+        display: flex; align-items: center; gap: 6px;
+        border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: #fff;
+      }
+      .reason-row {
+        display: grid; grid-template-columns: 72px 1fr; gap: 8px; align-items: center;
+        margin: 8px 0;
+      }
+      .spot {
+        background: #fff7ea; border: 1px dashed var(--accent);
+        border-radius: 12px; padding: 12px; margin: 10px 0;
+      }
+      .spot strong { font-size: 22px; }
+      .check { display: flex; align-items: center; gap: 8px; }
+      .check input { width: auto; }
+      .err { color: var(--minus); }
+      .ok { color: var(--plus); font-weight: 700; }
+      .result dt { color: var(--muted); font-size: 13px; }
+      .result dd { margin: 0 0 10px; font-size: 16px; }
+      .hidden { display: none !important; }
+      #googleBtn { min-height: 44px; margin: 8px 0 4px; }
+      .sep { text-align: center; color: var(--muted); font-size: 13px; margin: 12px 0; }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="brand">
+        <span class="mark">作</span>
+        <div>
+          <h1 id="pageTitle">紙本作業檢核</h1>
+          <p id="pageMeta">請先確認身分。這頁只會顯示你自己的作業。</p>
+        </div>
+      </div>
+
+      <div id="loginCard" class="card">
+        <p>請用班級、座號、姓名登入（三欄必須和教師名單完全一樣）。若教師已幫你填 Email，也可以用 Google 登入。</p>
+        <div id="googleBtn"></div>
+        <p id="googleHint" class="hidden">Google 登入無法使用時，請改填下面三欄。</p>
+        <div class="sep">或填寫身分</div>
+        <div class="row">
+          <label>班級 <input id="className" autocomplete="off" /></label>
+          <label>座號 <input id="seatNo" inputmode="numeric" autocomplete="off" /></label>
+          <label>姓名 <input id="stuName" autocomplete="name" /></label>
+        </div>
+        <div class="actions">
+          <button type="button" class="tool primary" id="btnLogin">進入作業</button>
+        </div>
+        <p id="loginErr" class="err hidden"></p>
+      </div>
+
+      <div id="workCard" class="card hidden">
+        <p id="whoLine"></p>
+        <p id="dueLine"></p>
+        <div id="stepWrong">
+          <h2>1. 回報錯題</h2>
+          <p>有寫錯的題請勾選。全對也可以不勾，直接下一步。</p>
+          <div id="qGrid" class="q-grid"></div>
+        </div>
+        <div id="stepReason" class="hidden">
+          <h2>2. 每題原因</h2>
+          <div id="reasonList"></div>
+        </div>
+        <div id="stepFix">
+          <h2>3. 紅筆訂正</h2>
+          <label class="check"><input type="checkbox" id="didFix" /> 我已用紅筆訂正紙本</label>
+        </div>
+        <div id="stepSpot" class="hidden">
+          <h2>4. 抽查題號</h2>
+          <p>請打開紙本講義，對照下面題號。這一版沒有螢幕詳解。</p>
+          <div id="spotBox" class="spot"></div>
+          <label class="check"><input type="checkbox" id="seenExplain" /> 我已對照紙本看過這些題</label>
+        </div>
+        <div class="actions">
+          <button type="button" class="tool" id="btnSpot">抽出查核題號</button>
+          <button type="button" class="tool primary" id="btnSubmit">提交</button>
+        </div>
+        <p id="workErr" class="err hidden"></p>
+      </div>
+
+      <div id="resultCard" class="card hidden">
+        <h2>你的成績</h2>
+        <dl class="result" id="resultDl"></dl>
+        <p>只顯示你自己的繳交結果。全班表由教師查看。</p>
+      </div>
+    </div>
+
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script>
+      var ASSIGNMENT_ID = <?!= JSON.stringify(assignmentId) ?>;
+      var GOOGLE_CLIENT_ID = <?!= JSON.stringify(googleClientId) ?>;
+      var REASONS = ['計算錯誤', '觀念不清', '看錯題', '粗心', '其他'];
+      var TOKEN_KEY = 'hwSession:' + ASSIGNMENT_ID;
+      var state = {
+        sessionToken: '',
+        assignment: null,
+        student: null,
+        wrong: [],
+        spot: { questions: [], seen: false },
+        result: null
+      };
+
+      function $(id) { return document.getElementById(id); }
+      function show(el, on) { el.classList.toggle('hidden', !on); }
+      function setErr(id, msg) {
+        var el = $(id);
+        el.textContent = msg || '';
+        show(el, !!msg);
+      }
+      function fmtTime(iso) {
+        if (!iso) return '—';
+        var d = new Date(iso);
+        if (isNaN(d.getTime())) return String(iso);
+        return d.toLocaleString('zh-TW', { hour12: false });
+      }
+      function run(fn, payload) {
+        return new Promise(function (resolve, reject) {
+          if (!window.google || !google.script || !google.script.run) {
+            reject(new Error('請用教師給的作業連結開啟（Apps Script 網頁）'));
+            return;
+          }
+          google.script.run
+            .withSuccessHandler(function (data) {
+              if (data && data.error) reject(new Error(data.error));
+              else resolve(data);
+            })
+            .withFailureHandler(function (err) {
+              reject(err && err.message ? err : new Error(String(err)));
+            })[fn](payload);
+        });
+      }
+      function applyPayload(data, keepToken) {
+        if (!data) return;
+        if (data.sessionToken) {
+          state.sessionToken = data.sessionToken;
+          try { sessionStorage.setItem(TOKEN_KEY, data.sessionToken); } catch (err) {}
+        } else if (!keepToken && !state.sessionToken) {
+          try { state.sessionToken = sessionStorage.getItem(TOKEN_KEY) || ''; } catch (err2) {}
+        }
+        state.assignment = data.assignment || state.assignment;
+        state.student = data.student || state.student;
+        state.wrong = data.wrong || [];
+        state.spot = data.spot || { questions: [], seen: false };
+        state.result = data.result || null;
+        render();
+      }
+      function payloadBase() {
+        return { assignmentId: ASSIGNMENT_ID, sessionToken: state.sessionToken };
+      }
+      function collectedWrong() {
+        var items = [];
+        document.querySelectorAll('#qGrid input[type=checkbox]:checked').forEach(function (box) {
+          var q = Number(box.value);
+          var sel = document.querySelector('#reason-' + q);
+          items.push({ q: q, reason: sel ? sel.value : '' });
+        });
+        return items;
+      }
+      function doneAlready() {
+        var r = state.result;
+        if (!r) return false;
+        if (r.allowMakeup) return false;
+        if (r.status && r.status !== '未交' && r.status !== '進行中') return true;
+        if (r.finalScore === 0 || r.finalScore === '0') return true;
+        return false;
+      }
+      function render() {
+        var a = state.assignment;
+        if (a) {
+          $('pageTitle').textContent = a.title || '紙本作業檢核';
+          $('pageMeta').textContent = a.assignmentId + ' · ' + a.className + ' · 共 ' + a.questionCount + ' 題';
+        }
+        if (!state.sessionToken) {
+          show($('loginCard'), true);
+          show($('workCard'), false);
+          show($('resultCard'), false);
+          return;
+        }
+        show($('loginCard'), false);
+        if (state.student) {
+          $('whoLine').textContent = '座號 ' + state.student.seatNo + '　' + state.student.name;
+        }
+        if (a) {
+          $('dueLine').textContent = '開始 ' + fmtTime(a.startAt) + '　截止 ' + fmtTime(a.dueAt);
+        }
+        if (doneAlready()) {
+          show($('workCard'), false);
+          show($('resultCard'), true);
+          renderResult();
+          return;
+        }
+        show($('workCard'), true);
+        show($('resultCard'), false);
+        renderQuestions();
+        renderReasons();
+        if (state.spot && state.spot.questions && state.spot.questions.length) {
+          show($('stepSpot'), true);
+          $('spotBox').innerHTML = state.spot.questions.map(function (q) {
+            return '<div>請對照紙本講義第 <strong>' + q + '</strong> 題</div>';
+          }).join('');
+          $('seenExplain').checked = !!state.spot.seen;
+          $('btnSpot').textContent = '已抽出題號';
+        }
+      }
+      function renderQuestions() {
+        var n = (state.assignment && state.assignment.questionCount) || 0;
+        var selected = {};
+        (state.wrong || []).forEach(function (w) { selected[w.q] = true; });
+        var html = '';
+        var i;
+        for (i = 1; i <= n; i++) {
+          html += '<label class="q-item"><input type="checkbox" value="' + i + '"' +
+            (selected[i] ? ' checked' : '') + '> 第 ' + i + ' 題</label>';
+        }
+        $('qGrid').innerHTML = html;
+        $('qGrid').onchange = renderReasons;
+      }
+      function renderReasons() {
+        var chosen = [];
+        document.querySelectorAll('#qGrid input[type=checkbox]:checked').forEach(function (box) {
+          chosen.push(Number(box.value));
+        });
+        show($('stepReason'), chosen.length > 0);
+        var prev = {};
+        (state.wrong || []).forEach(function (w) { prev[w.q] = w.reason; });
+        $('reasonList').innerHTML = chosen.map(function (q) {
+          var opts = REASONS.map(function (r) {
+            return '<option' + (prev[q] === r ? ' selected' : '') + '>' + r + '</option>';
+          }).join('');
+          return '<div class="reason-row"><span>第 ' + q + ' 題</span><select id="reason-' + q + '">' + opts + '</select></div>';
+        }).join('');
+      }
+      function renderResult() {
+        var a = state.assignment || {};
+        var r = state.result || {};
+        var rows = [
+          ['作業', a.title || ''],
+          ['提交時間', fmtTime(r.submittedAt)],
+          ['截止時間', fmtTime(a.dueAt)],
+          ['狀態', r.status || '未交'],
+          ['分數', r.finalScore === '' || r.finalScore == null ? '—' : r.finalScore],
+          ['遲交工作天', r.lateWorkdays === '' || r.lateWorkdays == null ? '—' : r.lateWorkdays],
+          ['扣分', (function () {
+            if (r.calculatedScore === '' || r.calculatedScore == null) return '—';
+            var max = Number(a.maxScore) || 100;
+            return String(max - Number(r.calculatedScore));
+          })()]
+        ];
+        if (r.adjustment) {
+          rows.push(['教師加減', (r.adjustment > 0 ? '+' : '') + r.adjustment]);
+          rows.push(['調整原因', r.adjustmentReason || '']);
+        }
+        $('resultDl').innerHTML = rows.map(function (pair) {
+          return '<dt>' + pair[0] + '</dt><dd>' + (pair[1] === '' ? '—' : pair[1]) + '</dd>';
+        }).join('');
+      }
+      function loginManual() {
+        setErr('loginErr', '');
+        run('hwStudentLogin', {
+          assignmentId: ASSIGNMENT_ID,
+          className: $('className').value,
+          seatNo: $('seatNo').value,
+          name: $('stuName').value
+        }).then(function (data) {
+          applyPayload(data);
+        }).catch(function (err) {
+          setErr('loginErr', err.message || String(err));
+        });
+      }
+      function loginGoogle(idToken) {
+        setErr('loginErr', '');
+        run('hwStudentLoginGoogle', {
+          assignmentId: ASSIGNMENT_ID,
+          idToken: idToken || ''
+        }).then(function (data) {
+          applyPayload(data);
+        }).catch(function (err) {
+          setErr('loginErr', err.message || String(err));
+          show($('googleHint'), true);
+        });
+      }
+      function ensureSpot() {
+        setErr('workErr', '');
+        if (!$('didFix').checked) {
+          setErr('workErr', '請先確認已用紅筆訂正');
+          return;
+        }
+        var items = collectedWrong();
+        var missing = items.some(function (it) { return !it.reason; });
+        if (missing) {
+          setErr('workErr', '請為每題錯題選擇原因');
+          return;
+        }
+        run('hwStudentSave', {
+          assignmentId: ASSIGNMENT_ID,
+          sessionToken: state.sessionToken,
+          wrong: items,
+          ensureSpot: true,
+          seenExplain: $('seenExplain').checked
+        }).then(function (data) {
+          applyPayload(data, true);
+        }).catch(function (err) {
+          setErr('workErr', err.message || String(err));
+        });
+      }
+      function submitHw() {
+        setErr('workErr', '');
+        if (!$('didFix').checked) {
+          setErr('workErr', '請先確認已用紅筆訂正');
+          return;
+        }
+        if (!state.spot || !state.spot.questions || !state.spot.questions.length) {
+          ensureSpot();
+          setErr('workErr', '已幫你抽題，請先對照紙本講義再提交');
+          return;
+        }
+        if (!$('seenExplain').checked) {
+          setErr('workErr', '請先對照紙本講義看完抽查題');
+          return;
+        }
+        run('hwStudentSubmit', {
+          assignmentId: ASSIGNMENT_ID,
+          sessionToken: state.sessionToken,
+          wrong: collectedWrong(),
+          seenExplain: true
+        }).then(function (data) {
+          applyPayload(data, true);
+        }).catch(function (err) {
+          setErr('workErr', err.message || String(err));
+        });
+      }
+      function tryRestore() {
+        var token = '';
+        try { token = sessionStorage.getItem(TOKEN_KEY) || ''; } catch (err) {}
+        if (!token) return;
+        state.sessionToken = token;
+        run('hwStudentGet', payloadBase()).then(function (data) {
+          applyPayload(data, true);
+        }).catch(function () {
+          state.sessionToken = '';
+          try { sessionStorage.removeItem(TOKEN_KEY); } catch (err2) {}
+        });
+      }
+      function setupGoogle() {
+        if (!GOOGLE_CLIENT_ID || !window.google || !google.accounts || !google.accounts.id) return;
+        try {
+          google.accounts.id.initialize({
+            client_id: GOOGLE_CLIENT_ID,
+            callback: function (resp) {
+              if (resp && resp.credential) loginGoogle(resp.credential);
+            }
+          });
+          google.accounts.id.renderButton($('googleBtn'), {
+            theme: 'outline',
+            size: 'large',
+            text: 'signin_with',
+            locale: 'zh-TW',
+            width: 280
+          });
+        } catch (err) {
+          show($('googleHint'), true);
+        }
+      }
+      $('btnLogin').addEventListener('click', loginManual);
+      $('btnSpot').addEventListener('click', ensureSpot);
+      $('btnSubmit').addEventListener('click', submitHw);
+      window.onGoogleLibraryLoad = setupGoogle;
+      var gsiWait = setInterval(function () {
+        if (window.google && google.accounts && google.accounts.id) {
+          clearInterval(gsiWait);
+          setupGoogle();
+        }
+      }, 300);
+      setTimeout(function () { clearInterval(gsiWait); }, 8000);
+      tryRestore();
+    </script>
+  </body>
+</html>

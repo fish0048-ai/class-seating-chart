@@ -29,7 +29,12 @@
     groupAssign: false,
     groupPick: 1,
     groupDeductions: [],
-    appView: 'class'
+    appView: 'class',
+    hwAssignmentId: '',
+    hwAssignments: [],
+    hwRows: [],
+    hwPickedSeat: '',
+    hwStudentUrl: ''
   };
 
   const GROUP_COLORS = [
@@ -267,6 +272,7 @@
       switchTeacherTab(btn.getAttribute('data-teacher-tab'));
     });
   });
+  bindHomework();
   if (els.timetableSheets) {
     els.timetableSheets.addEventListener('click', function (event) {
       var btn = event.target.closest('[data-tt-sheet]');
@@ -308,6 +314,7 @@
       App.dbFilter = els.dbClassFilter.value;
       renderDatabaseTable(App.dbRows || []);
       refreshTeacherExtras();
+      if (App.teacherTab === 'homework') loadHomeworkTab();
     });
   }
   if (els.dbDateFilter) {
@@ -1645,12 +1652,14 @@
     var daily = document.getElementById('tabDaily');
     var summary = document.getElementById('tabSummary');
     var stats = document.getElementById('tabStats');
+    var homework = document.getElementById('tabHomework');
     var settings = document.getElementById('tabSettings');
     if (roster) roster.hidden = App.teacherTab !== 'roster';
     if (timetable) timetable.hidden = App.teacherTab !== 'timetable';
     if (daily) daily.hidden = App.teacherTab !== 'daily';
     if (summary) summary.hidden = App.teacherTab !== 'summary';
     if (stats) stats.hidden = App.teacherTab !== 'stats';
+    if (homework) homework.hidden = App.teacherTab !== 'homework';
     if (settings) settings.hidden = App.teacherTab !== 'settings';
     document.querySelectorAll('.teacher-tab-only').forEach(function (btn) {
       btn.hidden = btn.getAttribute('data-for-tab') !== App.teacherTab;
@@ -1663,10 +1672,11 @@
       els.dbClassFilter.parentElement.hidden = App.teacherTab === 'settings' || App.teacherTab === 'timetable';
     }
     document.querySelectorAll('.teacher-date-only').forEach(function (el) {
-      el.hidden = App.teacherTab === 'settings' || App.teacherTab === 'stats' || App.teacherTab === 'summary' || App.teacherTab === 'timetable';
+      el.hidden = App.teacherTab === 'settings' || App.teacherTab === 'stats' || App.teacherTab === 'summary' || App.teacherTab === 'timetable' || App.teacherTab === 'homework';
     });
     updateScoreDayLabel();
     if (App.teacherTab === 'settings' && changed) openSettings();
+    if (App.teacherTab === 'homework') loadHomeworkTab();
     if (App.teacherTab === 'timetable') {
       App.ttFocusKey = '';
       loadTimetable();
@@ -1674,7 +1684,7 @@
     } else {
       stopTimetableClock();
     }
-    if (App.teacherTab !== 'roster' && App.teacherTab !== 'settings' && App.teacherTab !== 'timetable') refreshTeacherExtras();
+    if (App.teacherTab !== 'roster' && App.teacherTab !== 'settings' && App.teacherTab !== 'timetable' && App.teacherTab !== 'homework') refreshTeacherExtras();
   }
 
   function refreshTeacherExtras() {
@@ -1689,6 +1699,383 @@
       applyGradebook(data);
       renderGradebook();
     }).catch(function () {});
+  }
+
+  function hwApi(action, body) {
+    if (!window.CloudStore || !CloudStore.request) {
+      return Promise.reject(new Error('尚未連上雲端資料庫'));
+    }
+    return CloudStore.request(action, body || {});
+  }
+
+  function hwEsc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (ch) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch];
+    });
+  }
+
+  function hwPad(n) {
+    return (n < 10 ? '0' : '') + n;
+  }
+
+  function toDatetimeLocal(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    return d.getFullYear() + '-' + hwPad(d.getMonth() + 1) + '-' + hwPad(d.getDate()) +
+      'T' + hwPad(d.getHours()) + ':' + hwPad(d.getMinutes());
+  }
+
+  function fromDatetimeLocal(value) {
+    if (!value) return '';
+    var d = new Date(value);
+    return isNaN(d.getTime()) ? '' : d.toISOString();
+  }
+
+  function defaultHwTimes() {
+    var start = document.getElementById('hwStartAt');
+    var due = document.getElementById('hwDueAt');
+    if (start && !start.value) start.value = toDatetimeLocal(new Date().toISOString());
+    if (due && !due.value) {
+      var d = new Date();
+      d.setDate(d.getDate() + 1);
+      d.setHours(23, 59, 0, 0);
+      due.value = toDatetimeLocal(d.toISOString());
+    }
+  }
+
+  function copyText(text) {
+    text = String(text || '');
+    if (!text) return Promise.reject(new Error('沒有可複製的內容'));
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      return navigator.clipboard.writeText(text);
+    }
+    return new Promise(function (resolve, reject) {
+      var area = document.createElement('textarea');
+      area.value = text;
+      document.body.appendChild(area);
+      area.select();
+      try {
+        document.execCommand('copy');
+        resolve();
+      } catch (err) {
+        reject(err);
+      }
+      document.body.removeChild(area);
+    });
+  }
+
+  function downloadText(filename, text) {
+    var blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
+  }
+
+  function currentHwAssignment() {
+    var id = App.hwAssignmentId;
+    var list = App.hwAssignments || [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].assignmentId === id) return list[i];
+    }
+    return null;
+  }
+
+  function loadHomeworkTab() {
+    defaultHwTimes();
+    var className = teacherTargetClass();
+    var note = document.getElementById('hwApiNote');
+    if (!className) {
+      if (note) note.textContent = '請先在上方選一個班級。';
+      return;
+    }
+    hwApi('hwListAssignments', { className: className }).then(function (data) {
+      App.hwAssignments = (data && data.assignments) || [];
+      if (note) {
+        note.textContent = (data && data.classroomApiEnabled)
+          ? 'Classroom 成績回寫：開啟。'
+          : 'Classroom 成績回寫：關閉（第一版）。學生連結請手動貼到 Classroom。';
+      }
+      var sel = document.getElementById('hwAssignmentSelect');
+      if (sel) {
+        var keep = App.hwAssignmentId;
+        sel.innerHTML = App.hwAssignments.length
+          ? App.hwAssignments.map(function (a) {
+            return '<option value="' + hwEsc(a.assignmentId) + '">' + hwEsc(a.assignmentId + '　' + a.title) + '</option>';
+          }).join('')
+          : '<option value="">尚未建立作業</option>';
+        if (keep && App.hwAssignments.some(function (a) { return a.assignmentId === keep; })) {
+          sel.value = keep;
+        }
+        App.hwAssignmentId = sel.value || '';
+      }
+      return App.hwAssignmentId ? loadHwDashboard() : Promise.resolve();
+    }).catch(function (err) {
+      toast(err.message || '作業資料載入失敗。若剛更新後端，請先新增部署。');
+    });
+  }
+
+  function loadHwDashboard() {
+    var id = App.hwAssignmentId || (document.getElementById('hwAssignmentSelect') || {}).value;
+    App.hwAssignmentId = id || '';
+    var asg = currentHwAssignment();
+    App.hwStudentUrl = (asg && asg.studentUrl) || '';
+    var urlLine = document.getElementById('hwStudentUrl');
+    if (urlLine) urlLine.textContent = App.hwStudentUrl ? ('學生連結：' + App.hwStudentUrl) : '建立作業後會出現學生連結。';
+    if (!id) {
+      App.hwRows = [];
+      renderHwDashboard();
+      return Promise.resolve();
+    }
+    return hwApi('hwDashboard', { assignmentId: id }).then(function (data) {
+      if (data.assignment && data.assignment.studentUrl) App.hwStudentUrl = data.assignment.studentUrl;
+      if (urlLine && App.hwStudentUrl) urlLine.textContent = '學生連結：' + App.hwStudentUrl;
+      App.hwRows = data.rows || [];
+      renderHwDashboard();
+    });
+  }
+
+  function renderHwDashboard() {
+    var body = document.getElementById('hwDashBody');
+    var paste = document.getElementById('hwPasteScores');
+    if (!body) return;
+    var rows = App.hwRows || [];
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="10">這個班還沒有作業名單。請先按「從座位表匯入本班名單」。</td></tr>';
+      if (paste) paste.value = '';
+      return;
+    }
+    body.innerHTML = rows.map(function (row) {
+      var done = row.done ? '是' : '否';
+      var submitted = row.submittedAt ? new Date(row.submittedAt).toLocaleString('zh-TW', { hour12: false }) : '—';
+      var on = App.hwPickedSeat === row.seatNo ? ' class="is-picked"' : '';
+      return '<tr data-hw-seat="' + hwEsc(row.seatNo) + '"' + on + '>' +
+        '<td>' + hwEsc(row.seatNo) + '</td>' +
+        '<td>' + hwEsc(row.name) + '</td>' +
+        '<td>' + done + '</td>' +
+        '<td>' + hwEsc(submitted) + '</td>' +
+        '<td>' + (row.wrongCount || 0) + '</td>' +
+        '<td>' + hwEsc(row.wrongNos || '—') + '</td>' +
+        '<td>' + hwEsc(row.spotNos || '—') + '</td>' +
+        '<td>' + (row.lateWorkdays === '' || row.lateWorkdays == null ? '—' : row.lateWorkdays) + '</td>' +
+        '<td>' + (row.penalty === '' || row.penalty == null ? '—' : row.penalty) + '</td>' +
+        '<td>' + (row.finalScore === '' || row.finalScore == null ? '—' : row.finalScore) + '</td>' +
+        '</tr>';
+    }).join('');
+    if (paste) {
+      paste.value = rows.map(function (row) {
+        var score = row.finalScore === '' || row.finalScore == null ? '' : row.finalScore;
+        return row.seatNo + ' | ' + row.name + ' | ' + score;
+      }).join('\n');
+    }
+    if (App.hwPickedSeat) showHwPicked();
+  }
+
+  function pickedHwRow() {
+    var seat = App.hwPickedSeat;
+    var rows = App.hwRows || [];
+    for (var i = 0; i < rows.length; i++) {
+      if (String(rows[i].seatNo) === String(seat)) return rows[i];
+    }
+    return null;
+  }
+
+  function showHwPicked() {
+    var box = document.getElementById('hwStudentActions');
+    var label = document.getElementById('hwPickedLabel');
+    var row = pickedHwRow();
+    if (!box) return;
+    if (!row) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    if (label) label.textContent = '座號 ' + row.seatNo + '　' + row.name;
+    var adj = document.getElementById('hwAdj');
+    var reason = document.getElementById('hwAdjReason');
+    if (adj) adj.value = row.adjustment || 0;
+    if (reason) reason.value = row.adjustmentReason || '';
+  }
+
+  function bindHomework() {
+    var createBtn = document.getElementById('btnHwCreate');
+    if (createBtn) createBtn.addEventListener('click', function () {
+      var className = teacherTargetClass();
+      if (!className) {
+        toast('請先選班級');
+        return;
+      }
+      hwApi('hwCreateAssignment', {
+        className: className,
+        title: (document.getElementById('hwTitle') || {}).value,
+        questionCount: (document.getElementById('hwQuestionCount') || {}).value,
+        spotCount: (document.getElementById('hwSpotCount') || {}).value,
+        startAt: fromDatetimeLocal((document.getElementById('hwStartAt') || {}).value),
+        dueAt: fromDatetimeLocal((document.getElementById('hwDueAt') || {}).value),
+        maxScore: (document.getElementById('hwMaxScore') || {}).value,
+        latePenalty: (document.getElementById('hwLatePenalty') || {}).value,
+        minScore: 0
+      }).then(function (data) {
+        App.hwAssignmentId = data.assignment && data.assignment.assignmentId;
+        App.hwStudentUrl = data.studentUrl || (data.assignment && data.assignment.studentUrl) || '';
+        toast('已建立 ' + App.hwAssignmentId + '，可複製學生連結貼到 Classroom');
+        return loadHomeworkTab();
+      }).catch(function (err) {
+        toast(err.message || '建立作業失敗');
+      });
+    });
+    var importBtn = document.getElementById('btnHwImportStudents');
+    if (importBtn) importBtn.addEventListener('click', function () {
+      var className = teacherTargetClass();
+      if (!className) {
+        toast('請先選班級');
+        return;
+      }
+      hwApi('hwImportStudents', { className: className }).then(function (data) {
+        toast('已匯入 ' + (data.added || 0) + ' 人到作業名單（Email 請在試算表 HW_Students 補上）');
+        loadHwDashboard();
+      }).catch(function (err) {
+        toast(err.message || '匯入失敗');
+      });
+    });
+    var sel = document.getElementById('hwAssignmentSelect');
+    if (sel) sel.addEventListener('change', function () {
+      App.hwAssignmentId = sel.value;
+      App.hwPickedSeat = '';
+      loadHwDashboard();
+    });
+    var copyLink = document.getElementById('btnHwCopyLink');
+    if (copyLink) copyLink.addEventListener('click', function () {
+      copyText(App.hwStudentUrl).then(function () {
+        toast('已複製學生作業連結，可貼到 Classroom');
+      }).catch(function (err) {
+        toast(err.message || '複製失敗');
+      });
+    });
+    var copyScores = document.getElementById('btnHwCopyScores');
+    if (copyScores) copyScores.addEventListener('click', function () {
+      var text = (document.getElementById('hwPasteScores') || {}).value || '';
+      copyText(text).then(function () {
+        toast('已複製座號、姓名、分數');
+      }).catch(function (err) {
+        toast(err.message || '複製失敗');
+      });
+    });
+    var csvBtn = document.getElementById('btnHwCsv');
+    if (csvBtn) csvBtn.addEventListener('click', function () {
+      if (!App.hwAssignmentId) {
+        toast('請先選作業');
+        return;
+      }
+      hwApi('hwExportCsv', { assignmentId: App.hwAssignmentId }).then(function (data) {
+        downloadText(App.hwAssignmentId + '-classroom.csv', data.csv || '');
+      }).catch(function (err) {
+        toast(err.message || '匯出失敗');
+      });
+    });
+    var csvFull = document.getElementById('btnHwCsvFull');
+    if (csvFull) csvFull.addEventListener('click', function () {
+      if (!App.hwAssignmentId) {
+        toast('請先選作業');
+        return;
+      }
+      hwApi('hwExportCsv', { assignmentId: App.hwAssignmentId }).then(function (data) {
+        downloadText(App.hwAssignmentId + '-full.csv', data.csvFull || data.csv || '');
+      }).catch(function (err) {
+        toast(err.message || '匯出失敗');
+      });
+    });
+    var refresh = document.getElementById('btnHwRefresh');
+    if (refresh) refresh.addEventListener('click', loadHomeworkTab);
+    var dashBody = document.getElementById('hwDashBody');
+    if (dashBody) dashBody.addEventListener('click', function (event) {
+      var tr = event.target.closest('tr[data-hw-seat]');
+      if (!tr) return;
+      App.hwPickedSeat = tr.getAttribute('data-hw-seat');
+      renderHwDashboard();
+    });
+    var adjBtn = document.getElementById('btnHwAdjust');
+    if (adjBtn) adjBtn.addEventListener('click', function () {
+      var row = pickedHwRow();
+      if (!row || !App.hwAssignmentId) {
+        toast('請先點表格中的學生');
+        return;
+      }
+      hwApi('hwAdjust', {
+        assignmentId: App.hwAssignmentId,
+        seatNo: row.seatNo,
+        adjustment: (document.getElementById('hwAdj') || {}).value,
+        reason: (document.getElementById('hwAdjReason') || {}).value
+      }).then(function () {
+        toast('已儲存調分');
+        return loadHwDashboard();
+      }).catch(function (err) {
+        toast(err.message || '調分失敗');
+      });
+    });
+    var ovBtn = document.getElementById('btnHwOverride');
+    if (ovBtn) ovBtn.addEventListener('click', function () {
+      var row = pickedHwRow();
+      if (!row || !App.hwAssignmentId) {
+        toast('請先點表格中的學生');
+        return;
+      }
+      var due = fromDatetimeLocal((document.getElementById('hwCustomDue') || {}).value);
+      if (!due) {
+        toast('請填個別截止時間');
+        return;
+      }
+      hwApi('hwOverride', {
+        assignmentId: App.hwAssignmentId,
+        seatNo: row.seatNo,
+        customDueAt: due,
+        reason: (document.getElementById('hwOverrideReason') || {}).value
+      }).then(function () {
+        toast('已延長這位學生的截止時間');
+      }).catch(function (err) {
+        toast(err.message || '延長失敗');
+      });
+    });
+    var zeroBtn = document.getElementById('btnHwZero');
+    if (zeroBtn) zeroBtn.addEventListener('click', function () {
+      var row = pickedHwRow();
+      if (!row || !App.hwAssignmentId) {
+        toast('請先點表格中的學生');
+        return;
+      }
+      hwApi('hwSetMissing', {
+        assignmentId: App.hwAssignmentId,
+        seatNo: row.seatNo,
+        mode: 'zero',
+        reason: '教師給 0 分'
+      }).then(function () {
+        toast('已將這位學生設為 0 分');
+        return loadHwDashboard();
+      }).catch(function (err) {
+        toast(err.message || '設定失敗');
+      });
+    });
+    var makeupBtn = document.getElementById('btnHwMakeup');
+    if (makeupBtn) makeupBtn.addEventListener('click', function () {
+      var row = pickedHwRow();
+      if (!row || !App.hwAssignmentId) {
+        toast('請先點表格中的學生');
+        return;
+      }
+      hwApi('hwSetMissing', {
+        assignmentId: App.hwAssignmentId,
+        seatNo: row.seatNo,
+        mode: 'allowMakeup'
+      }).then(function () {
+        toast('已允許這位學生補交');
+        return loadHwDashboard();
+      }).catch(function (err) {
+        toast(err.message || '設定失敗');
+      });
+    });
   }
 
   var TT_DAYS = ['週一', '週二', '週三', '週四', '週五'];

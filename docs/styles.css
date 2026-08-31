@@ -2114,3 +2114,45 @@
   body.role-viewer .board .seat-card {
     cursor: default;
   }
+
+  .hw-panel .hw-create {
+    margin-top: 8px;
+  }
+
+  .hw-actions {
+    margin: 8px 0 12px;
+  }
+
+  .hw-url {
+    font-size: 13px;
+    word-break: break-all;
+    color: var(--muted);
+  }
+
+  .hw-table-wrap {
+    max-height: 420px;
+    overflow: auto;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fff;
+  }
+
+  .hw-table-wrap tr.is-picked {
+    background: #eef6f2;
+  }
+
+  .hw-student-actions {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 12px;
+  }
+
+  .paste-box textarea {
+    width: 100%;
+    font-family: Consolas, "Noto Sans TC", monospace;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 8px;
+    background: #fff;
+  }

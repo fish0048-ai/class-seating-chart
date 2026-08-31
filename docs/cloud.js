@@ -152,6 +152,21 @@
     },
     putStore: function (store) {
       return postAction('putStore', { store: store });
+    },
+    request: function (action, body) {
+      var url = apiUrl();
+      if (!url) {
+        return Promise.reject(new Error('尚未連上雲端資料庫'));
+      }
+      var payload = Object.assign({ action: action, idToken: authToken_() }, body || {});
+      return fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload),
+        redirect: 'follow'
+      }).then(function (res) {
+        return res.text();
+      }).then(parseCloudText_);
     }
   };
 })(window);

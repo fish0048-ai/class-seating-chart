@@ -147,6 +147,7 @@
         <button type="button" class="tool" data-teacher-tab="daily">成績表</button>
         <button type="button" class="tool" data-teacher-tab="summary">成績統計表</button>
         <button type="button" class="tool" data-teacher-tab="stats">統計圖表</button>
+        <button type="button" class="tool" data-teacher-tab="homework">作業檢核</button>
         <button type="button" class="tool" data-teacher-tab="settings">設定與上傳</button>
         <button type="button" class="tool" id="btnExport">下載備份</button>
         <button type="button" class="tool" id="btnImport">還原備份</button>
@@ -503,6 +504,97 @@
             </div>
           </div>
 
+          <div id="tabHomework" class="teacher-panel hw-panel" hidden>
+            <p class="hint">紙本作業檢核不連 Classroom API。建立作業後複製學生連結，貼到 Classroom 當入口即可。學生只會看到自己的成績。</p>
+            <p id="hwApiNote" class="hint">Classroom 成績回寫：關閉（第一版）。</p>
+            <div class="form-grid hw-create">
+              <label>作業名稱
+                <input id="hwTitle" type="text" maxlength="80" placeholder="例如 講義第 3 回" />
+              </label>
+              <label>題數
+                <input id="hwQuestionCount" type="number" min="1" max="200" value="10" />
+              </label>
+              <label>抽查題數
+                <input id="hwSpotCount" type="number" min="1" max="20" value="2" />
+              </label>
+              <label>開始
+                <input id="hwStartAt" type="datetime-local" />
+              </label>
+              <label>截止
+                <input id="hwDueAt" type="datetime-local" />
+              </label>
+              <label>滿分
+                <input id="hwMaxScore" type="number" min="0" max="1000" value="100" />
+              </label>
+              <label>每工作天扣分
+                <input id="hwLatePenalty" type="number" min="0" max="100" value="10" />
+              </label>
+            </div>
+            <div class="modal-actions hw-actions">
+              <button type="button" class="tool primary" id="btnHwCreate">建立作業</button>
+              <button type="button" class="tool" id="btnHwImportStudents">從座位表匯入本班名單</button>
+            </div>
+            <div class="form-grid">
+              <label>本班作業
+                <select id="hwAssignmentSelect" aria-label="選擇作業"></select>
+              </label>
+            </div>
+            <p id="hwStudentUrl" class="hw-url"></p>
+            <div class="modal-actions hw-actions">
+              <button type="button" class="tool primary" id="btnHwCopyLink">複製學生作業連結</button>
+              <button type="button" class="tool" id="btnHwCopyScores">複製全部成績</button>
+              <button type="button" class="tool" id="btnHwCsv">匯出 Classroom CSV</button>
+              <button type="button" class="tool" id="btnHwCsvFull">匯出完整 CSV</button>
+              <button type="button" class="tool" id="btnHwRefresh">重新整理</button>
+            </div>
+            <div class="paste-box">
+              <h3>貼上用表（座號 | 姓名 | 分數）</h3>
+              <textarea id="hwPasteScores" rows="6" readonly></textarea>
+            </div>
+            <div class="db-table-wrap hw-table-wrap">
+              <table class="db-table">
+                <thead>
+                  <tr>
+                    <th>座號</th>
+                    <th>姓名</th>
+                    <th>完成</th>
+                    <th>提交時間</th>
+                    <th>錯題數</th>
+                    <th>錯題</th>
+                    <th>抽查</th>
+                    <th>遲交工作天</th>
+                    <th>扣分</th>
+                    <th>最終分數</th>
+                  </tr>
+                </thead>
+                <tbody id="hwDashBody"></tbody>
+              </table>
+            </div>
+            <div id="hwStudentActions" class="hw-student-actions" hidden>
+              <h3 id="hwPickedLabel">選中的學生</h3>
+              <div class="form-grid">
+                <label>教師加減
+                  <input id="hwAdj" type="number" step="1" value="0" />
+                </label>
+                <label>調整原因
+                  <input id="hwAdjReason" type="text" maxlength="80" />
+                </label>
+                <label>個別截止
+                  <input id="hwCustomDue" type="datetime-local" />
+                </label>
+                <label>延長原因
+                  <input id="hwOverrideReason" type="text" maxlength="80" />
+                </label>
+              </div>
+              <div class="modal-actions hw-actions">
+                <button type="button" class="tool primary" id="btnHwAdjust">儲存調分</button>
+                <button type="button" class="tool" id="btnHwOverride">延長截止</button>
+                <button type="button" class="tool" id="btnHwZero">未交給 0 分</button>
+                <button type="button" class="tool" id="btnHwMakeup">允許補交</button>
+              </div>
+            </div>
+          </div>
+
           <div id="tabSettings" class="teacher-panel settings-panel" hidden>
             <div class="cloud-box">
               <h3>雲端資料庫（平板與筆電共用）</h3>
@@ -514,7 +606,7 @@
               </label>
               <ol class="cloud-steps">
                 <li>打開 Google 試算表（上方會顯示連結）。</li>
-                <li>「擴充功能」→「Apps Script」，把最新的 Code.gs 全部貼上並儲存。</li>
+                <li>「擴充功能」→「Apps Script」，把最新的 Code.gs 全部貼上並儲存；作業檢核還要新增／更新 <code>HwStudent.html</code>。</li>
                 <li>「部署」→「新增部署作業」，類型選「網頁應用程式」。</li>
                 <li>執行身分「我」，對象「任何人」，把結尾是 /exec 的網址貼上來，按「連上雲端」。</li>
               </ol>

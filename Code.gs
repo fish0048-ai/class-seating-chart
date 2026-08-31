@@ -8,7 +8,14 @@ const SHEETS = {
   CONFIG: '班級設定',
   HISTORY: '操作紀錄',
   HELP: '使用說明',
-  CLOUD: '雲端資料'
+  CLOUD: '雲端資料',
+  HW_STUDENTS: 'HW_Students',
+  HW_ASSIGNMENTS: 'HW_Assignments',
+  HW_SUBMISSIONS: 'HW_Submissions',
+  HW_WRONG: 'HW_WrongItems',
+  HW_SPOT: 'HW_SpotChecks',
+  HW_OVERRIDES: 'HW_Overrides',
+  HW_QUESTIONS: 'HW_Questions'
 };
 
 const CLOUD_CHUNK = 45000;
@@ -16,7 +23,38 @@ const CLOUD_CHUNK = 45000;
 const HEADERS = {
   STUDENTS: ['班級', '座號', '姓名', '分數', '列', '欄', '備註', '組別'],
   CONFIG: ['班級', '列數', '欄數', '版本', '更新時間'],
-  HISTORY: ['時間', '班級', '類型', '座號', '姓名', '分數變化', '新分數', '詳情', '可復原', '已復原']
+  HISTORY: ['時間', '班級', '類型', '座號', '姓名', '分數變化', '新分數', '詳情', '可復原', '已復原'],
+  HW_STUDENTS: ['班級', '座號', '姓名', 'Email'],
+  HW_ASSIGNMENTS: ['作業編號', '名稱', '班級', '題數', '抽查題數', '開始時間', '截止時間', '滿分', '每工作天扣分', '最低分', '學生連結', '建立時間'],
+  HW_SUBMISSIONS: ['作業編號', '班級', '座號', '提交時間', '狀態', '遲交工作天', '計算分數', '教師加減', '調整原因', '最終分數', '調整者', '調整時間', '允許補交'],
+  HW_WRONG: ['作業編號', '班級', '座號', '題號', '原因'],
+  HW_SPOT: ['作業編號', '班級', '座號', '抽查題號', '已看詳解'],
+  HW_OVERRIDES: ['作業編號', '班級', '座號', '個別截止', '原因'],
+  HW_QUESTIONS: ['作業編號', '題號', '詳解']
+};
+
+/** 第一版不呼叫 Classroom API。改 true 才逐步接成績回寫。 */
+const CLASSROOM_API_ENABLED = false;
+
+var HW_STUDENT_ACTIONS_ = {
+  hwLogin: true,
+  hwLoginGoogle: true,
+  hwGetAssignment: true,
+  hwSaveProgress: true,
+  hwSubmit: true,
+  hwMyResult: true
+};
+
+var HW_TEACHER_ACTIONS_ = {
+  hwListAssignments: true,
+  hwCreateAssignment: true,
+  hwDashboard: true,
+  hwExportCsv: true,
+  hwAdjust: true,
+  hwOverride: true,
+  hwSetMissing: true,
+  hwImportStudents: true,
+  hwListStudents: true
 };
 
 const MAX_HISTORY_ROWS = 800;
@@ -104,6 +142,20 @@ function verifyAuthPayload_(idToken) {
  */
 function doGet(e) {
   e = e || { parameter: {} };
+  var assignmentId = String((e.parameter && e.parameter.assignment) || '').trim();
+  if (assignmentId) {
+    if (!/^HW\d+$/i.test(assignmentId)) {
+      return HtmlService.createHtmlOutput('作業編號無效').setTitle('作業檢核');
+    }
+    ensureHwSheets_(getSs_());
+    var tpl = HtmlService.createTemplateFromFile('HwStudent');
+    tpl.assignmentId = assignmentId;
+    tpl.googleClientId = googleClientId_();
+    return tpl.evaluate()
+      .setTitle('作業檢核')
+      .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover')
+      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  }
   if (e.parameter.view === 'app') {
     ensureSheets_(getSs_());
     return HtmlService.createTemplateFromFile('Index')
@@ -166,6 +218,10 @@ function handleRequest_(req) {
     if (action === 'verifyAuth') {
       return verifyAuthPayload_(req.idToken);
     }
+    if (HW_STUDENT_ACTIONS_[action]) {
+      ensureHwSheets_(getSs_());
+      return handleHwStudent_(req, action);
+    }
     var user = verifyIdToken_(req.idToken);
     if ((action === 'getStore' || action === 'bootstrap' || action === 'load') && !user) {
       throw new Error('請先用 Google 帳號登入');
@@ -217,6 +273,11 @@ function handleRequest_(req) {
       case 'putStore':
         return putCloudStore(req.store || payload);
       default:
+        if (HW_TEACHER_ACTIONS_[action]) {
+          if (!user || !user.teacher) throw new Error('只有教師可以修改資料');
+          ensureHwSheets_(getSs_());
+          return handleHwTeacher_(req, action, user);
+        }
         return { ok: false, error: '未知的操作：' + action };
     }
   } catch (err) {
@@ -725,6 +786,7 @@ function ensureSheets_(ss) {
   ensureSheetWithHeaders_(ss, SHEETS.HISTORY, HEADERS.HISTORY);
   ensureCloudSheet_(ss);
   ensureHelpSheet_(ss);
+  ensureHwSheets_(ss);
 
   const studentSheet = ss.getSheetByName(SHEETS.STUDENTS);
   if (studentSheet.getLastRow() < 2) {
@@ -1084,3 +1146,902 @@ function seatNoValue_(seatNo) {
   const n = parseInt(String(seatNo).replace(/\D/g, ''), 10);
   return isFinite(n) ? n : 0;
 }
+
+/* ========== 紙本作業檢核（低權限 A：不依賴 Classroom API） ========== */
+
+var ClassroomSyncService = {
+  enabled: function () {
+    return CLASSROOM_API_ENABLED === true;
+  },
+  syncGrade: function () {
+    return { ok: true, skipped: true, reason: 'CLASSROOM_API_ENABLED=false' };
+  },
+  syncRoster: function () {
+    return { ok: true, skipped: true, reason: 'CLASSROOM_API_ENABLED=false' };
+  },
+  createCourseWork: function () {
+    return { ok: true, skipped: true, reason: 'CLASSROOM_API_ENABLED=false' };
+  }
+};
+
+function ensureHwSheets_(ss) {
+  ss = ss || getSs_();
+  ensureSheetWithHeaders_(ss, SHEETS.HW_STUDENTS, HEADERS.HW_STUDENTS);
+  ensureSheetWithHeaders_(ss, SHEETS.HW_ASSIGNMENTS, HEADERS.HW_ASSIGNMENTS);
+  ensureSheetWithHeaders_(ss, SHEETS.HW_SUBMISSIONS, HEADERS.HW_SUBMISSIONS);
+  ensureSheetWithHeaders_(ss, SHEETS.HW_WRONG, HEADERS.HW_WRONG);
+  ensureSheetWithHeaders_(ss, SHEETS.HW_SPOT, HEADERS.HW_SPOT);
+  ensureSheetWithHeaders_(ss, SHEETS.HW_OVERRIDES, HEADERS.HW_OVERRIDES);
+  ensureSheetWithHeaders_(ss, SHEETS.HW_QUESTIONS, HEADERS.HW_QUESTIONS);
+}
+
+function hwWebAppUrl_() {
+  try {
+    var url = ScriptApp.getService().getUrl();
+    if (url) return String(url).replace(/\/$/, '');
+  } catch (err) {}
+  try {
+    var saved = String(PropertiesService.getScriptProperties().getProperty('WEB_APP_URL') || '').trim();
+    if (saved) return saved.replace(/\/$/, '');
+  } catch (err2) {}
+  return 'https://script.google.com/macros/s/AKfycbzd4_bHa2bOiyltufRBD72Fw4s7Wgn68mVTWB95VDNoUYNXe7iPYl5z5WwuoKCv7nWdgA/exec';
+}
+
+function hwStudentUrl_(assignmentId) {
+  return hwWebAppUrl_() + '?assignment=' + encodeURIComponent(assignmentId);
+}
+
+function hwReadObjects_(sheetName, headerKey) {
+  var sheet = ensureSheetWithHeaders_(getSs_(), sheetName, HEADERS[headerKey]);
+  var last = sheet.getLastRow();
+  var cols = HEADERS[headerKey].length;
+  if (last < 2) return [];
+  var headers = HEADERS[headerKey];
+  var values = sheet.getRange(2, 1, last - 1, cols).getValues();
+  return values.map(function (row, idx) {
+    var o = { _row: idx + 2 };
+    headers.forEach(function (h, i) {
+      o[h] = row[i];
+    });
+    return o;
+  });
+}
+
+function hwAppend_(sheetName, headerKey, obj) {
+  var sheet = ensureSheetWithHeaders_(getSs_(), sheetName, HEADERS[headerKey]);
+  var headers = HEADERS[headerKey];
+  var row = headers.map(function (h) {
+    var v = obj[h];
+    return v === undefined || v === null ? '' : v;
+  });
+  sheet.appendRow(row);
+}
+
+function hwUpdateRow_(sheetName, headerKey, rowIndex, obj) {
+  var sheet = ensureSheetWithHeaders_(getSs_(), sheetName, HEADERS[headerKey]);
+  var headers = HEADERS[headerKey];
+  var row = headers.map(function (h) {
+    var v = obj[h];
+    return v === undefined || v === null ? '' : v;
+  });
+  sheet.getRange(rowIndex, 1, 1, headers.length).setValues([row]);
+}
+
+function hwDeleteRowsWhere_(sheetName, headerKey, matchFn) {
+  var rows = hwReadObjects_(sheetName, headerKey);
+  var sheet = ensureSheetWithHeaders_(getSs_(), sheetName, HEADERS[headerKey]);
+  var toDelete = [];
+  rows.forEach(function (r) {
+    if (matchFn(r)) toDelete.push(r._row);
+  });
+  toDelete.sort(function (a, b) { return b - a; });
+  toDelete.forEach(function (rowIndex) {
+    sheet.deleteRow(rowIndex);
+  });
+}
+
+function hwNormSeat_(seatNo) {
+  return String(seatNo || '').trim();
+}
+
+function hwNormName_(name) {
+  return String(name || '').trim();
+}
+
+function hwNormClass_(className) {
+  return String(className || '').trim();
+}
+
+function hwNormEmail_(email) {
+  return String(email || '').trim().toLowerCase();
+}
+
+function hwFindStudent_(className, seatNo, name) {
+  var c = hwNormClass_(className);
+  var s = hwNormSeat_(seatNo);
+  var n = hwNormName_(name);
+  var list = hwReadObjects_(SHEETS.HW_STUDENTS, 'HW_STUDENTS');
+  for (var i = 0; i < list.length; i++) {
+    if (hwNormClass_(list[i]['班級']) === c && hwNormSeat_(list[i]['座號']) === s && hwNormName_(list[i]['姓名']) === n) {
+      return {
+        className: hwNormClass_(list[i]['班級']),
+        seatNo: hwNormSeat_(list[i]['座號']),
+        name: hwNormName_(list[i]['姓名']),
+        email: hwNormEmail_(list[i]['Email'])
+      };
+    }
+  }
+  return null;
+}
+
+function hwFindStudentByEmail_(email, className) {
+  var e = hwNormEmail_(email);
+  if (!e) return null;
+  var wantClass = hwNormClass_(className);
+  var list = hwReadObjects_(SHEETS.HW_STUDENTS, 'HW_STUDENTS');
+  var match = null;
+  for (var i = 0; i < list.length; i++) {
+    if (hwNormEmail_(list[i]['Email']) !== e) continue;
+    var stu = {
+      className: hwNormClass_(list[i]['班級']),
+      seatNo: hwNormSeat_(list[i]['座號']),
+      name: hwNormName_(list[i]['姓名']),
+      email: e
+    };
+    if (wantClass && stu.className === wantClass) return stu;
+    if (!match) match = stu;
+  }
+  return match;
+}
+
+function hwGetAssignment_(id) {
+  id = String(id || '').trim();
+  if (!id) return null;
+  var list = hwReadObjects_(SHEETS.HW_ASSIGNMENTS, 'HW_ASSIGNMENTS');
+  for (var i = 0; i < list.length; i++) {
+    if (String(list[i]['作業編號']).trim() === id) {
+      return hwAssignmentFromRow_(list[i]);
+    }
+  }
+  return null;
+}
+
+function hwIso_(value) {
+  if (!value) return '';
+  if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime())) {
+    return value.toISOString();
+  }
+  var d = new Date(value);
+  if (isNaN(d.getTime())) return String(value);
+  return d.toISOString();
+}
+
+function hwAssignmentFromRow_(row) {
+  return {
+    assignmentId: String(row['作業編號'] || '').trim(),
+    title: String(row['名稱'] || '').trim(),
+    className: hwNormClass_(row['班級']),
+    questionCount: clampInt_(row['題數'], 1, 200, 10),
+    spotCount: clampInt_(row['抽查題數'], 1, 20, 2),
+    startAt: hwIso_(row['開始時間']),
+    dueAt: hwIso_(row['截止時間']),
+    maxScore: Number(row['滿分']) || 100,
+    latePenalty: Number(row['每工作天扣分']) || 10,
+    minScore: Number(row['最低分']) === 0 ? 0 : (Number(row['最低分']) || 0),
+    studentUrl: String(row['學生連結'] || '').trim(),
+    createdAt: hwIso_(row['建立時間'])
+  };
+}
+
+function hwNextId_() {
+  var list = hwReadObjects_(SHEETS.HW_ASSIGNMENTS, 'HW_ASSIGNMENTS');
+  var max = 0;
+  list.forEach(function (row) {
+    var m = String(row['作業編號'] || '').match(/^HW(\d+)$/i);
+    if (m) max = Math.max(max, parseInt(m[1], 10));
+  });
+  var n = max + 1;
+  var pad = String(n);
+  while (pad.length < 3) pad = '0' + pad;
+  return 'HW' + pad;
+}
+
+function hwSessionSecret_() {
+  var props = PropertiesService.getScriptProperties();
+  var secret = String(props.getProperty('HW_SESSION_SECRET') || '').trim();
+  if (secret) return secret;
+  secret = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
+  props.setProperty('HW_SESSION_SECRET', secret);
+  return secret;
+}
+
+function hwSignSession_(nonce, payloadJson) {
+  var raw = Utilities.computeHmacSha256Signature(nonce + '.' + payloadJson, hwSessionSecret_());
+  return Utilities.base64EncodeWebSafe(raw).replace(/=+$/, '');
+}
+
+function hwIssueSession_(identity, assignmentId) {
+  var nonce = Utilities.getUuid().replace(/-/g, '');
+  var payload = {
+    className: identity.className,
+    seatNo: identity.seatNo,
+    name: identity.name,
+    email: identity.email || '',
+    assignmentId: String(assignmentId || '').trim()
+  };
+  var payloadJson = JSON.stringify(payload);
+  var token = nonce + '.' + hwSignSession_(nonce, payloadJson);
+  CacheService.getScriptCache().put('hw_' + nonce, payloadJson, 21600);
+  return token;
+}
+
+function hwReadSession_(token) {
+  token = String(token || '').trim();
+  if (!token) throw new Error('請先登入這份作業');
+  var parts = token.split('.');
+  if (parts.length !== 2 || !parts[0] || !parts[1]) throw new Error('登入無效，請再登入一次');
+  var nonce = parts[0];
+  var raw = CacheService.getScriptCache().get('hw_' + nonce);
+  if (!raw) throw new Error('登入已過期，請再登入一次');
+  if (hwSignSession_(nonce, raw) !== parts[1]) throw new Error('登入無效，請再登入一次');
+  var data = JSON.parse(raw);
+  if (!data || !data.seatNo || !data.className) throw new Error('登入無效，請再登入一次');
+  return data;
+}
+
+function hwRequireSession_(req, assignmentId) {
+  var sess = hwReadSession_(req.sessionToken || req.token);
+  var aid = String(assignmentId || req.assignmentId || '').trim();
+  if (sess.assignmentId && aid && sess.assignmentId !== aid) {
+    throw new Error('這次登入不是這份作業');
+  }
+  return sess;
+}
+
+function hwDueForStudent_(assignment, sess) {
+  var due = assignment.dueAt;
+  var rows = hwReadObjects_(SHEETS.HW_OVERRIDES, 'HW_OVERRIDES');
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i]['作業編號']).trim() === assignment.assignmentId &&
+        hwNormClass_(rows[i]['班級']) === sess.className &&
+        hwNormSeat_(rows[i]['座號']) === sess.seatNo) {
+      var custom = hwIso_(rows[i]['個別截止']);
+      if (custom) return custom;
+    }
+  }
+  return due;
+}
+
+function hwLateWorkdays_(dueAt, submittedAt) {
+  var due = new Date(dueAt);
+  var sub = new Date(submittedAt);
+  if (isNaN(due.getTime()) || isNaN(sub.getTime())) return 0;
+  if (sub.getTime() <= due.getTime()) return 0;
+  var start = new Date(due.getFullYear(), due.getMonth(), due.getDate());
+  var end = new Date(sub.getFullYear(), sub.getMonth(), sub.getDate());
+  var count = 0;
+  var cursor = new Date(start.getTime());
+  cursor.setDate(cursor.getDate() + 1);
+  while (cursor.getTime() <= end.getTime()) {
+    var dow = cursor.getDay();
+    if (dow !== 0 && dow !== 6) count += 1;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return count;
+}
+
+function hwCalcScore_(assignment, lateWorkdays, adjustment) {
+  var maxScore = Number(assignment.maxScore) || 100;
+  var minScore = Number(assignment.minScore);
+  if (!isFinite(minScore)) minScore = 0;
+  var penalty = Number(assignment.latePenalty);
+  if (!isFinite(penalty)) penalty = 10;
+  var calculated = Math.max(minScore, maxScore - (Number(lateWorkdays) || 0) * penalty);
+  var adj = Number(adjustment) || 0;
+  var finalScore = calculated + adj;
+  if (finalScore < 0) finalScore = 0;
+  return { calculated: calculated, finalScore: finalScore, penaltyPoints: (Number(lateWorkdays) || 0) * penalty };
+}
+
+function hwFindSubmission_(assignmentId, className, seatNo) {
+  var rows = hwReadObjects_(SHEETS.HW_SUBMISSIONS, 'HW_SUBMISSIONS');
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i]['作業編號']).trim() === assignmentId &&
+        hwNormClass_(rows[i]['班級']) === className &&
+        hwNormSeat_(rows[i]['座號']) === seatNo) {
+      return rows[i];
+    }
+  }
+  return null;
+}
+
+function hwSubmissionPublic_(row, assignment, sess) {
+  if (!row) {
+    return {
+      status: '未交',
+      submittedAt: '',
+      lateWorkdays: '',
+      calculatedScore: '',
+      adjustment: 0,
+      adjustmentReason: '',
+      finalScore: '',
+      allowMakeup: false
+    };
+  }
+  var status = String(row['狀態'] || '').trim() || '未交';
+  var adj = Number(row['教師加減']) || 0;
+  return {
+    status: status,
+    submittedAt: hwIso_(row['提交時間']),
+    lateWorkdays: status === '未交' ? '' : (Number(row['遲交工作天']) || 0),
+    calculatedScore: row['計算分數'] === '' || row['計算分數'] == null ? '' : Number(row['計算分數']),
+    adjustment: adj,
+    adjustmentReason: String(row['調整原因'] || ''),
+    finalScore: row['最終分數'] === '' || row['最終分數'] == null ? '' : Number(row['最終分數']),
+    allowMakeup: String(row['允許補交']) === '是' || row['允許補交'] === true
+  };
+}
+
+function hwWrongList_(assignmentId, className, seatNo) {
+  return hwReadObjects_(SHEETS.HW_WRONG, 'HW_WRONG').filter(function (r) {
+    return String(r['作業編號']).trim() === assignmentId &&
+      hwNormClass_(r['班級']) === className &&
+      hwNormSeat_(r['座號']) === seatNo;
+  }).map(function (r) {
+    return { q: Number(r['題號']) || 0, reason: String(r['原因'] || '') };
+  });
+}
+
+function hwSpot_(assignmentId, className, seatNo) {
+  var rows = hwReadObjects_(SHEETS.HW_SPOT, 'HW_SPOT');
+  for (var i = 0; i < rows.length; i++) {
+    if (String(rows[i]['作業編號']).trim() === assignmentId &&
+        hwNormClass_(rows[i]['班級']) === className &&
+        hwNormSeat_(rows[i]['座號']) === seatNo) {
+      var nums = String(rows[i]['抽查題號'] || '').split(',').map(function (x) {
+        return parseInt(String(x).trim(), 10);
+      }).filter(function (n) { return isFinite(n) && n > 0; });
+      return {
+        questions: nums,
+        seen: String(rows[i]['已看詳解']) === '是' || rows[i]['已看詳解'] === true,
+        _row: rows[i]._row
+      };
+    }
+  }
+  return null;
+}
+
+function hwPickSpot_(count, maxQ) {
+  var pool = [];
+  var i;
+  for (i = 1; i <= maxQ; i++) pool.push(i);
+  var n = Math.min(count, pool.length);
+  var picked = [];
+  for (i = 0; i < n; i++) {
+    var j = Math.floor(Math.random() * pool.length);
+    picked.push(pool[j]);
+    pool.splice(j, 1);
+  }
+  picked.sort(function (a, b) { return a - b; });
+  return picked;
+}
+
+function hwSaveWrongs_(assignmentId, className, seatNo, items) {
+  hwDeleteRowsWhere_(SHEETS.HW_WRONG, 'HW_WRONG', function (r) {
+    return String(r['作業編號']).trim() === assignmentId &&
+      hwNormClass_(r['班級']) === className &&
+      hwNormSeat_(r['座號']) === seatNo;
+  });
+  (items || []).forEach(function (item) {
+    var q = Number(item.q || item.question);
+    if (!isFinite(q) || q <= 0) return;
+    hwAppend_(SHEETS.HW_WRONG, 'HW_WRONG', {
+      '作業編號': assignmentId,
+      '班級': className,
+      '座號': seatNo,
+      '題號': q,
+      '原因': String(item.reason || '')
+    });
+  });
+}
+
+function hwPayloadForStudent_(assignment, sess) {
+  var sub = hwFindSubmission_(assignment.assignmentId, sess.className, sess.seatNo);
+  var due = hwDueForStudent_(assignment, sess);
+  var spot = hwSpot_(assignment.assignmentId, sess.className, sess.seatNo);
+  return {
+    ok: true,
+    assignment: {
+      assignmentId: assignment.assignmentId,
+      title: assignment.title,
+      className: assignment.className,
+      questionCount: assignment.questionCount,
+      spotCount: assignment.spotCount,
+      startAt: assignment.startAt,
+      dueAt: due,
+      originalDueAt: assignment.dueAt,
+      maxScore: assignment.maxScore
+    },
+    student: { className: sess.className, seatNo: sess.seatNo, name: sess.name },
+    wrong: hwWrongList_(assignment.assignmentId, sess.className, sess.seatNo),
+    spot: spot ? { questions: spot.questions, seen: spot.seen } : { questions: [], seen: false },
+    result: hwSubmissionPublic_(sub, assignment, sess)
+  };
+}
+
+function handleHwStudent_(req, action) {
+  req = req || {};
+  if (action === 'hwLogin') {
+    var assignment = hwGetAssignment_(req.assignmentId);
+    if (!assignment) throw new Error('找不到這份作業');
+    var stu = hwFindStudent_(req.className, req.seatNo, req.name);
+    if (!stu) throw new Error('學生名單沒有這筆資料，請核對班級、座號、姓名，或請教師先匯入');
+    if (stu.className !== assignment.className) throw new Error('這份作業不是這個班的');
+    var token = hwIssueSession_(stu, assignment.assignmentId);
+    return Object.assign({ sessionToken: token }, hwPayloadForStudent_(assignment, stu));
+  }
+  if (action === 'hwLoginGoogle') {
+    var assignmentG = hwGetAssignment_(req.assignmentId);
+    if (!assignmentG) throw new Error('找不到這份作業');
+    var email = '';
+    try {
+      email = hwNormEmail_(Session.getActiveUser().getEmail());
+    } catch (err) {}
+    if (!email && req.idToken) {
+      var googleUser = verifyIdToken_(req.idToken);
+      email = googleUser.email;
+    }
+    if (!email) throw new Error('無法取得 Google 信箱，請改用班級、座號、姓名登入');
+    var stuG = hwFindStudentByEmail_(email, assignmentG.className);
+    if (!stuG || stuG.className !== assignmentG.className) {
+      throw new Error('這份作業的學生名單沒有這個信箱，請改用班級座號姓名，或請教師補上 Email');
+    }
+    var tokenG = hwIssueSession_(stuG, assignmentG.assignmentId);
+    return Object.assign({ sessionToken: tokenG }, hwPayloadForStudent_(assignmentG, stuG));
+  }
+
+  var assignmentId = String(req.assignmentId || '').trim();
+  var assignmentA = hwGetAssignment_(assignmentId);
+  if (!assignmentA) throw new Error('找不到這份作業');
+  var sess = hwRequireSession_(req, assignmentId);
+  if (sess.className !== assignmentA.className) throw new Error('這份作業不是你的班級');
+
+  if (action === 'hwGetAssignment' || action === 'hwMyResult') {
+    return hwPayloadForStudent_(assignmentA, sess);
+  }
+
+  var existing = hwFindSubmission_(assignmentA.assignmentId, sess.className, sess.seatNo);
+  var statusNow = existing ? String(existing['狀態'] || '') : '';
+  var submitted = existing && statusNow !== '未交' && statusNow !== '進行中';
+  var allowMakeup = existing && (String(existing['允許補交']) === '是' || existing['允許補交'] === true);
+  var teacherZero = existing && !allowMakeup && (existing['最終分數'] === 0 || existing['最終分數'] === '0');
+  if ((submitted || teacherZero) && action !== 'hwGetAssignment' && action !== 'hwMyResult' && !allowMakeup) {
+    if (action === 'hwSaveProgress' || action === 'hwSubmit') {
+      throw new Error('這份作業已提交');
+    }
+  }
+
+  if (action === 'hwSaveProgress') {
+    if (submitted && !allowMakeup) throw new Error('這份作業已提交');
+    hwSaveWrongs_(assignmentA.assignmentId, sess.className, sess.seatNo, parseMaybeJson_(req.wrong) || []);
+    var spotNow = hwSpot_(assignmentA.assignmentId, sess.className, sess.seatNo);
+    if ((!spotNow || !spotNow.questions.length) && req.ensureSpot) {
+      var picked = hwPickSpot_(assignmentA.spotCount, assignmentA.questionCount);
+      hwAppend_(SHEETS.HW_SPOT, 'HW_SPOT', {
+        '作業編號': assignmentA.assignmentId,
+        '班級': sess.className,
+        '座號': sess.seatNo,
+        '抽查題號': picked.join(','),
+        '已看詳解': req.seenExplain ? '是' : '否'
+      });
+    } else if (spotNow && req.seenExplain) {
+      var rows = hwReadObjects_(SHEETS.HW_SPOT, 'HW_SPOT');
+      for (var si = 0; si < rows.length; si++) {
+        if (rows[si]._row === spotNow._row) {
+          rows[si]['已看詳解'] = '是';
+          hwUpdateRow_(SHEETS.HW_SPOT, 'HW_SPOT', rows[si]._row, rows[si]);
+          break;
+        }
+      }
+    }
+    if (!existing) {
+      hwAppend_(SHEETS.HW_SUBMISSIONS, 'HW_SUBMISSIONS', {
+        '作業編號': assignmentA.assignmentId,
+        '班級': sess.className,
+        '座號': sess.seatNo,
+        '提交時間': '',
+        '狀態': '進行中',
+        '遲交工作天': '',
+        '計算分數': '',
+        '教師加減': 0,
+        '調整原因': '',
+        '最終分數': '',
+        '調整者': '',
+        '調整時間': '',
+        '允許補交': '否'
+      });
+    }
+    return hwPayloadForStudent_(assignmentA, sess);
+  }
+
+  if (action === 'hwSubmit') {
+    if (submitted && !allowMakeup) throw new Error('這份作業已提交');
+    hwSaveWrongs_(assignmentA.assignmentId, sess.className, sess.seatNo, parseMaybeJson_(req.wrong) || []);
+    var spot = hwSpot_(assignmentA.assignmentId, sess.className, sess.seatNo);
+    if (!spot || !spot.questions.length) {
+      var picked2 = hwPickSpot_(assignmentA.spotCount, assignmentA.questionCount);
+      hwAppend_(SHEETS.HW_SPOT, 'HW_SPOT', {
+        '作業編號': assignmentA.assignmentId,
+        '班級': sess.className,
+        '座號': sess.seatNo,
+        '抽查題號': picked2.join(','),
+        '已看詳解': '是'
+      });
+    } else if (!spot.seen && !req.seenExplain) {
+      throw new Error('請先對照紙本講義看完抽查題');
+    } else {
+      var spots = hwReadObjects_(SHEETS.HW_SPOT, 'HW_SPOT');
+      for (var sj = 0; sj < spots.length; sj++) {
+        if (spots[sj]._row === spot._row) {
+          spots[sj]['已看詳解'] = '是';
+          hwUpdateRow_(SHEETS.HW_SPOT, 'HW_SPOT', spots[sj]._row, spots[sj]);
+          break;
+        }
+      }
+    }
+    var now = new Date();
+    if (assignmentA.startAt && now.getTime() < new Date(assignmentA.startAt).getTime()) {
+      throw new Error('作業還沒開始');
+    }
+    var due = hwDueForStudent_(assignmentA, sess);
+    var late = hwLateWorkdays_(due, now.toISOString());
+    var adj = existing ? (Number(existing['教師加減']) || 0) : 0;
+    var reason = existing ? String(existing['調整原因'] || '') : '';
+    var scored = hwCalcScore_(assignmentA, late, adj);
+    var status = late > 0 ? ('遲交 ' + late + ' 個工作天') : '準時';
+    var rec = {
+      '作業編號': assignmentA.assignmentId,
+      '班級': sess.className,
+      '座號': sess.seatNo,
+      '提交時間': now.toISOString(),
+      '狀態': status,
+      '遲交工作天': late,
+      '計算分數': scored.calculated,
+      '教師加減': adj,
+      '調整原因': reason,
+      '最終分數': scored.finalScore,
+      '調整者': existing ? existing['調整者'] : '',
+      '調整時間': existing ? existing['調整時間'] : '',
+      '允許補交': '否'
+    };
+    if (existing) hwUpdateRow_(SHEETS.HW_SUBMISSIONS, 'HW_SUBMISSIONS', existing._row, rec);
+    else hwAppend_(SHEETS.HW_SUBMISSIONS, 'HW_SUBMISSIONS', rec);
+    return hwPayloadForStudent_(assignmentA, sess);
+  }
+
+  throw new Error('未知的學生操作');
+}
+
+function hwStudentLogin(payload) {
+  return handleHwStudent_(payload || {}, 'hwLogin');
+}
+function hwStudentLoginGoogle(payload) {
+  return handleHwStudent_(payload || {}, 'hwLoginGoogle');
+}
+function hwStudentGet(payload) {
+  return handleHwStudent_(payload || {}, 'hwGetAssignment');
+}
+function hwStudentSave(payload) {
+  return handleHwStudent_(payload || {}, 'hwSaveProgress');
+}
+function hwStudentSubmit(payload) {
+  return handleHwStudent_(payload || {}, 'hwSubmit');
+}
+function hwStudentMyResult(payload) {
+  return handleHwStudent_(payload || {}, 'hwMyResult');
+}
+
+function hwStudentKey_(className, seatNo) {
+  return hwNormClass_(className) + '\t' + hwNormSeat_(seatNo);
+}
+
+function hwCsvCell_(value) {
+  var s = String(value == null ? '' : value);
+  if (/[",\r\n]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
+
+function hwIndexByStudent_(rows, assignmentId) {
+  var map = {};
+  (rows || []).forEach(function (r) {
+    if (String(r['作業編號']).trim() !== String(assignmentId || '').trim()) return;
+    map[hwStudentKey_(r['班級'], r['座號'])] = r;
+  });
+  return map;
+}
+
+function handleHwTeacher_(req, action, user) {
+  req = req || {};
+  if (action === 'hwListStudents') {
+    var className = hwNormClass_(req.className);
+    var students = hwReadObjects_(SHEETS.HW_STUDENTS, 'HW_STUDENTS').filter(function (r) {
+      return !className || hwNormClass_(r['班級']) === className;
+    }).map(function (r) {
+      return {
+        className: hwNormClass_(r['班級']),
+        seatNo: hwNormSeat_(r['座號']),
+        name: hwNormName_(r['姓名']),
+        email: hwNormEmail_(r['Email'])
+      };
+    }).sort(function (a, b) {
+      return seatNoValue_(a.seatNo) - seatNoValue_(b.seatNo);
+    });
+    return { ok: true, students: students };
+  }
+
+  if (action === 'hwImportStudents') {
+    var cn = hwNormClass_(req.className);
+    if (!cn) throw new Error('請先選班級');
+    var cloud = getCloudStore();
+    var store = cloud && cloud.store ? cloud.store : null;
+    var room = store && store.classes && store.classes[cn];
+    if (!room || !room.students || !room.students.length) throw new Error('座位表這個班還沒有學生');
+    var existing = hwReadObjects_(SHEETS.HW_STUDENTS, 'HW_STUDENTS');
+    var added = 0;
+    room.students.forEach(function (s) {
+      var seat = hwNormSeat_(s.seatNo);
+      var name = hwNormName_(s.name);
+      var found = existing.some(function (r) {
+        return hwNormClass_(r['班級']) === cn && hwNormSeat_(r['座號']) === seat;
+      });
+      if (found || !seat || !name) return;
+      hwAppend_(SHEETS.HW_STUDENTS, 'HW_STUDENTS', {
+        '班級': cn,
+        '座號': seat,
+        '姓名': name,
+        'Email': ''
+      });
+      existing.push({ '班級': cn, '座號': seat, '姓名': name });
+      added += 1;
+    });
+    ClassroomSyncService.syncRoster();
+    return { ok: true, added: added, className: cn };
+  }
+
+  if (action === 'hwListAssignments') {
+    var filter = hwNormClass_(req.className);
+    var list = hwReadObjects_(SHEETS.HW_ASSIGNMENTS, 'HW_ASSIGNMENTS').map(hwAssignmentFromRow_);
+    if (filter) list = list.filter(function (a) { return a.className === filter; });
+    list.sort(function (a, b) {
+      return String(b.assignmentId).localeCompare(String(a.assignmentId));
+    });
+    return { ok: true, assignments: list, webAppUrl: hwWebAppUrl_(), classroomApiEnabled: CLASSROOM_API_ENABLED };
+  }
+
+  if (action === 'hwCreateAssignment') {
+    var classN = hwNormClass_(req.className);
+    var title = String(req.title || '').trim();
+    if (!classN || !title) throw new Error('請填作業名稱與班級');
+    var id = hwNextId_();
+    var maxScore = Number(req.maxScore);
+    if (!isFinite(maxScore)) maxScore = 100;
+    var latePenalty = Number(req.latePenalty);
+    if (!isFinite(latePenalty)) latePenalty = 10;
+    var minScore = Number(req.minScore);
+    if (!isFinite(minScore)) minScore = 0;
+    var qCount = clampInt_(req.questionCount, 1, 200, 10);
+    var spot = clampInt_(req.spotCount, 1, 20, 2);
+    var startAt = req.startAt ? hwIso_(req.startAt) : new Date().toISOString();
+    var dueAt = req.dueAt ? hwIso_(req.dueAt) : '';
+    if (!dueAt) throw new Error('請填截止時間');
+    var studentUrl = hwStudentUrl_(id);
+    hwAppend_(SHEETS.HW_ASSIGNMENTS, 'HW_ASSIGNMENTS', {
+      '作業編號': id,
+      '名稱': title,
+      '班級': classN,
+      '題數': qCount,
+      '抽查題數': spot,
+      '開始時間': startAt,
+      '截止時間': dueAt,
+      '滿分': maxScore,
+      '每工作天扣分': latePenalty,
+      '最低分': minScore,
+      '學生連結': studentUrl,
+      '建立時間': new Date().toISOString()
+    });
+    var qi;
+    for (qi = 1; qi <= qCount; qi++) {
+      hwAppend_(SHEETS.HW_QUESTIONS, 'HW_QUESTIONS', {
+        '作業編號': id,
+        '題號': qi,
+        '詳解': ''
+      });
+    }
+    ClassroomSyncService.createCourseWork();
+    return {
+      ok: true,
+      assignment: hwGetAssignment_(id),
+      studentUrl: studentUrl
+    };
+  }
+
+  if (action === 'hwDashboard' || action === 'hwExportCsv') {
+    var asg = hwGetAssignment_(req.assignmentId);
+    if (!asg) throw new Error('找不到作業');
+    var roster = hwReadObjects_(SHEETS.HW_STUDENTS, 'HW_STUDENTS').filter(function (r) {
+      return hwNormClass_(r['班級']) === asg.className;
+    }).sort(function (a, b) {
+      return seatNoValue_(a['座號']) - seatNoValue_(b['座號']);
+    });
+    var subMap = hwIndexByStudent_(hwReadObjects_(SHEETS.HW_SUBMISSIONS, 'HW_SUBMISSIONS'), asg.assignmentId);
+    var spotMap = hwIndexByStudent_(hwReadObjects_(SHEETS.HW_SPOT, 'HW_SPOT'), asg.assignmentId);
+    var wrongAll = hwReadObjects_(SHEETS.HW_WRONG, 'HW_WRONG');
+    var wrongMap = {};
+    wrongAll.forEach(function (r) {
+      if (String(r['作業編號']).trim() !== asg.assignmentId) return;
+      var k = hwStudentKey_(r['班級'], r['座號']);
+      if (!wrongMap[k]) wrongMap[k] = [];
+      wrongMap[k].push({ q: Number(r['題號']) || 0, reason: String(r['原因'] || '') });
+    });
+    var rows = roster.map(function (r) {
+      var sess = {
+        className: hwNormClass_(r['班級']),
+        seatNo: hwNormSeat_(r['座號']),
+        name: hwNormName_(r['姓名']),
+        email: hwNormEmail_(r['Email'])
+      };
+      var key = hwStudentKey_(sess.className, sess.seatNo);
+      var sub = subMap[key] || null;
+      var pub = hwSubmissionPublic_(sub, asg, sess);
+      var wrong = wrongMap[key] || [];
+      var spotRow = spotMap[key];
+      var spotNos = '';
+      if (spotRow) {
+        spotNos = String(spotRow['抽查題號'] || '').split(',').map(function (x) {
+          return String(x).trim();
+        }).filter(Boolean).join(',');
+      }
+      var done = pub.status && pub.status !== '未交' && pub.status !== '進行中';
+      return {
+        className: sess.className,
+        seatNo: sess.seatNo,
+        name: sess.name,
+        email: sess.email,
+        done: done,
+        status: pub.status,
+        submittedAt: pub.submittedAt,
+        wrongCount: wrong.length,
+        wrongNos: wrong.map(function (w) { return w.q; }).join(','),
+        spotNos: spotNos,
+        lateWorkdays: pub.lateWorkdays,
+        penalty: done ? ((Number(asg.maxScore) || 100) - (Number(pub.calculatedScore) || 0)) : '',
+        calculatedScore: pub.calculatedScore,
+        adjustment: pub.adjustment,
+        adjustmentReason: pub.adjustmentReason,
+        finalScore: pub.finalScore,
+        allowMakeup: pub.allowMakeup
+      };
+    });
+    if (action === 'hwExportCsv') {
+      var simple = ['student_email,student_name,score'];
+      var full = ['student_email,student_name,seat_number,score,submitted_at,late_workdays,status'];
+      rows.forEach(function (row) {
+        var score = row.finalScore === '' || row.finalScore == null ? '' : row.finalScore;
+        simple.push([hwCsvCell_(row.email), hwCsvCell_(row.name), hwCsvCell_(score)].join(','));
+        full.push([
+          hwCsvCell_(row.email),
+          hwCsvCell_(row.name),
+          hwCsvCell_(row.seatNo),
+          hwCsvCell_(score),
+          hwCsvCell_(row.submittedAt),
+          hwCsvCell_(row.lateWorkdays),
+          hwCsvCell_(row.status)
+        ].join(','));
+      });
+      return {
+        ok: true,
+        csv: '\uFEFF' + simple.join('\r\n'),
+        csvFull: '\uFEFF' + full.join('\r\n'),
+        assignment: asg
+      };
+    }
+    return { ok: true, assignment: asg, rows: rows };
+  }
+
+  if (action === 'hwAdjust') {
+    var asgA = hwGetAssignment_(req.assignmentId);
+    if (!asgA) throw new Error('找不到作業');
+    var seatA = hwNormSeat_(req.seatNo);
+    var classA = asgA.className;
+    var subA = hwFindSubmission_(asgA.assignmentId, classA, seatA);
+    if (!subA) throw new Error('這位學生還沒有繳交紀錄，無法調整');
+    var adj = Number(req.adjustment);
+    if (!isFinite(adj)) throw new Error('加減分請填數字');
+    var lateA = Number(subA['遲交工作天']) || 0;
+    var scoredA = hwCalcScore_(asgA, lateA, adj);
+    subA['教師加減'] = adj;
+    subA['調整原因'] = String(req.reason || '');
+    subA['最終分數'] = scoredA.finalScore;
+    subA['計算分數'] = scoredA.calculated;
+    subA['調整者'] = user && user.email ? user.email : '';
+    subA['調整時間'] = new Date().toISOString();
+    hwUpdateRow_(SHEETS.HW_SUBMISSIONS, 'HW_SUBMISSIONS', subA._row, subA);
+    ClassroomSyncService.syncGrade();
+    return { ok: true };
+  }
+
+  if (action === 'hwOverride') {
+    var asgO = hwGetAssignment_(req.assignmentId);
+    if (!asgO) throw new Error('找不到作業');
+    var seatO = hwNormSeat_(req.seatNo);
+    if (!seatO || !req.customDueAt) throw new Error('請填座號與個別截止時間');
+    hwDeleteRowsWhere_(SHEETS.HW_OVERRIDES, 'HW_OVERRIDES', function (r) {
+      return String(r['作業編號']).trim() === asgO.assignmentId &&
+        hwNormClass_(r['班級']) === asgO.className &&
+        hwNormSeat_(r['座號']) === seatO;
+    });
+    hwAppend_(SHEETS.HW_OVERRIDES, 'HW_OVERRIDES', {
+      '作業編號': asgO.assignmentId,
+      '班級': asgO.className,
+      '座號': seatO,
+      '個別截止': hwIso_(req.customDueAt),
+      '原因': String(req.reason || '')
+    });
+    return { ok: true };
+  }
+
+  if (action === 'hwSetMissing') {
+    var asgM = hwGetAssignment_(req.assignmentId);
+    if (!asgM) throw new Error('找不到作業');
+    var seatM = hwNormSeat_(req.seatNo);
+    var subM = hwFindSubmission_(asgM.assignmentId, asgM.className, seatM);
+    var mode = String(req.mode || '').trim();
+    if (mode === 'zero') {
+      var recM = {
+        '作業編號': asgM.assignmentId,
+        '班級': asgM.className,
+        '座號': seatM,
+        '提交時間': subM ? subM['提交時間'] : '',
+        '狀態': '未交',
+        '遲交工作天': '',
+        '計算分數': 0,
+        '教師加減': 0,
+        '調整原因': String(req.reason || '教師給 0 分'),
+        '最終分數': 0,
+        '調整者': user && user.email ? user.email : '',
+        '調整時間': new Date().toISOString(),
+        '允許補交': '否'
+      };
+      if (subM) hwUpdateRow_(SHEETS.HW_SUBMISSIONS, 'HW_SUBMISSIONS', subM._row, recM);
+      else hwAppend_(SHEETS.HW_SUBMISSIONS, 'HW_SUBMISSIONS', recM);
+      return { ok: true };
+    }
+    if (mode === 'allowMakeup') {
+      if (!subM) {
+        hwAppend_(SHEETS.HW_SUBMISSIONS, 'HW_SUBMISSIONS', {
+          '作業編號': asgM.assignmentId,
+          '班級': asgM.className,
+          '座號': seatM,
+          '提交時間': '',
+          '狀態': '未交',
+          '遲交工作天': '',
+          '計算分數': '',
+          '教師加減': 0,
+          '調整原因': '',
+          '最終分數': '',
+          '調整者': '',
+          '調整時間': '',
+          '允許補交': '是'
+        });
+      } else {
+        subM['允許補交'] = '是';
+        hwUpdateRow_(SHEETS.HW_SUBMISSIONS, 'HW_SUBMISSIONS', subM._row, subM);
+      }
+      return { ok: true };
+    }
+    throw new Error('未知的未交處理');
+  }
+
+  throw new Error('未知的教師作業操作');
+}
+
