@@ -455,6 +455,55 @@
     return Object.keys(store.classes).sort();
   }
 
+  function emptyGroups(size) {
+    return { size: clampInt(size, 2, 12, 4), assign: {}, scores: {} };
+  }
+
+  function normalizeGroups(raw, students) {
+    raw = raw || {};
+    var size = clampInt(raw.size, 2, 12, 4);
+    var seats = {};
+    (students || []).forEach(function (s) {
+      seats[String(s.seatNo)] = true;
+    });
+    var assign = {};
+    Object.keys(raw.assign || {}).forEach(function (seat) {
+      if (!seats[seat]) return;
+      var gid = parseInt(raw.assign[seat], 10);
+      if (gid >= 1 && gid <= 40) assign[seat] = gid;
+    });
+    var used = {};
+    Object.keys(assign).forEach(function (seat) {
+      used[String(assign[seat])] = true;
+    });
+    var scores = {};
+    Object.keys(raw.scores || {}).forEach(function (gid) {
+      if (!used[String(gid)]) return;
+      scores[String(gid)] = Number(raw.scores[gid]) || 0;
+    });
+    return { size: size, assign: assign, scores: scores };
+  }
+
+  function ensureGroups(classroom) {
+    classroom.groups = normalizeGroups(classroom.groups, classroom.students);
+    return classroom.groups;
+  }
+
+  function groupIdOf(room, seatNo) {
+    var assign = room && room.groups && room.groups.assign;
+    if (!assign) return 0;
+    return parseInt(assign[String(seatNo)], 10) || 0;
+  }
+
+  function groupMembers(room, gid) {
+    gid = parseInt(gid, 10);
+    if (!gid) return [];
+    var assign = (room.groups && room.groups.assign) || {};
+    return (room.students || []).filter(function (s) {
+      return parseInt(assign[String(s.seatNo)], 10) === gid;
+    });
+  }
+
   function ensureClass(store, className) {
     if (!store.classes[className]) {
       store.classes[className] = {
@@ -463,7 +512,8 @@
         cols: 7,
         version: 1,
         updatedAt: nowIso(),
-        students: []
+        students: [],
+        groups: emptyGroups(4)
       };
     }
     return store.classes[className];
@@ -507,6 +557,7 @@
   function payload(store, className) {
     var room = ensureClass(store, className);
     autoPlace(room);
+    ensureGroups(room);
     return withRoll_({
       ok: true,
       classNames: classNames(store),
@@ -516,6 +567,7 @@
 
   function persistRoom(store, classroom, bump) {
     autoPlace(classroom);
+    ensureGroups(classroom);
     if (bump) classroom.version = (Number(classroom.version) || 1) + 1;
     classroom.updatedAt = nowIso();
     store.classes[classroom.className] = classroom;
@@ -534,7 +586,9 @@
       newScore: item.newScore,
       detail: item.detail || '',
       undoable: item.undoable === true,
-      undone: false
+      undone: false,
+      groupId: item.groupId ? String(item.groupId) : '',
+      seatNos: Array.isArray(item.seatNos) ? item.seatNos.map(String) : []
     });
     if (store.history.length > 800) store.history = store.history.slice(-800);
   }
@@ -542,22 +596,24 @@
   function normalize(state) {
     var className = String(state.className || '').trim();
     if (!className) throw new Error('缺少班級名稱');
+    var students = (state.students || []).map(function (s) {
+      return {
+        seatNo: String(s.seatNo || '').trim(),
+        name: String(s.name || '').trim(),
+        score: Number(s.score) || 0,
+        row: s.row === null || s.row === undefined || s.row === '' ? null : Number(s.row),
+        col: s.col === null || s.col === undefined || s.col === '' ? null : Number(s.col),
+        note: String(s.note || '')
+      };
+    }).filter(function (s) { return s.seatNo && s.name; });
     return {
       className: className,
       rows: clampInt(state.rows, 1, 20, 6),
       cols: clampInt(state.cols, 1, 16, 7),
       version: Number(state.version) || 1,
       updatedAt: state.updatedAt || nowIso(),
-      students: (state.students || []).map(function (s) {
-        return {
-          seatNo: String(s.seatNo || '').trim(),
-          name: String(s.name || '').trim(),
-          score: Number(s.score) || 0,
-          row: s.row === null || s.row === undefined || s.row === '' ? null : Number(s.row),
-          col: s.col === null || s.col === undefined || s.col === '' ? null : Number(s.col),
-          note: String(s.note || '')
-        };
-      }).filter(function (s) { return s.seatNo && s.name; })
+      students: students,
+      groups: normalizeGroups(state.groups, students)
     };
   }
 
@@ -655,8 +711,18 @@
       incoming.students.forEach(function (s) {
         if (Object.prototype.hasOwnProperty.call(scores, String(s.seatNo))) s.score = scores[String(s.seatNo)];
       });
+      incoming.groups = normalizeGroups(state.groups || current.groups, incoming.students);
       persistRoom(store, incoming, false);
       return wrap(payload(store, incoming.className));
+    },
+    saveGroups: function (body) {
+      var store = loadStore();
+      var className = String(body.className || '').trim();
+      if (!className) throw new Error('缺少班級名稱');
+      var room = ensureClass(store, className);
+      room.groups = normalizeGroups(body.groups, room.students);
+      persistRoom(store, room, false);
+      return wrap(payload(store, className));
     },
     applyScoreChange: function (body) {
       var store = loadStore();
@@ -665,22 +731,39 @@
       var delta = Number(body.delta);
       if (!className || !seatNo || !isFinite(delta) || delta === 0) throw new Error('加扣分資料不完整');
       var room = ensureClass(store, className);
+      ensureGroups(room);
       var student = room.students.filter(function (s) { return String(s.seatNo) === seatNo; })[0];
       if (!student) throw new Error('找不到座號 ' + seatNo);
-      student.score = (Number(student.score) || 0) + delta;
+      var gid = body.applyGroup ? groupIdOf(room, seatNo) : 0;
+      var members = gid ? groupMembers(room, gid) : [student];
+      if (!members.length) members = [student];
+      members.forEach(function (s) {
+        s.score = (Number(s.score) || 0) + delta;
+      });
+      var seatNos = members.map(function (s) { return String(s.seatNo); });
+      if (gid) {
+        room.groups.scores[String(gid)] = (Number(room.groups.scores[String(gid)]) || 0) + delta;
+      }
       persistRoom(store, room, false);
       addHistory(store, {
         className: className,
-        type: delta > 0 ? '加分' : '扣分',
+        type: gid ? (delta > 0 ? '小組加分' : '小組扣分') : (delta > 0 ? '加分' : '扣分'),
         seatNo: seatNo,
-        name: student.name,
+        name: gid ? ('第' + gid + '組') : student.name,
         delta: delta,
-        newScore: student.score,
-        detail: (delta > 0 ? '+' : '') + delta,
-        undoable: true
+        newScore: gid ? (Number(room.groups.scores[String(gid)]) || 0) : student.score,
+        detail: gid
+          ? (members.map(function (s) { return s.name; }).join('、') + ' 各 ' + (delta > 0 ? '+' : '') + delta)
+          : ((delta > 0 ? '+' : '') + delta),
+        undoable: true,
+        groupId: gid || '',
+        seatNos: seatNos
       });
       saveStore(store);
-      return wrap(payload(store, className));
+      var data = payload(store, className);
+      data.changedSeatNos = seatNos;
+      data.groupId = gid || 0;
+      return wrap(data);
     },
     undoLastAction: function (className) {
       var store = loadStore();
@@ -696,24 +779,44 @@
       if (idx < 0) throw new Error('沒有可復原的加扣分');
       var item = history[idx];
       var room = ensureClass(store, className);
-      var student = room.students.filter(function (s) { return String(s.seatNo) === String(item.seatNo); })[0];
-      if (!student) throw new Error('找不到要復原的學生');
-      student.score = (Number(student.score) || 0) - Number(item.delta || 0);
+      ensureGroups(room);
+      var seatNos = (item.seatNos && item.seatNos.length) ? item.seatNos.map(String) : [String(item.seatNo)];
+      var touched = [];
+      seatNos.forEach(function (sn) {
+        var s = room.students.filter(function (stu) { return String(stu.seatNo) === sn; })[0];
+        if (s) {
+          s.score = (Number(s.score) || 0) - Number(item.delta || 0);
+          touched.push(s);
+        }
+      });
+      if (!touched.length) throw new Error('找不到要復原的學生');
+      if (item.groupId) {
+        var gidKey = String(item.groupId);
+        room.groups.scores[gidKey] = (Number(room.groups.scores[gidKey]) || 0) - Number(item.delta || 0);
+      }
       item.undone = true;
       persistRoom(store, room, false);
       addHistory(store, {
         className: className,
         type: '復原',
         seatNo: item.seatNo,
-        name: student.name,
+        name: item.name || touched[0].name,
         delta: -Number(item.delta || 0),
-        newScore: student.score,
-        detail: '復原',
-        undoable: false
+        newScore: touched[0].score,
+        detail: item.groupId ? ('復原第' + item.groupId + '組') : '復原',
+        undoable: false,
+        groupId: item.groupId || '',
+        seatNos: seatNos
       });
       saveStore(store);
       var data = payload(store, className);
-      data.undone = { seatNo: item.seatNo, name: student.name, reversedDelta: -Number(item.delta || 0) };
+      data.undone = {
+        seatNo: item.seatNo,
+        name: item.name || touched[0].name,
+        reversedDelta: -Number(item.delta || 0),
+        seatNos: seatNos,
+        groupId: item.groupId || 0
+      };
       return wrap(data);
     },
     resetScores: function (className) {
@@ -724,6 +827,8 @@
       room.students.forEach(function (s) {
         s.score = 0;
       });
+      ensureGroups(room);
+      room.groups.scores = {};
       (store.history || []).forEach(function (item) {
         if (item.className === className && item.undoable) item.undone = true;
       });

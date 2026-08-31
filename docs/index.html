@@ -41,15 +41,39 @@
         </div>
         <button type="button" class="tool" id="btnUndo">復原</button>
         <button type="button" class="tool accent" id="btnLottery">抽籤</button>
+        <button type="button" class="tool" id="btnGroup">分組</button>
         <button type="button" class="tool primary" id="btnSave">立即同步</button>
       </nav>
 
       <main class="stage">
         <section class="board-wrap">
           <div class="blackboard">講台／黑板</div>
+          <div id="groupBar" class="group-bar" hidden>
+            <div class="group-bar-row">
+              <label class="group-size-label">每組人數
+                <input type="number" id="groupSize" min="2" max="12" value="4" inputmode="numeric">
+              </label>
+              <button type="button" class="tool" id="btnGroupRandom">隨機分組</button>
+              <button type="button" class="tool" id="btnGroupManual">手動分組</button>
+              <label class="group-pick-label">指定到
+                <select id="groupPick" aria-label="指定組別"></select>
+              </label>
+              <button type="button" class="tool" id="btnGroupClear">清除分組</button>
+            </div>
+            <label class="check group-apply">
+              <input type="checkbox" id="groupApplyScore">
+              加扣分套用整組（小組分會加進每位組員的平時成績）
+            </label>
+            <p class="hint" id="groupHint">隨機：依每組人數打散。手動：先選組別再點學生，再點一次可移出。</p>
+          </div>
           <div id="board" class="board" aria-label="座位表"></div>
         </section>
         <aside class="side">
+          <div id="groupRankWrap" class="group-rank-wrap" hidden>
+            <h2>小組分數</h2>
+            <p class="hint">點小組可一次加扣整組。小組分會加進每位組員的上課加扣，列入平時成績。</p>
+            <ol id="groupRoster" class="roster rank-list"></ol>
+          </div>
           <h2>分數排行</h2>
           <p class="hint">只顯示有加分或扣分的同學，分數高的在上面。</p>
           <ol id="roster" class="roster rank-list"></ol>

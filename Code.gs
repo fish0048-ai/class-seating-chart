@@ -14,7 +14,7 @@ const SHEETS = {
 const CLOUD_CHUNK = 45000;
 
 const HEADERS = {
-  STUDENTS: ['班級', '座號', '姓名', '分數', '列', '欄', '備註'],
+  STUDENTS: ['班級', '座號', '姓名', '分數', '列', '欄', '備註', '組別'],
   CONFIG: ['班級', '列數', '欄數', '版本', '更新時間'],
   HISTORY: ['時間', '班級', '類型', '座號', '姓名', '分數變化', '新分數', '詳情', '可復原', '已復原']
 };
@@ -578,6 +578,13 @@ function readCloudChunks_(sheet) {
   return out;
 }
 
+function groupIdOf_(room, seatNo) {
+  var assign = room && room.groups && room.groups.assign;
+  if (!assign) return '';
+  var gid = assign[String(seatNo)];
+  return gid ? String(gid) : '';
+}
+
 /** 把 JSON 裡的班級／學生同步到「學生」「班級設定」，方便在試算表後台直接看到。 */
 function syncVisibleRoster_(ss, store) {
   var classes = (store && store.classes) || {};
@@ -600,7 +607,8 @@ function syncVisibleRoster_(ss, store) {
         Number(s.score) || 0,
         s.row == null || s.row === '' ? '' : Number(s.row) + 1,
         s.col == null || s.col === '' ? '' : Number(s.col) + 1,
-        s.note || ''
+        s.note || '',
+        groupIdOf_(room, seatNo)
       ]);
     });
     configRows.push([
@@ -689,7 +697,8 @@ function ensureHelpSheet_(ss) {
     ['上傳名單：設定裡可上傳 CSV／Excel，欄位為班級、座號、姓名。'],
     ['拖放：按住學生卡片拖到其他座位，可對調或移到空位。'],
     ['抽籤：隨機抽出一位（可設定本堂不重複）。'],
-    ['加分／扣分：先選分數，再點學生。'],
+    ['加分／扣分：先選分數，再點學生。小組加分會加進每位組員的平時成績。'],
+    ['分組：上課模式可隨機或手動分組，並設定每組人數。'],
     ['復原：撤銷上一筆加扣分。'],
     ['存檔：把目前座位與分數寫回試算表。'],
     ['同步：從試算表拉取最新資料，方便換平板繼續用。'],
@@ -713,7 +722,7 @@ function seedSampleData_(ss) {
     const seatNo = String(i + 1).padStart(2, '0');
     const row = Math.floor(i / 6) + 1;
     const col = (i % 6) + 1;
-    return ['範例班', seatNo, name, 0, row, col, ''];
+    return ['範例班', seatNo, name, 0, row, col, '', ''];
   });
   ss.getSheetByName(SHEETS.STUDENTS)
     .getRange(2, 1, students.length, HEADERS.STUDENTS.length)
@@ -843,7 +852,8 @@ function writeStudents_(ss, classroom) {
       Number(s.score) || 0,
       s.row == null ? '' : Number(s.row) + 1,
       s.col == null ? '' : Number(s.col) + 1,
-      s.note || ''
+      s.note || '',
+      groupIdOf_(classroom, s.seatNo)
     ];
   }));
   if (last >= 2) {

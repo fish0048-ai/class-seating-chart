@@ -24,8 +24,17 @@
     weekKey: '',
     statsView: 'class',
     statsSeatNo: '',
-    timetableSheet: 0
+    timetableSheet: 0,
+    groupPanel: false,
+    groupAssign: false,
+    groupPick: 1
   };
+
+  const GROUP_COLORS = [
+    '#c9783a', '#2f6f8f', '#2c7a4b', '#8b5a9e',
+    '#b4413c', '#3d6b8a', '#9a6b2f', '#5a7a3c',
+    '#6b4c8a', '#1b6e6a', '#a05a4a', '#4a6fa5'
+  ];
 
   const els = {
     classSelect: document.getElementById('classSelect'),
@@ -33,6 +42,13 @@
     board: document.getElementById('board'),
     roster: document.getElementById('roster'),
     rankEmpty: document.getElementById('rankEmpty'),
+    groupBar: document.getElementById('groupBar'),
+    groupSize: document.getElementById('groupSize'),
+    groupPick: document.getElementById('groupPick'),
+    groupHint: document.getElementById('groupHint'),
+    groupApplyScore: document.getElementById('groupApplyScore'),
+    groupRankWrap: document.getElementById('groupRankWrap'),
+    groupRoster: document.getElementById('groupRoster'),
     toast: document.getElementById('toast'),
     lotteryModal: document.getElementById('lotteryModal'),
     lotteryName: document.getElementById('lotteryName'),
@@ -141,6 +157,42 @@
   document.getElementById('btnLottery').addEventListener('click', function () {
     openLottery(true);
   });
+  var btnGroup = document.getElementById('btnGroup');
+  if (btnGroup) {
+    btnGroup.addEventListener('click', function () {
+      App.groupPanel = !App.groupPanel;
+      if (!App.groupPanel) App.groupAssign = false;
+      renderAll();
+      toast(App.groupPanel ? '分組面板已打開' : '分組面板已收合');
+    });
+  }
+  var btnGroupRandom = document.getElementById('btnGroupRandom');
+  if (btnGroupRandom) btnGroupRandom.addEventListener('click', randomGroups);
+  var btnGroupManual = document.getElementById('btnGroupManual');
+  if (btnGroupManual) {
+    btnGroupManual.addEventListener('click', function () {
+      App.groupPanel = true;
+      App.groupAssign = !App.groupAssign;
+      if (App.groupAssign) App.mode = 'select';
+      renderAll();
+      toast(App.groupAssign ? '手動分組：先選組別再點學生，再點一次可移出' : '已離開手動分組');
+    });
+  }
+  var btnGroupClear = document.getElementById('btnGroupClear');
+  if (btnGroupClear) btnGroupClear.addEventListener('click', clearGroups);
+  if (els.groupSize) {
+    els.groupSize.addEventListener('change', function () {
+      var g = classGroups();
+      g.size = clampGroupSize(els.groupSize.value);
+      persistGroups();
+    });
+  }
+  if (els.groupPick) {
+    els.groupPick.addEventListener('change', function () {
+      App.groupPick = parseInt(els.groupPick.value, 10) || 1;
+      if (App.groupAssign) renderAll();
+    });
+  }
   document.getElementById('btnLotteryAgain').addEventListener('click', function () {
     openLottery(false);
   });
@@ -672,6 +724,8 @@
     renderMeta();
     renderBoard();
     renderRoster();
+    renderGroupBar();
+    renderGroupRoster();
     renderMode();
     renderDelta();
   }
@@ -730,8 +784,14 @@
   function seatCell(row, col) {
     const student = studentAt(row, col);
     const selected = student && student.seatNo === App.selectedSeatNo ? ' selected' : '';
+    const gid = student ? studentGroupId(student.seatNo) : 0;
+    const groupCls = gid ? ' has-group' : '';
+    const pickedCls = (App.groupAssign && gid === App.groupPick) ? ' group-picked' : '';
+    const groupStyle = gid ? ' style="--group-color:' + groupColor(gid) + '"' : '';
+    const groupBadge = gid ? '<span class="seat-group">第' + gid + '組</span>' : '';
     const card = student ? (
-      '<article class="seat-card' + selected + '" data-seat="' + escapeHtml(student.seatNo) + '">' +
+      '<article class="seat-card' + selected + groupCls + pickedCls + '" data-seat="' + escapeHtml(student.seatNo) + '"' + groupStyle + '>' +
+        groupBadge +
         '<span class="seat-no">' + escapeHtml(student.seatNo) + '</span>' +
         '<span class="seat-name">' + escapeHtml(student.name) + '</span>' +
         '<span class="seat-score ' + scoreClass(student.score) + '">' + student.score + '</span>' +
@@ -757,6 +817,10 @@
       return;
     }
     App.selectedSeatNo = seatNo;
+    if (App.groupAssign && App.groupPanel) {
+      toggleStudentGroup(student);
+      return;
+    }
     if (App.mode === 'plus' || App.mode === 'minus') {
       const sign = App.mode === 'plus' ? 1 : -1;
       changeScore(student, sign * App.delta);
@@ -921,13 +985,19 @@
 
   function setMode(mode) {
     App.mode = mode;
+    if (mode === 'plus' || mode === 'minus') App.groupAssign = false;
     renderMode();
+    renderGroupBar();
     toast(mode === 'plus' ? '加分模式：點學生即可加分' : mode === 'minus' ? '扣分模式：點學生即可扣分' : '已回到選取模式');
   }
 
   function renderMode() {
     document.getElementById('btnPlus').classList.toggle('active-plus', App.mode === 'plus');
     document.getElementById('btnMinus').classList.toggle('active-minus', App.mode === 'minus');
+    var btnGroup = document.getElementById('btnGroup');
+    if (btnGroup) btnGroup.classList.toggle('active-group', App.groupPanel);
+    var btnGroupManual = document.getElementById('btnGroupManual');
+    if (btnGroupManual) btnGroupManual.classList.toggle('active-group', App.groupAssign);
   }
 
   function renderDelta() {
@@ -936,25 +1006,234 @@
     });
   }
 
-  function changeScore(student, delta) {
+  function groupColor(gid) {
+    var i = (parseInt(gid, 10) || 1) - 1;
+    return GROUP_COLORS[((i % GROUP_COLORS.length) + GROUP_COLORS.length) % GROUP_COLORS.length];
+  }
+
+  function clampGroupSize(value) {
+    var n = parseInt(value, 10);
+    if (!isFinite(n)) n = 4;
+    return Math.min(12, Math.max(2, n));
+  }
+
+  function classGroups() {
+    if (!App.classroom) return { size: 4, assign: {}, scores: {} };
+    if (!App.classroom.groups) App.classroom.groups = { size: 4, assign: {}, scores: {} };
+    if (!App.classroom.groups.assign) App.classroom.groups.assign = {};
+    if (!App.classroom.groups.scores) App.classroom.groups.scores = {};
+    return App.classroom.groups;
+  }
+
+  function studentGroupId(seatNo) {
+    return parseInt(classGroups().assign[String(seatNo)], 10) || 0;
+  }
+
+  function assignedCount() {
+    return Object.keys(classGroups().assign || {}).length;
+  }
+
+  function maxGroupId() {
+    var g = classGroups();
+    var size = clampGroupSize(g.size);
+    var n = (App.classroom.students || []).length;
+    var needed = Math.max(1, Math.ceil(n / size));
+    var maxA = 0;
+    Object.keys(g.assign || {}).forEach(function (k) {
+      var gid = parseInt(g.assign[k], 10);
+      if (gid > maxA) maxA = gid;
+    });
+    return Math.max(needed, maxA, App.groupPick || 1);
+  }
+
+  function fillGroupPick() {
+    if (!els.groupPick) return;
+    var extra = maxGroupId() + (App.groupAssign ? 1 : 0);
+    var html = '';
+    for (var i = 1; i <= extra; i++) {
+      html += '<option value="' + i + '">第' + i + '組</option>';
+    }
+    if (els.groupPick.options.length !== extra) {
+      els.groupPick.innerHTML = html;
+    }
+    els.groupPick.value = String(App.groupPick || 1);
+    if (els.groupPick.selectedIndex < 0) {
+      els.groupPick.value = '1';
+      App.groupPick = 1;
+    }
+  }
+
+  function renderGroupBar() {
+    if (!els.groupBar) return;
+    els.groupBar.hidden = !App.groupPanel;
+    var btnGroup = document.getElementById('btnGroup');
+    if (btnGroup) btnGroup.classList.toggle('active-group', App.groupPanel);
+    var btnGroupManual = document.getElementById('btnGroupManual');
+    if (btnGroupManual) btnGroupManual.classList.toggle('active-group', App.groupAssign);
+    var g = classGroups();
+    if (els.groupSize && document.activeElement !== els.groupSize) {
+      els.groupSize.value = String(g.size || 4);
+    }
+    fillGroupPick();
+    if (els.groupHint) {
+      els.groupHint.textContent = App.groupAssign
+        ? '手動：點學生編入第' + (App.groupPick || 1) + '組，再點一次可移出。'
+        : '隨機：依每組人數打散。手動：先選組別再點學生。小組加分會進每位組員的平時成績。';
+    }
+  }
+
+  function renderGroupRoster() {
+    if (!els.groupRoster || !els.groupRankWrap || !App.classroom) return;
+    var g = classGroups();
+    var buckets = {};
+    (App.classroom.students || []).forEach(function (s) {
+      var gid = parseInt(g.assign[String(s.seatNo)], 10);
+      if (!gid) return;
+      if (!buckets[gid]) buckets[gid] = [];
+      buckets[gid].push(s);
+    });
+    var ids = Object.keys(buckets).map(Number).sort(function (a, b) { return a - b; });
+    els.groupRankWrap.hidden = ids.length === 0;
+    if (!ids.length) {
+      els.groupRoster.innerHTML = '';
+      return;
+    }
+    var ranked = ids.slice().sort(function (a, b) {
+      var sa = Number(g.scores[String(a)]) || 0;
+      var sb = Number(g.scores[String(b)]) || 0;
+      if (sb !== sa) return sb - sa;
+      return a - b;
+    });
+    els.groupRoster.innerHTML = ranked.map(function (gid, index) {
+      var score = Number(g.scores[String(gid)]) || 0;
+      var signed = (score > 0 ? '+' : '') + score;
+      var names = buckets[gid].map(function (s) { return s.name; }).join('、');
+      var selected = buckets[gid].some(function (s) { return s.seatNo === App.selectedSeatNo; }) ? ' selected' : '';
+      var medal = index === 0 ? ' gold' : index === 1 ? ' silver' : index === 2 ? ' bronze' : '';
+      return '<li><button type="button" class="' + selected + medal + '" data-group="' + gid + '" style="--group-color:' + groupColor(gid) + '">' +
+        '<span class="rank-no">' + gid + '</span>' +
+        '<span class="rank-main"><span class="rank-name">第' + gid + '組</span>' +
+        '<span class="rank-meta">' + buckets[gid].length + '人 · ' + escapeHtml(names) + '</span></span>' +
+        '<strong class="' + scoreClass(score) + '">' + signed + '</strong></button></li>';
+    }).join('');
+    els.groupRoster.querySelectorAll('button').forEach(function (button) {
+      button.addEventListener('click', function () {
+        var gid = parseInt(button.getAttribute('data-group'), 10);
+        var members = buckets[gid] || [];
+        if (members[0]) App.selectedSeatNo = members[0].seatNo;
+        if (App.mode === 'plus' || App.mode === 'minus') {
+          var sign = App.mode === 'plus' ? 1 : -1;
+          if (members[0]) changeScore(members[0], sign * App.delta, true);
+        } else {
+          renderAll();
+        }
+      });
+    });
+  }
+
+  var groupsSaveSeq = 0;
+
+  function persistGroups(message) {
+    if (!App.classroom) return;
+    var seq = ++groupsSaveSeq;
+    var g = classGroups();
+    var snapshot = {
+      size: g.size,
+      assign: Object.assign({}, g.assign),
+      scores: Object.assign({}, g.scores)
+    };
+    run('saveGroups', [{
+      className: App.classroom.className,
+      groups: snapshot
+    }], function (data) {
+      if (seq !== groupsSaveSeq) return;
+      App.classroom = data.classroom;
+      renderAll();
+      if (message) toast(message);
+    }, true);
+  }
+
+  function toggleStudentGroup(student) {
+    var g = classGroups();
+    var seat = String(student.seatNo);
+    var pick = parseInt(App.groupPick, 10) || 1;
+    if (parseInt(g.assign[seat], 10) === pick) {
+      delete g.assign[seat];
+      toast(student.name + ' 已移出第' + pick + '組');
+    } else {
+      g.assign[seat] = pick;
+      toast(student.name + ' → 第' + pick + '組');
+    }
+    persistGroups();
+  }
+
+  function randomGroups() {
+    if (!App.classroom) return;
+    var students = (App.classroom.students || []).slice();
+    if (!students.length) {
+      toast('沒有學生可以分組');
+      return;
+    }
+    var size = clampGroupSize(els.groupSize ? els.groupSize.value : classGroups().size);
+    if (assignedCount() && !window.confirm('重新隨機會蓋掉目前分組，小組分數也會歸零。確定嗎？')) {
+      return;
+    }
+    var i;
+    for (i = students.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var tmp = students[i];
+      students[i] = students[j];
+      students[j] = tmp;
+    }
+    var assign = {};
+    students.forEach(function (s, idx) {
+      assign[String(s.seatNo)] = Math.floor(idx / size) + 1;
+    });
+    App.classroom.groups = { size: size, assign: assign, scores: {} };
+    App.groupPanel = true;
+    App.groupAssign = false;
+    var n = Math.ceil(students.length / size);
+    persistGroups('已分成 ' + n + ' 組，每組最多 ' + size + ' 人');
+  }
+
+  function clearGroups() {
+    if (!assignedCount()) {
+      toast('目前沒有分組');
+      return;
+    }
+    if (!window.confirm('清除全班分組與小組分數？個人加扣分不會動。')) return;
+    var size = classGroups().size;
+    App.classroom.groups = { size: size, assign: {}, scores: {} };
+    App.groupAssign = false;
+    persistGroups('已清除分組');
+  }
+
+  function changeScore(student, delta, forceGroup) {
     if (!delta) {
       return;
     }
+    var applyGroup = forceGroup === true || !!(els.groupApplyScore && els.groupApplyScore.checked);
     run('applyScoreChange', [{
       className: App.classroom.className,
       seatNo: student.seatNo,
-      delta: delta
+      delta: delta,
+      applyGroup: applyGroup
     }], function (data) {
       App.classroom = data.classroom;
       App.selectedSeatNo = student.seatNo;
-      App.rankBumpSeat = student.seatNo;
+      var seats = data.changedSeatNos && data.changedSeatNos.length ? data.changedSeatNos : [student.seatNo];
+      App.rankBumpSeat = seats[0];
       renderAll();
-      flashSeat(student.seatNo, delta > 0 ? 'score-plus' : 'score-minus');
-      spawnScoreFloat(student.seatNo, delta);
+      seats.forEach(function (sn) {
+        flashSeat(sn, delta > 0 ? 'score-plus' : 'score-minus');
+        spawnScoreFloat(sn, delta);
+      });
       if (delta > 0) spawnConfetti(18, ['#2c7a4b', '#7dce9a', '#f3c84b']);
-      toast(student.name + ' ' + (delta > 0 ? '+' : '') + delta + ' 分');
+      var label = data.groupId ? ('第' + data.groupId + '組（' + seats.length + '人）') : student.name;
+      var extra = (applyGroup && !data.groupId) ? '（尚未分組，只加個人）' : '';
+      toast(label + ' ' + (delta > 0 ? '+' : '') + delta + ' 分' + extra);
       setTimeout(function () {
-        if (App.rankBumpSeat === student.seatNo) App.rankBumpSeat = null;
+        if (App.rankBumpSeat === seats[0]) App.rankBumpSeat = null;
       }, 900);
     });
   }
@@ -962,11 +1241,14 @@
   function undoLast() {
     run('undoLastAction', [App.classroom.className], function (data) {
       App.classroom = data.classroom;
+      var seats = (data.undone.seatNos && data.undone.seatNos.length) ? data.undone.seatNos : [data.undone.seatNo];
       App.selectedSeatNo = data.undone.seatNo;
-      App.rankBumpSeat = data.undone.seatNo;
+      App.rankBumpSeat = seats[0];
       renderAll();
-      flashSeat(data.undone.seatNo, data.undone.reversedDelta > 0 ? 'score-plus' : 'score-minus');
-      spawnScoreFloat(data.undone.seatNo, data.undone.reversedDelta);
+      seats.forEach(function (sn) {
+        flashSeat(sn, data.undone.reversedDelta > 0 ? 'score-plus' : 'score-minus');
+        spawnScoreFloat(sn, data.undone.reversedDelta);
+      });
       toast('已復原 ' + data.undone.name + ' 的加扣分');
     });
   }
@@ -976,7 +1258,10 @@
     var changed = App.classroom.students.filter(function (s) {
       return Number(s.score) !== 0;
     }).length;
-    if (!changed) {
+    var groupChanged = Object.keys((classGroups().scores) || {}).some(function (k) {
+      return Number(classGroups().scores[k]) !== 0;
+    });
+    if (!changed && !groupChanged) {
       toast('目前沒有加扣分可以重製');
       return;
     }
@@ -2455,6 +2740,7 @@
       '<ol>' +
       '<li>平時表現包含：上課加扣、實作評量（實驗室）、實作成績（回家做）、作業。有幾項就平均幾項。</li>' +
       '<li>上課換算分 ＝ 底分 ' + rules.base + ' ＋ 該週上課加扣合計，最低 ' + rules.min + '、最高 ' + rules.max + '。該週沒有加扣分就不列入平時。</li>' +
+      '<li>小組加分會加進每位組員的上課加扣，所以會列入平時成績；小組計分板只記整組分數，不會再加一次。</li>' +
       '<li>平時考試 ＝ 黃卷與早自習平均（換算成 100 分制）。請假不計入。</li>' +
       '<li>段考平均同樣換算成 100 分制，請假不計入。</li>' +
       '<li>作業可記未繳交／已繳交，繳交後再登錄成績與繳交日。超過期限 ' + rules.lateWorkDays +
@@ -5072,7 +5358,8 @@
           col: s.col,
           note: s.note || ''
         };
-      })
+      }),
+      groups: classGroups()
     };
   }
 
