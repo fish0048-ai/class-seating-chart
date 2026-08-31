@@ -13,6 +13,8 @@
 
 線上網址：<https://fish0048-ai.github.io/class-seating-chart/>
 
+已完成功能、資料怎麼存、登入權限、以及**改程式時不能碰壞的地方**，寫在 [docs/專案現況.md](docs/專案現況.md)。之後若要改功能，請先看那一份，避免整站卡住或分組被存檔清掉。
+
 ## Google 帳號登入
 
 打開網頁後請用 Google 登入。

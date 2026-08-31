@@ -1,0 +1,22 @@
+---
+description: 改座位表時不可破壞的現況與雷區（詳見 docs/專案現況.md）
+alwaysApply: true
+---
+
+# 改之前先對過現況
+
+完整紀錄在 `docs/專案現況.md`。正式程式只在 `docs/` 與根目錄 `Code.gs`。不要改根目錄舊的 `Index.html`、`座位表.html` 當正式版。
+
+## 不能碰壞
+
+- `normalize()` 必須保留 `classroom.groups` 與 `classroom.lab`，否則存檔會丟掉分組
+- 不要在 `renderLabBoard` 或每次重繪時 `persistLab`／存檔（會卡死「正在載入」）
+- 課表試算表 `13VrWBx6hoKpUON_JNxIrynH_gyRV8HnhUt0MMscjkWg` 只讀，禁止寫成績
+- 成績庫才是 `1AES93Jv8l65YI2LQ-scVRPqYSLFxtVOD-UqIU99gQSA`
+- 抽籤加權不要寫進 UI／README
+- 學生個資 CSV 不要 commit
+- 教師只有 `chunhsinkuo@kcis.hc.edu.tw`；寫入必須後端驗證 Google token。教師信箱改 `config.js` 的 `teacherEmails` 時，`Code.gs` 的 `TEACHER_EMAILS` 要一起改
+- 改 `Code.gs` 後要提醒老師貼上 Apps Script 並**新增部署**；只 push GitHub 不會更新後端
+- 改 `app.js` 後必須在瀏覽器確認有座位卡，不要只看截圖（括號多一個整站會空白）
+
+腳本順序：`config.js` → `cloud.js` → `api.js` → `auth.js` → `app.js`
