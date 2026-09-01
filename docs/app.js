@@ -514,11 +514,17 @@
   if (window.GoogleAuth) {
     GoogleAuth.start({
       onSignedIn: function (account, alreadyBooted) {
+        var reconnecting = !!(readResume() && readResume().retryConnect);
+        if (!account.teacher) {
+          applyTeacherUi({ keepSettings: reconnecting || App.appView === 'teacher' });
+          showCloudRelogin(true);
+          toast('這個帳號沒有教師權限：' + (account.email || '') + '。請改選 ' + teacherEmailHint(), 8000);
+          return;
+        }
         applyTeacherUi();
         if (resumeAfterSignIn(account, alreadyBooted)) return;
         if (alreadyBooted) {
-          if (!account.teacher && App.appView === 'teacher') showClassView();
-          else renderAll();
+          renderAll();
           return;
         }
         bootstrap();
@@ -532,10 +538,18 @@
     return !!(window.GoogleAuth && GoogleAuth.isTeacher());
   }
 
-  function applyTeacherUi() {
+  function teacherEmailHint() {
+    var list = (window.GoogleAuth && GoogleAuth.teacherEmails && GoogleAuth.teacherEmails()) || [];
+    return list[0] || 'chunhsinkuo@kcis.hc.edu.tw';
+  }
+
+  function applyTeacherUi(opts) {
+    opts = opts || {};
     var teacher = canEdit();
     document.body.classList.toggle('teacher-on', teacher);
-    if (!teacher && App.appView === 'teacher') showClassView();
+    if (!teacher && App.appView === 'teacher' && !opts.keepSettings) {
+      showClassView();
+    }
   }
 
   function isLabView() {
@@ -768,7 +782,7 @@
 
   function needsCloudLogin(msg) {
     msg = String(msg || '');
-    return /請先用 Google|登入已過期|登入憑證|尚未驗證|沒有信箱|打開該網址/.test(msg);
+    return /請先用 Google|登入已過期|登入憑證|尚未驗證|沒有信箱|打開該網址|沒有開放權限|沒有權限/.test(msg);
   }
 
   function resumeAfterSignIn(account, alreadyBooted) {

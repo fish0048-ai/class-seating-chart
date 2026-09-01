@@ -126,9 +126,11 @@
     google.accounts.id.initialize({
       client_id: clientId(),
       callback: handleCredential,
-      auto_select: true,
+      auto_select: false,
       ux_mode: 'popup',
-      context: 'signin'
+      context: 'signin',
+      login_hint: teacherEmails()[0] || '',
+      cancel_on_tap_outside: true
     });
     google.accounts.id.renderButton(host, {
       type: 'standard',
@@ -152,6 +154,15 @@
     var extra = document.getElementById('googleSignInBtnSettings');
     if (!extra || !window.google || !google.accounts || !google.accounts.id || !clientId()) return;
     extra.innerHTML = '';
+    google.accounts.id.initialize({
+      client_id: clientId(),
+      callback: handleCredential,
+      auto_select: false,
+      ux_mode: 'popup',
+      context: 'signin',
+      login_hint: teacherEmails()[0] || '',
+      cancel_on_tap_outside: true
+    });
     google.accounts.id.renderButton(extra, {
       type: 'standard',
       theme: 'outline',
@@ -246,6 +257,7 @@
     email: function () {
       return user && user.email ? user.email : '';
     },
+    teacherEmails: teacherEmails,
     clientId: clientId,
     signOut: function () {
       user = null;

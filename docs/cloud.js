@@ -67,8 +67,11 @@
 
   function parseCloudText_(text) {
     var raw = String(text || '').trim();
+    if (/沒有權限|does not have permission|do not have (permission|access)|access denied/i.test(raw)) {
+      throw new Error('這個 /exec 沒有開放權限。請到 Apps Script「部署 → 管理部署 → 編輯」：執行身分選「我」，對象選「任何人」，再按連上雲端。');
+    }
     if (!raw || raw.charAt(0) === '<' || /accounts\.google\.com/i.test(raw)) {
-      throw new Error('新的 /exec 第一次請先用瀏覽器打開該網址，用同一個教師帳號登入授權，再回到座位表按「連上雲端」。不要按登出。');
+      throw new Error('新的 /exec 第一次請先用瀏覽器打開該網址，用教師帳號 chunhsinkuo@kcis.hc.edu.tw 登入授權，再回到座位表按「連上雲端」。不要按登出。');
     }
     var data;
     try {
