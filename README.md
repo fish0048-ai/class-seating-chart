@@ -38,11 +38,12 @@
 1. 打開 [這份 Google 試算表](https://docs.google.com/spreadsheets/d/1AES93Jv8l65YI2LQ-scVRPqYSLFxtVOD-UqIU99gQSA/edit)
 2. 「擴充功能」→「Apps Script」
 3. 把本專案根目錄的 `Code.gs` **全部貼上取代舊程式**，按儲存
-4. 同一個 Apps Script 專案新增檔案 `HwStudent`（類型 HTML），把根目錄 `HwStudent.html` 全部貼上
-5. 「部署」→「新增部署作業」→類型選「網頁應用程式」
-6. 執行身分選「我」，對象選「任何人」，再部署
-7. 複製結尾是 `/exec` 的網址（不要用 `/dev` 測試網址）
-8. 用教師 Google 帳號登入後，到教師模式 → 設定 → 貼上網址 →「連上雲端」
+4. 編輯器上方選函式 `authorizeScript`，按「執行」，允許「連線至外部服務」
+5. 同一個 Apps Script 專案新增檔案 `HwStudent`（類型 HTML），把根目錄 `HwStudent.html` 全部貼上
+6. 「部署」→「新增部署作業」→類型選「網頁應用程式」
+7. 執行身分選「我」，對象選「任何人」，再部署
+8. 複製結尾是 `/exec` 的網址（不要用 `/dev` 測試網址）
+9. 用教師 Google 帳號登入後，到教師模式 → 設定 → 貼上網址 →「連上雲端」
 
 建議再把同一個網址貼進 `docs/config.js` 的 `apiUrl`，這樣兩台都不必各貼一次。
 

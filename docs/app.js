@@ -782,7 +782,7 @@
 
   function needsCloudLogin(msg) {
     msg = String(msg || '');
-    return /請先用 Google|登入已過期|登入憑證|尚未驗證|沒有信箱|打開該網址|沒有開放權限|沒有權限/.test(msg);
+    return /請先用 Google|登入已過期|登入憑證|尚未驗證|沒有信箱|打開該網址|沒有開放權限|沒有權限|UrlFetchApp|external_request|連線至外部/.test(msg);
   }
 
   function resumeAfterSignIn(account, alreadyBooted) {

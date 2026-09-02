@@ -68,8 +68,15 @@
     });
   }
 
+  function externalRequestError_(msg) {
+    if (!/UrlFetchApp|script\.external_request|連線至外部服務|authorizeScript/i.test(msg || '')) return '';
+    return '後端還沒允許「連線至外部服務」。請打開成績庫試算表 → 擴充功能 → Apps Script，上方選函式 authorizeScript 按執行並允許權限。完成後「部署 → 管理部署 → 編輯」選新版本（網址不要換）。';
+  }
+
   function parseCloudText_(text) {
     var raw = String(text || '').trim();
+    var ext = externalRequestError_(raw);
+    if (ext) throw new Error(ext);
     if (/沒有權限|does not have permission|do not have (permission|access)|access denied/i.test(raw)) {
       throw new Error('這個 /exec 沒有開放權限。請到 Apps Script「部署 → 管理部署 → 編輯」：執行身分選「我」，對象選「任何人」，再按連上雲端。');
     }
@@ -82,7 +89,10 @@
     } catch (err) {
       throw new Error('雲端回應不是資料，請確認 Apps Script 已部署成網頁應用程式');
     }
-    if (data && data.error) throw new Error(data.error);
+    if (data && data.error) {
+      ext = externalRequestError_(String(data.error));
+      throw new Error(ext || data.error);
+    }
     return data;
   }
 
@@ -91,6 +101,8 @@
     if (msg.indexOf('未知的操作') >= 0) {
       return '後端還沒更新作業檢核。請把最新 Code.gs 與 HwStudent.html 貼進 Apps Script，再「部署 → 管理部署 → 編輯」同一個 /exec（不要另外產生新網址）。';
     }
+    var ext = externalRequestError_(msg);
+    if (ext) return ext;
     if (/Failed to fetch|NetworkError|Load failed|雲端回應不是資料/i.test(msg)) {
       return '連不上作業 API。請確認已用教師帳號登入，並用同一個 /exec 更新部署。';
     }
@@ -109,7 +121,7 @@
 
   function isFatalCloudError_(err) {
     var msg = err && err.message ? err.message : String(err || '');
-    return /沒有開放權限|打開該網址|請先用 Google|登入已過期|登入憑證|未知的操作|沒有權限|只有教師/.test(msg);
+    return /沒有開放權限|打開該網址|請先用 Google|登入已過期|登入憑證|未知的操作|沒有權限|只有教師|UrlFetchApp|external_request|連線至外部/.test(msg);
   }
 
   function postAction(action, body) {

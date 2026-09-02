@@ -103,13 +103,47 @@ function teacherEmailList_() {
   }).filter(Boolean);
 }
 
+function externalRequestHint_() {
+  return '後端還沒允許「連線至外部服務」。請打開成績庫試算表 → 擴充功能 → Apps Script，上方選函式 authorizeScript 按執行，在權限畫面允許連線。完成後「部署 → 管理部署 → 編輯」選新版本（網址不要換）。';
+}
+
+function fetchTokenInfo_(idToken) {
+  try {
+    return UrlFetchApp.fetch(
+      'https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken),
+      { muteHttpExceptions: true, followRedirects: true }
+    );
+  } catch (err) {
+    var msg = String(err && err.message ? err.message : err);
+    if (/UrlFetchApp|external_request|外部/i.test(msg)) {
+      throw new Error(externalRequestHint_());
+    }
+    throw err;
+  }
+}
+
+/** 老師在 Apps Script 編輯器按一次「執行」，允許驗證 Google 登入。 */
+function authorizeScript() {
+  try {
+    UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=ping', {
+      muteHttpExceptions: true,
+      followRedirects: true
+    });
+    SpreadsheetApp.getUi().alert(
+      '已允許連線外部服務。\n\n請再到 Apps Script「部署 → 管理部署 → 編輯」，版本選「新版本」，執行身分「我」、對象「任何人」。網址不要換。'
+    );
+  } catch (err) {
+    SpreadsheetApp.getUi().alert(
+      '授權還沒完成：' + String(err && err.message ? err.message : err) +
+      '\n\n請再按執行並允許權限。若學校管理員禁止 Apps Script 連外網，請請資訊組開放「連線至外部服務」。'
+    );
+  }
+}
+
 function verifyIdToken_(idToken) {
   idToken = String(idToken || '').trim();
   if (!idToken) throw new Error('請先用 Google 帳號登入');
-  var res = UrlFetchApp.fetch(
-    'https://oauth2.googleapis.com/tokeninfo?id_token=' + encodeURIComponent(idToken),
-    { muteHttpExceptions: true, followRedirects: true }
-  );
+  var res = fetchTokenInfo_(idToken);
   var data = {};
   try {
     data = JSON.parse(res.getContentText() || '{}');
@@ -306,6 +340,7 @@ function onOpen() {
   SpreadsheetApp.getUi()
     .createMenu('座位表')
     .addItem('開啟座位表網頁', 'openSeatingApp')
+    .addItem('授權連線外部服務（驗證登入）', 'authorizeScript')
     .addItem('初始化／修復工作表', 'setupSheets')
     .addToUi();
 }
