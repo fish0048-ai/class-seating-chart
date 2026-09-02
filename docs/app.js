@@ -649,7 +649,7 @@
       if (els.syncMeta) els.syncMeta.textContent = '載入逾時，請再試一次';
       showLoadingBoard('雲端回應較慢，資料還沒進來。請再按一次重新載入。', true);
       toast('載入逾時，請再試一次');
-    }, 15000);
+    }, 28000);
     function settle() {
       if (finished) return false;
       finished = true;

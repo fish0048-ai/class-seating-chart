@@ -681,7 +681,9 @@ function putCloudStore(store) {
     store.updatedAt = new Date().toISOString();
     writeCloudChunks_(sheet, JSON.stringify(store));
     syncVisibleRoster_(ss, store);
-    syncReadableGrades_(ss, store);
+    try {
+      syncReadableGrades_(ss, store);
+    } catch (gradeErr) {}
     return { ok: true, updatedAt: store.updatedAt };
   });
 }
@@ -690,8 +692,8 @@ function ensureCloudSheet_(ss) {
   var sheet = ss.getSheetByName(SHEETS.CLOUD);
   if (!sheet) {
     sheet = ss.insertSheet(SHEETS.CLOUD);
+    sheet.getRange(1, 1, 1, 2).setValues([['說明', '這是系統資料庫，請勿手動改這裡。要看分數請打開「成績」和「每日加扣」工作表。']]);
   }
-  sheet.getRange(1, 1, 1, 2).setValues([['說明', '這是系統資料庫，請勿手動改這裡。要看分數請打開「成績」和「每日加扣」工作表。']]);
   return sheet;
 }
 
@@ -1321,7 +1323,7 @@ function hwWebAppUrl_() {
     var saved = String(PropertiesService.getScriptProperties().getProperty('WEB_APP_URL') || '').trim();
     if (saved) return saved.replace(/\/$/, '');
   } catch (err2) {}
-  return 'https://script.google.com/macros/s/AKfycbzd4_bHa2bOiyltufRBD72Fw4s7Wgn68mVTWB95VDNoUYNXe7iPYl5z5WwuoKCv7nWdgA/exec';
+  return 'https://script.google.com/macros/s/AKfycbwIYM_8utJmG48nzk20YHfepKQIinKZqS2GDXd_v1Ylh9YU4OR-UbgxXrjRrIax43-T/exec';
 }
 
 function hwStudentUrl_(assignmentId) {

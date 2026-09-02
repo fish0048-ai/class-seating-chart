@@ -40,8 +40,8 @@
       var script = document.createElement('script');
       var timer = setTimeout(function () {
         cleanup();
-        reject(new Error('雲端連線逾時，請檢查網路或部署網址'));
-      }, 12000);
+        reject(new Error('雲端連線逾時。請確認 /exec 網址正確、部署對象是「任何人」，並用教師帳號登入後再按連上雲端。'));
+      }, 25000);
       function cleanup() {
         clearTimeout(timer);
         try { delete global[cb]; } catch (err) { global[cb] = undefined; }
@@ -56,7 +56,10 @@
         resolve(data);
       };
       script.async = true;
-      script.src = joinQuery(url, 'action=' + encodeURIComponent(action) + '&callback=' + cb);
+      var query = 'action=' + encodeURIComponent(action) + '&callback=' + cb;
+      var token = authToken_();
+      if (token) query += '&idToken=' + encodeURIComponent(token);
+      script.src = joinQuery(url, query);
       script.onerror = function () {
         cleanup();
         reject(new Error('無法連到雲端資料庫，請確認 Apps Script 已部署成「任何人」可執行'));
@@ -104,6 +107,11 @@
     return (global.GoogleAuth && GoogleAuth.getIdToken && GoogleAuth.getIdToken()) || '';
   }
 
+  function isFatalCloudError_(err) {
+    var msg = err && err.message ? err.message : String(err || '');
+    return /沒有開放權限|打開該網址|請先用 Google|登入已過期|登入憑證|未知的操作|沒有權限|只有教師/.test(msg);
+  }
+
   function postAction(action, body) {
     var url = apiUrl();
     if (!url) {
@@ -118,7 +126,8 @@
       redirect: 'follow'
     }).then(function (res) {
       return res.text();
-    }).then(parseCloudText_).catch(function () {
+    }).then(parseCloudText_).catch(function (err) {
+      if (isFatalCloudError_(err)) throw err;
       return fetch(url, {
         method: 'POST',
         mode: 'no-cors',
@@ -164,7 +173,8 @@
         redirect: 'follow'
       }).then(function (res) {
         return res.text();
-      }).then(parseCloudText_).catch(function () {
+      }).then(parseCloudText_).catch(function (err) {
+        if (isFatalCloudError_(err)) throw err;
         return jsonpGet('getStore');
       });
     },
