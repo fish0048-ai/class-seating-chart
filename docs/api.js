@@ -291,7 +291,38 @@
     if (!parsed.daily) parsed.daily = {};
     if (!parsed.history) parsed.history = [];
     if (!parsed.grades) parsed.grades = {};
+    parsed.mockExam = normalizeMockExam_(parsed.mockExam);
     return parsed;
+  }
+
+  function emptyMockExam_() {
+    return { meta: {}, byClass: {} };
+  }
+
+  function normalizeMockExam_(raw) {
+    if (!raw || typeof raw !== 'object') return emptyMockExam_();
+    var meta = raw.meta && typeof raw.meta === 'object' ? raw.meta : {};
+    var byClass = {};
+    Object.keys(raw.byClass || {}).forEach(function (cn) {
+      var src = raw.byClass[cn] || {};
+      var dest = {};
+      Object.keys(src).forEach(function (seat) {
+        var row = src[seat] || {};
+        dest[String(seat)] = {
+          className: String(row.className || cn),
+          seatNo: String(row.seatNo || seat),
+          name: String(row.name || ''),
+          combo: String(row.combo || ''),
+          points: row.points == null ? '' : String(row.points),
+          writing: row.writing == null ? '' : String(row.writing),
+          classRank: row.classRank == null ? '' : String(row.classRank),
+          schoolRank: row.schoolRank == null ? '' : String(row.schoolRank),
+          levels: row.levels && typeof row.levels === 'object' ? row.levels : {}
+        };
+      });
+      if (Object.keys(dest).length) byClass[String(cn)] = dest;
+    });
+    return { meta: meta, byClass: byClass };
   }
 
   function readLegacyLocal_() {
@@ -315,6 +346,7 @@
     if (!memStore.daily) memStore.daily = {};
     if (!memStore.history) memStore.history = [];
     if (!memStore.grades) memStore.grades = {};
+    if (!memStore.mockExam) memStore.mockExam = emptyMockExam_();
     if (hydrated && ensureRolledScores_(memStore)) saveStore(memStore);
     return memStore;
   }
@@ -694,7 +726,8 @@
     return withRoll_({
       ok: true,
       classNames: classNames(store),
-      classroom: clone(room)
+      classroom: clone(room),
+      mockExam: store.mockExam || emptyMockExam_()
     }, store);
   }
 
@@ -1399,6 +1432,26 @@
       if (body.homeworks) book.homeworks = normalizeHomeworkColumns_(body.homeworks);
       saveStore(store);
       return gradebookResult_(className, book);
+    },
+    importMockExam: function (pack) {
+      var store = loadStore();
+      store.mockExam = normalizeMockExam_(pack);
+      saveStore(store);
+      return wrap({
+        ok: true,
+        mockExam: store.mockExam,
+        classNames: classNames(store)
+      });
+    },
+    clearMockExam: function () {
+      var store = loadStore();
+      store.mockExam = emptyMockExam_();
+      saveStore(store);
+      return wrap({ ok: true, mockExam: store.mockExam });
+    },
+    getMockExam: function () {
+      var store = loadStore();
+      return wrap({ ok: true, mockExam: store.mockExam || emptyMockExam_() });
     },
     exportJSON: function () {
       return JSON.stringify(loadStore());

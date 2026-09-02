@@ -338,6 +338,14 @@
     position: relative;
   }
 
+  .seat:has(.seat-exam) {
+    min-height: 118px;
+  }
+
+  .lab-board .seat-card:has(.seat-exam) {
+    min-height: 96px;
+  }
+
   .seat.drop-target {
     border-color: var(--accent);
     background: #fff4e4;
@@ -357,6 +365,32 @@
     user-select: none;
     cursor: grab;
   }
+
+  .seat-exam {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    margin-top: 2px;
+  }
+
+  .exam-chip,
+  .exam-combo,
+  .exam-rank {
+    font-size: 10px;
+    line-height: 1.2;
+    border-radius: 6px;
+    padding: 1px 4px;
+    font-weight: 700;
+    background: #eef2f4;
+    color: #3d4a52;
+  }
+
+  .exam-chip.tone-a { background: #d8f0e0; color: #1f6b3a; }
+  .exam-chip.tone-b { background: #e4eef8; color: #24557a; }
+  .exam-chip.tone-c { background: #f8e0de; color: #8b2c28; }
+  .exam-chip.tone-w { background: #f3ead4; color: #6b5318; }
+  .exam-combo { background: #efe8dc; }
+  .exam-rank { background: #e8e4f4; color: #4a3b78; }
 
   .seat-card.has-group {
     border-color: var(--group-color);

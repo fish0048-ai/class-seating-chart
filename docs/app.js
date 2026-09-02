@@ -35,7 +35,11 @@
     hwAssignments: [],
     hwRows: [],
     hwPickedSeat: '',
-    hwStudentUrl: ''
+    hwStudentUrl: '',
+    mockExam: null,
+    showExamTags: (function () {
+      try { return sessionStorage.getItem('seat-exam-tags') !== '0'; } catch (err) { return true; }
+    })()
   };
 
   const GROUP_COLORS = [
@@ -514,6 +518,33 @@
   }
   var importRosterBtn = document.getElementById('btnImportRoster');
   if (importRosterBtn) importRosterBtn.addEventListener('click', importPendingRoster);
+  var pickMock = document.getElementById('btnPickMockExam');
+  var mockFile = document.getElementById('mockExamFile');
+  if (pickMock && mockFile) {
+    pickMock.addEventListener('click', function () {
+      requireTeacher(function () { mockFile.click(); });
+    });
+    mockFile.addEventListener('change', function () {
+      if (mockFile.files && mockFile.files[0]) {
+        importMockExamFile(mockFile.files[0]);
+        mockFile.value = '';
+      }
+    });
+  }
+  var clearMock = document.getElementById('btnClearMockExam');
+  if (clearMock) {
+    clearMock.addEventListener('click', function () {
+      requireTeacher(clearMockExamTags);
+    });
+  }
+  var examBtn = document.getElementById('btnExamTags');
+  if (examBtn) {
+    examBtn.addEventListener('click', function () {
+      App.showExamTags = !App.showExamTags;
+      try { sessionStorage.setItem('seat-exam-tags', App.showExamTags ? '1' : '0'); } catch (err) {}
+      renderAll();
+    });
+  }
   var cloudBtn = document.getElementById('btnCloudConnect');
   if (cloudBtn) cloudBtn.addEventListener('click', connectCloud);
   var cloudUrl = document.getElementById('cloudApiUrl');
@@ -913,6 +944,7 @@
       App.dirty = false;
       App.selectedSeatNo = null;
     }
+    if (data.mockExam) App.mockExam = data.mockExam;
     renderAll();
   }
 
@@ -956,6 +988,7 @@
     renderGroupRoster();
     renderMode();
     renderDelta();
+    updateExamTagButton();
   }
 
   function renderClassSelect() {
@@ -1017,6 +1050,274 @@
     bindSeatEvents();
   }
 
+  function headerCellText(value) {
+    return String(value == null ? '' : value).replace(/\s+/g, '');
+  }
+
+  function normExamClass(value) {
+    var t = String(value || '').replace(/\s/g, '');
+    var m = t.match(/(\d{3,4})/);
+    return m ? m[1] : t;
+  }
+
+  function normExamSeat(value) {
+    var n = String(value || '').replace(/\D/g, '');
+    if (!n) return '';
+    return String(parseInt(n, 10));
+  }
+
+  function parseAbilityLevel(raw) {
+    var t = String(raw == null ? '' : raw).replace(/\s+/g, '');
+    if (!t || t === '-' || t === '—') return { mark: '', band: '', raw: '' };
+    var mark = '';
+    if (/A\+\+/.test(t)) mark = 'A++';
+    else if (/A\+/.test(t)) mark = 'A+';
+    else if (/A/.test(t)) mark = 'A';
+    else if (/B\+\+/.test(t)) mark = 'B++';
+    else if (/B\+/.test(t)) mark = 'B+';
+    else if (/B/.test(t)) mark = 'B';
+    else if (/C/.test(t)) mark = 'C';
+    var band = /精熟/.test(t) || /^A/.test(mark) ? '精熟'
+      : (/待加強/.test(t) || mark === 'C') ? '待加強'
+      : (/基礎/.test(t) || /^B/.test(mark)) ? '基礎'
+      : '';
+    return { mark: mark, band: band, raw: t };
+  }
+
+  function levelTone(level) {
+    var mark = level && level.mark ? level.mark : '';
+    if (/^A/.test(mark) || (level && level.band === '精熟')) return 'a';
+    if (mark === 'C' || (level && level.band === '待加強')) return 'c';
+    if (/^B/.test(mark) || (level && level.band === '基礎')) return 'b';
+    return '';
+  }
+
+  function examTagFor(student) {
+    var pack = App.mockExam;
+    if (!pack || !pack.byClass || !student || !App.classroom) return null;
+    var cn = normExamClass(App.classroom.className);
+    var bucket = pack.byClass[cn] || pack.byClass[App.classroom.className];
+    if (!bucket) return null;
+    var key = normExamSeat(student.seatNo);
+    var row = bucket[key];
+    return row || null;
+  }
+
+  function examTagHtml(student) {
+    if (!App.showExamTags) return '';
+    var row = examTagFor(student);
+    if (!row) return '';
+    var chips = [];
+    var order = ['國', '英', '數', '社', '自'];
+    order.forEach(function (key) {
+      var lv = row.levels && row.levels[key];
+      if (!lv || !lv.mark) return;
+      chips.push('<span class="exam-chip tone-' + levelTone(lv) + '">' + key + escapeHtml(lv.mark) + '</span>');
+    });
+    if (row.writing) chips.push('<span class="exam-chip tone-w">寫' + escapeHtml(row.writing) + '</span>');
+    if (row.schoolRank) chips.push('<span class="exam-rank">校' + escapeHtml(row.schoolRank) + '</span>');
+    if (!chips.length) return '';
+    return '<div class="seat-exam">' + chips.join('') + '</div>';
+  }
+
+  function toastExamTag(student) {
+    var row = examTagFor(student);
+    if (!row) return;
+    var bits = [];
+    if (row.combo) bits.push(row.combo);
+    var order = ['國', '英', '數', '社', '自'];
+    var lv = order.map(function (key) {
+      var item = row.levels && row.levels[key];
+      return item && item.mark ? key + item.mark : '';
+    }).filter(Boolean);
+    if (lv.length) bits.push(lv.join(' '));
+    if (row.writing) bits.push('寫作 ' + row.writing);
+    if (row.schoolRank) bits.push('校排 ' + row.schoolRank);
+    if (row.classRank) bits.push('班排 ' + row.classRank);
+    if (bits.length) toast(student.name + '　' + bits.join('　'), 5000);
+  }
+
+  function hasMockExam() {
+    var pack = App.mockExam;
+    return !!(pack && pack.byClass && Object.keys(pack.byClass).length);
+  }
+
+  function updateExamTagButton() {
+    var btn = document.getElementById('btnExamTags');
+    if (!btn) return;
+    var on = hasMockExam();
+    btn.hidden = !on;
+    btn.classList.toggle('tab-on', on && App.showExamTags);
+    btn.textContent = on && App.showExamTags ? '模擬考標註開' : '模擬考標註';
+  }
+
+  function fillMockExamMeta() {
+    var line = document.getElementById('mockExamMeta');
+    if (!line) return;
+    var pack = App.mockExam;
+    if (!hasMockExam()) {
+      line.textContent = '還沒有匯入模擬考。請選學力診斷的「學校能力等級成績統計表」。';
+      return;
+    }
+    var n = 0;
+    Object.keys(pack.byClass).forEach(function (cn) {
+      n += Object.keys(pack.byClass[cn] || {}).length;
+    });
+    var title = (pack.meta && (pack.meta.code || pack.meta.title)) || '模擬考';
+    line.textContent = '已匯入 ' + title + '，共 ' + n + ' 人。上課模式可開關「模擬考標註」。';
+  }
+
+  function findHeaderCol(rows, start, end, test) {
+    for (var r = start; r <= end && r < rows.length; r++) {
+      var row = rows[r] || [];
+      for (var c = 0; c < row.length; c++) {
+        if (test(headerCellText(row[c]), r, c)) return { row: r, col: c };
+      }
+    }
+    return null;
+  }
+
+  function parseAbilityWorkbook(X, workbook) {
+    var sheet = workbook.Sheets[workbook.SheetNames[0]];
+    if (!sheet) throw new Error('Excel 沒有工作表');
+    var rows = X.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
+    var classHit = findHeaderCol(rows, 0, 10, function (t) { return t === '班級'; });
+    var seatHit = findHeaderCol(rows, 0, 10, function (t) { return t === '座號'; });
+    var nameHit = findHeaderCol(rows, 0, 10, function (t) { return t === '姓名'; });
+    if (!classHit || !seatHit || !nameHit) {
+      throw new Error('找不到班級、座號、姓名欄，請用學校能力等級成績統計表');
+    }
+    var head = Math.min(classHit.row, seatHit.row, nameHit.row);
+    var comboHit = findHeaderCol(rows, head, head + 3, function (t) {
+      return t.indexOf('五科') >= 0 && t.indexOf('標示') >= 0;
+    });
+    var writeHit = findHeaderCol(rows, head, head + 3, function (t) { return t.indexOf('寫作') >= 0; });
+    var classRankHit = findHeaderCol(rows, head, head + 3, function (t) { return t === '班排名'; });
+    var schoolRankHit = findHeaderCol(rows, head, head + 3, function (t) { return t === '校排名'; });
+    var subjects = [
+      { id: '國', keys: ['國文'] },
+      { id: '英', keys: ['英語', '英文'] },
+      { id: '數', keys: ['數學'] },
+      { id: '社', keys: ['社會'] },
+      { id: '自', keys: ['自然'] }
+    ];
+    var starts = [];
+    subjects.forEach(function (spec) {
+      var hit = findHeaderCol(rows, head, head + 2, function (t) {
+        return spec.keys.some(function (k) { return t.indexOf(k) === 0 || t === k; });
+      });
+      if (hit) starts.push({ id: spec.id, col: hit.col });
+    });
+    starts.sort(function (a, b) { return a.col - b.col; });
+    var levelCols = {};
+    starts.forEach(function (item, i) {
+      var end = i + 1 < starts.length ? starts[i + 1].col : (writeHit ? writeHit.col : (rows[head] || []).length);
+      var last = -1;
+      for (var r = head; r <= head + 3 && r < rows.length; r++) {
+        var row = rows[r] || [];
+        for (var c = item.col; c < end; c++) {
+          var t = headerCellText(row[c]);
+          if (t.indexOf('能力') >= 0 || t === '能力等級') last = c;
+        }
+      }
+      if (last >= 0) levelCols[item.id] = last;
+    });
+    var writeCol = -1;
+    if (writeHit) {
+      var wEnd = classRankHit ? classRankHit.col : writeHit.col + 3;
+      for (var wr = writeHit.row; wr <= writeHit.row + 3 && wr < rows.length; wr++) {
+        var wrow = rows[wr] || [];
+        for (var wc = writeHit.col; wc < wEnd; wc++) {
+          if (headerCellText(wrow[wc]).indexOf('級分') >= 0) writeCol = wc;
+        }
+      }
+      if (writeCol < 0) writeCol = writeHit.col;
+    }
+    var byClass = {};
+    var count = 0;
+    for (var i = head + 1; i < rows.length; i++) {
+      var row = rows[i] || [];
+      var className = normExamClass(row[classHit.col]);
+      var seatNo = String(row[seatHit.col] || '').trim();
+      var name = String(row[nameHit.col] || '').trim();
+      if (!className || className === '班級' || !/^\d{3,4}$/.test(className)) continue;
+      if (!seatNo || !name) continue;
+      var key = normExamSeat(seatNo);
+      if (!key) continue;
+      var levels = {};
+      Object.keys(levelCols).forEach(function (id) {
+        levels[id] = parseAbilityLevel(row[levelCols[id]]);
+      });
+      if (!byClass[className]) byClass[className] = {};
+      byClass[className][key] = {
+        className: className,
+        seatNo: seatNo,
+        name: name,
+        combo: comboHit ? String(row[comboHit.col] || '').trim() : '',
+        writing: writeCol >= 0 ? String(row[writeCol] || '').trim() : '',
+        classRank: classRankHit ? String(row[classRankHit.col] || '').trim() : '',
+        schoolRank: schoolRankHit ? String(row[schoolRankHit.col] || '').trim() : '',
+        levels: levels
+      };
+      count += 1;
+    }
+    if (!count) throw new Error('表裡沒有讀到學生列');
+    var title = headerCellText((rows[0] || []).join(' '));
+    var code = '';
+    var joined = rows.slice(0, 4).map(function (r) { return (r || []).join(' '); }).join(' ');
+    var codeHit = joined.match(/RK\d+[A-Z]?/i);
+    if (codeHit) code = codeHit[0].toUpperCase();
+    return {
+      meta: { title: title || '學校能力等級成績統計表', code: code },
+      byClass: byClass,
+      count: count
+    };
+  }
+
+  function importMockExamFile(file) {
+    if (!file) return;
+    withXlsx(function (X) {
+      var reader = new FileReader();
+      reader.onload = function (event) {
+        try {
+          var wb = X.read(event.target.result, { type: 'array' });
+          var pack = parseAbilityWorkbook(X, wb);
+          api('importMockExam', [pack]).then(function (data) {
+            App.mockExam = data.mockExam || pack;
+            App.showExamTags = true;
+            try { sessionStorage.setItem('seat-exam-tags', '1'); } catch (err) {}
+            fillMockExamMeta();
+            updateExamTagButton();
+            renderAll();
+            toast('已標註模擬考 ' + pack.count + ' 人。上課座位卡會顯示五科能力等級', 5000);
+          }).catch(function (err) {
+            toast(err && err.message ? err.message : '匯入失敗');
+          });
+        } catch (err) {
+          toast(err && err.message ? err.message : '這個 Excel 不是能力等級統計表');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    });
+  }
+
+  function clearMockExamTags() {
+    if (!hasMockExam()) {
+      toast('目前沒有模擬考標註');
+      return;
+    }
+    if (!window.confirm('清除座位卡上的模擬考能力等級標註？名單與加扣不會動。')) return;
+    api('clearMockExam', []).then(function (data) {
+      App.mockExam = data.mockExam || { meta: {}, byClass: {} };
+      fillMockExamMeta();
+      updateExamTagButton();
+      renderAll();
+      toast('已清除模擬考標註');
+    }).catch(function (err) {
+      toast(err && err.message ? err.message : '清除失敗');
+    });
+  }
+
   function seatCell(row, col) {
     const student = studentAt(row, col);
     const selected = student && student.seatNo === App.selectedSeatNo ? ' selected' : '';
@@ -1030,6 +1331,7 @@
         groupBadge +
         '<span class="seat-no">' + escapeHtml(student.seatNo) + '</span>' +
         '<span class="seat-name">' + escapeHtml(student.name) + '</span>' +
+        examTagHtml(student) +
         '<span class="seat-score ' + scoreClass(student.score) + '">' + student.score + '</span>' +
       '</article>'
     ) : '';
@@ -1055,6 +1357,7 @@
     App.selectedSeatNo = seatNo;
     if (!canEdit()) {
       renderAll();
+      toastExamTag(student);
       return;
     }
     if (App.groupAssign && App.groupPanel) {
@@ -1066,6 +1369,7 @@
       changeScore(student, sign * App.delta);
     } else {
       renderAll();
+      toastExamTag(student);
     }
   }
 
@@ -1472,6 +1776,7 @@
     return '<article class="seat-card has-group' + selected + '" data-seat="' + escapeHtml(student.seatNo) + '" style="--group-color:' + groupColor(gid) + '">' +
       '<span class="seat-no">' + escapeHtml(student.seatNo) + '</span>' +
       '<span class="seat-name">' + escapeHtml(student.name) + '</span>' +
+      examTagHtml(student) +
       '<span class="seat-score ' + scoreClass(student.score) + '">' + student.score + '</span>' +
       '</article>';
   }
@@ -6431,6 +6736,7 @@
     App.pendingImport = null;
     renderUploadPreview(null);
     fillCloudSettings();
+    fillMockExamMeta();
   }
 
   function saveSettings() {

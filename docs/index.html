@@ -72,6 +72,7 @@
         <button type="button" class="tool" id="btnUndo">復原</button>
         <button type="button" class="tool accent" id="btnLottery">抽籤</button>
         <button type="button" class="tool" id="btnGroup">分組</button>
+        <button type="button" class="tool" id="btnExamTags" hidden>模擬考標註</button>
         <button type="button" class="tool primary" id="btnSave">立即同步</button>
       </nav>
 
@@ -728,6 +729,14 @@
                 <div id="googleSignInBtnSettings"></div>
               </div>
             </div>
+            <h3 class="subhead">模擬考能力等級</h3>
+            <p class="hint">匯入學力診斷「學校能力等級成績統計表」（國英數社自＋寫作）。依班級與座號對上（041 等於 41），不會改名單或加扣。座位卡會標精熟／基礎／待加強，點學生可看完整標示與校排。</p>
+            <div class="modal-actions">
+              <button type="button" class="tool" id="btnPickMockExam">選擇模擬考 Excel</button>
+              <button type="button" class="tool" id="btnClearMockExam">清除標註</button>
+            </div>
+            <input id="mockExamFile" type="file" accept=".xlsx,.xls" hidden />
+            <p id="mockExamMeta" class="hint"></p>
             <h3 class="subhead">新增班級與學生</h3>
             <p class="hint">用 Excel 一次匯入一個班或多個班。第一列請用：班級、座號、姓名。匯入成功後會寫進成績資料庫的「學生」與「班級設定」工作表。</p>
             <div class="form-grid">
