@@ -196,6 +196,10 @@
   }
   var btnGroupRandom = document.getElementById('btnGroupRandom');
   if (btnGroupRandom) btnGroupRandom.addEventListener('click', randomGroups);
+  var btnSeatByGroup = document.getElementById('btnSeatByGroup');
+  if (btnSeatByGroup) btnSeatByGroup.addEventListener('click', seatByGroups);
+  var btnGroupClear = document.getElementById('btnGroupClear');
+  if (btnGroupClear) btnGroupClear.addEventListener('click', clearGroups);
   var btnGroupManual = document.getElementById('btnGroupManual');
   if (btnGroupManual) {
     btnGroupManual.addEventListener('click', function () {
@@ -1889,7 +1893,7 @@
     if (els.groupHint) {
       els.groupHint.textContent = App.groupAssign
         ? '手動：點學生編入第' + (App.groupPick || 1) + '組，再點一次可移出。'
-        : '隨機：依每組人數打散。手動：先選組別再點學生。小組加分會進每位組員的平時成績。';
+        : '隨機：依每組人數打散。排座位：同一組坐在一起。小組加分會進每位組員的平時成績。';
     }
   }
 
@@ -1992,6 +1996,117 @@
       toast(student.name + ' → 第' + pick + '組');
     }
     persistGroups();
+  }
+
+  function shuffleList_(list) {
+    var arr = list.slice();
+    var i;
+    for (i = arr.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var tmp = arr[i];
+      arr[i] = arr[j];
+      arr[j] = tmp;
+    }
+    return arr;
+  }
+
+  function gridCells_(rows, cols) {
+    var cells = [];
+    var r;
+    var c;
+    for (r = 0; r < rows; r++) {
+      for (c = 0; c < cols; c++) cells.push({ row: r, col: c });
+    }
+    return cells;
+  }
+
+  function pickSeatCluster_(free, count) {
+    if (count <= 0) return [];
+    if (free.length <= count) return free.slice();
+    var seed = free[Math.floor(Math.random() * free.length)];
+    return free.slice().sort(function (a, b) {
+      var da = (a.row - seed.row) * (a.row - seed.row) + (a.col - seed.col) * (a.col - seed.col);
+      var db = (b.row - seed.row) * (b.row - seed.row) + (b.col - seed.col) * (b.col - seed.col);
+      if (da !== db) return da - db;
+      if (a.row !== b.row) return a.row - b.row;
+      return a.col - b.col;
+    }).slice(0, count);
+  }
+
+  function seatByGroups() {
+    if (!canEdit()) {
+      toast('檢視模式不能改座位');
+      return;
+    }
+    if (isLabView()) {
+      toast('請先回到上課模式再依分組排座位');
+      return;
+    }
+    if (!App.classroom) return;
+    var students = App.classroom.students || [];
+    if (!students.length) {
+      toast('沒有學生可以排座位');
+      return;
+    }
+    var g = classGroups();
+    var buckets = {};
+    var ungrouped = [];
+    students.forEach(function (s) {
+      var gid = parseInt(g.assign[String(s.seatNo)], 10);
+      if (!gid) {
+        ungrouped.push(s);
+        return;
+      }
+      if (!buckets[gid]) buckets[gid] = [];
+      buckets[gid].push(s);
+    });
+    var gids = Object.keys(buckets).map(Number);
+    if (!gids.length) {
+      App.groupPanel = true;
+      renderAll();
+      toast('請先隨機或手動分組，再依分組排座位');
+      return;
+    }
+    if (!window.confirm('依目前分組重新排座位？同一組會坐在一起，組的位置會打散。分組與加扣不會改。')) {
+      return;
+    }
+    var used = {};
+    function leftover() {
+      return gridCells_(App.classroom.rows, App.classroom.cols).filter(function (cell) {
+        return !used[cell.row + ',' + cell.col];
+      });
+    }
+    function occupy(cells) {
+      cells.forEach(function (cell) {
+        used[cell.row + ',' + cell.col] = true;
+      });
+    }
+    shuffleList_(gids).forEach(function (gid) {
+      var members = shuffleList_(buckets[gid]);
+      var cluster = pickSeatCluster_(leftover(), members.length);
+      occupy(cluster);
+      members.forEach(function (s, idx) {
+        if (!cluster[idx]) return;
+        s.row = cluster[idx].row;
+        s.col = cluster[idx].col;
+      });
+    });
+    shuffleList_(ungrouped).forEach(function (s) {
+      var left = leftover();
+      if (!left.length) return;
+      var cell = left[Math.floor(Math.random() * left.length)];
+      s.row = cell.row;
+      s.col = cell.col;
+      occupy([cell]);
+    });
+    App.dirty = true;
+    run('saveLayout', [serializeClassroom()], function (data) {
+      App.classroom = data.classroom;
+      App.dirty = false;
+      App.groupPanel = true;
+      renderAll();
+      toast('已依分組排好座位，同一組坐在一起');
+    });
   }
 
   function randomGroups() {

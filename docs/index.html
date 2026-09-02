@@ -88,13 +88,14 @@
               <label class="group-pick-label">指定到
                 <select id="groupPick" aria-label="指定組別"></select>
               </label>
+              <button type="button" class="tool" id="btnSeatByGroup">依分組排座位</button>
               <button type="button" class="tool" id="btnGroupClear">清除分組</button>
             </div>
             <label class="check group-apply">
               <input type="checkbox" id="groupApplyScore">
               加扣分套用整組（小組分會加進每位組員的平時成績）
             </label>
-            <p class="hint" id="groupHint">隨機：依每組人數打散。手動：先選組別再點學生，再點一次可移出。</p>
+            <p class="hint" id="groupHint">隨機：依每組人數打散。手動：先選組別再點學生。排座位：同一組會坐在一起，組的位置會打散。</p>
           </div>
           <div id="labBar" class="group-bar" hidden>
             <div class="group-bar-row">
