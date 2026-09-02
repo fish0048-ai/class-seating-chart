@@ -9,6 +9,8 @@ const SHEETS = {
   HISTORY: '操作紀錄',
   HELP: '使用說明',
   CLOUD: '雲端資料',
+  GRADES: '成績',
+  DAILY: '每日加扣',
   HW_STUDENTS: 'HW_Students',
   HW_ASSIGNMENTS: 'HW_Assignments',
   HW_SUBMISSIONS: 'HW_Submissions',
@@ -24,6 +26,8 @@ const HEADERS = {
   STUDENTS: ['班級', '座號', '姓名', '分數', '列', '欄', '備註', '組別'],
   CONFIG: ['班級', '列數', '欄數', '版本', '更新時間'],
   HISTORY: ['時間', '班級', '類型', '座號', '姓名', '分數變化', '新分數', '詳情', '可復原', '已復原'],
+  GRADES: ['班級', '座號', '姓名', '類型', '項目', '日期', '分數', '滿分', '狀態'],
+  DAILY: ['班級', '日期', '座號', '姓名', '加扣分'],
   HW_STUDENTS: ['班級', '座號', '姓名', 'Email'],
   HW_ASSIGNMENTS: ['作業編號', '名稱', '班級', '題數', '抽查題數', '開始時間', '截止時間', '滿分', '每工作天扣分', '最低分', '學生連結', '建立時間'],
   HW_SUBMISSIONS: ['作業編號', '班級', '座號', '提交時間', '狀態', '遲交工作天', '計算分數', '教師加減', '調整原因', '最終分數', '調整者', '調整時間', '允許補交'],
@@ -677,6 +681,7 @@ function putCloudStore(store) {
     store.updatedAt = new Date().toISOString();
     writeCloudChunks_(sheet, JSON.stringify(store));
     syncVisibleRoster_(ss, store);
+    syncReadableGrades_(ss, store);
     return { ok: true, updatedAt: store.updatedAt };
   });
 }
@@ -685,8 +690,8 @@ function ensureCloudSheet_(ss) {
   var sheet = ss.getSheetByName(SHEETS.CLOUD);
   if (!sheet) {
     sheet = ss.insertSheet(SHEETS.CLOUD);
-    sheet.getRange(1, 1, 1, 2).setValues([['說明', '這張表是座位表／成績的線上資料庫，請勿手動改內容。']]);
   }
+  sheet.getRange(1, 1, 1, 2).setValues([['說明', '這是系統資料庫，請勿手動改這裡。要看分數請打開「成績」和「每日加扣」工作表。']]);
   return sheet;
 }
 
@@ -780,10 +785,132 @@ function syncVisibleRoster_(ss, store) {
   }
 }
 
+/** 把成績簿與每日加扣寫成可讀工作表，老師打開試算表就能看到分數。 */
+function syncReadableGrades_(ss, store) {
+  var gradeSheet = ensureSheetWithHeaders_(ss, SHEETS.GRADES, HEADERS.GRADES);
+  var dailySheet = ensureSheetWithHeaders_(ss, SHEETS.DAILY, HEADERS.DAILY);
+  var classes = (store && store.classes) || {};
+  var books = (store && store.grades) || {};
+  var daily = (store && store.daily) || {};
+  var names = Object.keys(classes);
+  Object.keys(books).forEach(function (cn) {
+    if (names.indexOf(cn) < 0) names.push(cn);
+  });
+  names.sort();
+  var gradeRows = [];
+  var dailyRows = [];
+  var kinds = [
+    { key: 'yellow', label: '課堂考卷' },
+    { key: 'morning', label: '早自習小考' },
+    { key: 'exams', label: '段考' },
+    { key: 'labs', label: '實作評量' },
+    { key: 'practicals', label: '實作成績' }
+  ];
+  names.forEach(function (cn) {
+    var room = classes[cn] || {};
+    var className = String(room.className || cn || '').trim();
+    if (!className) return;
+    var roster = (room.students || []).slice().sort(function (a, b) {
+      return seatNoValue_(a.seatNo) - seatNoValue_(b.seatNo);
+    });
+    var nameBySeat = {};
+    roster.forEach(function (s) {
+      nameBySeat[String(s.seatNo)] = String(s.name || '');
+    });
+    var book = books[cn] || {};
+    kinds.forEach(function (kind) {
+      (book[kind.key] || []).forEach(function (col) {
+        var title = String((col && col.title) || '').trim() || '未命名';
+        var date = String((col && col.date) || '');
+        var max = col && col.max != null ? col.max : 100;
+        var scores = (col && col.scores) || {};
+        roster.forEach(function (s) {
+          var seat = String(s.seatNo || '');
+          var raw = scores[seat];
+          if (raw === undefined || raw === null || raw === '') raw = scores[String(Number(seat))];
+          gradeRows.push([
+            className,
+            seat,
+            s.name || '',
+            kind.label,
+            title,
+            date,
+            gradeCell_(raw),
+            max,
+            gradeStatus_(raw)
+          ]);
+        });
+      });
+    });
+    (book.homeworks || []).forEach(function (col) {
+      var title = String((col && col.title) || '').trim() || '作業';
+      var date = String((col && col.dueDate) || (col && col.date) || '');
+      var max = col && col.max != null ? col.max : 100;
+      var records = (col && col.records) || {};
+      roster.forEach(function (s) {
+        var seat = String(s.seatNo || '');
+        var rec = records[seat] || records[String(Number(seat))] || {};
+        var status = rec.status === 'submitted' ? '已繳' : (rec.status === 'missing' ? '未繳' : '');
+        var score = rec.score === undefined || rec.score === null || rec.score === '' ? '' : rec.score;
+        gradeRows.push([
+          className,
+          seat,
+          s.name || '',
+          '作業',
+          title,
+          date,
+          score,
+          max,
+          status || (score === '' ? '未登錄' : '已繳')
+        ]);
+      });
+    });
+    (daily[cn] || []).forEach(function (day) {
+      var dayDate = String((day && day.date) || '');
+      (day && day.students ? day.students : []).forEach(function (s) {
+        dailyRows.push([
+          className,
+          dayDate,
+          String(s.seatNo || ''),
+          s.name || nameBySeat[String(s.seatNo)] || '',
+          Number(s.score) || 0
+        ]);
+      });
+    });
+  });
+  rewriteSheetBody_(gradeSheet, HEADERS.GRADES, gradeRows);
+  rewriteSheetBody_(dailySheet, HEADERS.DAILY, dailyRows);
+}
+
+function gradeCell_(raw) {
+  if (raw === 'leave' || raw === '請假') return '請假';
+  if (raw === undefined || raw === null || raw === '') return '';
+  return raw;
+}
+
+function gradeStatus_(raw) {
+  if (raw === 'leave' || raw === '請假') return '請假';
+  if (raw === undefined || raw === null || raw === '') return '未登錄';
+  return '已登錄';
+}
+
+function rewriteSheetBody_(sheet, headers, rows) {
+  var last = sheet.getLastRow();
+  var cols = Math.max(headers.length, sheet.getLastColumn() || headers.length);
+  if (last >= 2) {
+    sheet.getRange(2, 1, last - 1, cols).clearContent();
+  }
+  if (rows && rows.length) {
+    sheet.getRange(2, 1, rows.length, headers.length).setValues(rows);
+  }
+}
+
 function ensureSheets_(ss) {
   ensureSheetWithHeaders_(ss, SHEETS.STUDENTS, HEADERS.STUDENTS);
   ensureSheetWithHeaders_(ss, SHEETS.CONFIG, HEADERS.CONFIG);
   ensureSheetWithHeaders_(ss, SHEETS.HISTORY, HEADERS.HISTORY);
+  ensureSheetWithHeaders_(ss, SHEETS.GRADES, HEADERS.GRADES);
+  ensureSheetWithHeaders_(ss, SHEETS.DAILY, HEADERS.DAILY);
   ensureCloudSheet_(ss);
   ensureHelpSheet_(ss);
   ensureHwSheets_(ss);
@@ -817,7 +944,9 @@ function ensureHelpSheet_(ss) {
     sheet = ss.insertSheet(SHEETS.HELP);
   }
   if (sheet.getLastRow() > 0) {
-    return;
+    var probe = String(sheet.getRange(1, 1).getValue() || '') + String(sheet.getRange(8, 1).getValue() || '');
+    if (probe.indexOf('成績在哪裡看') >= 0) return;
+    sheet.clear();
   }
   const lines = [
     ['班級座位表使用說明'],
@@ -829,14 +958,22 @@ function ensureHelpSheet_(ss) {
     ['4. 同一個班級請使用相同的班級名稱，例如：301。'],
     ['5. 從網頁「設定與上傳」匯入的名單，也會寫進「學生」與「班級設定」。'],
     [''],
-    ['二、發布網頁給平板使用'],
+    ['二、成績在哪裡看'],
+    ['1. 「學生」工作表的「分數」只是今天的上課加扣，不是學期成績。'],
+    ['2. 「雲端資料」是系統備份，請不要改、也不用從這裡找分數。'],
+    ['3. 考卷、作業、段考請看「成績」工作表。'],
+    ['4. 每天的上課加扣紀錄請看「每日加扣」工作表。'],
+    ['5. 紙本作業檢核請看 HW_Submissions。'],
+    ['6. 分數是從座位表網頁存檔後寫進來的；若這幾張表是空的，請到網頁教師模式改一筆再同步。'],
+    [''],
+    ['三、發布網頁給平板使用'],
     ['1. 上方選單：擴充功能 > Apps Script。'],
     ['2. 部署 > 新增部署作業 > 類型選「網頁應用程式」。'],
     ['3. 執行身分：我。'],
     ['4. 存取權：任何人（含匿名）或貴校 Google 帳號。'],
     ['5. 把網址加到平板主畫面，即可當座位表 App 使用。'],
     [''],
-    ['三、網頁功能'],
+    ['四、網頁功能'],
     ['上傳名單：設定裡可上傳 CSV／Excel，欄位為班級、座號、姓名。'],
     ['拖放：按住學生卡片拖到其他座位，可對調或移到空位。'],
     ['抽籤：隨機抽出一位（可設定本堂不重複）。'],
@@ -846,7 +983,7 @@ function ensureHelpSheet_(ss) {
     ['存檔：把目前座位與分數寫回試算表。'],
     ['同步：從試算表拉取最新資料，方便換平板繼續用。'],
     [''],
-    ['四、跨載具同步'],
+    ['五、跨載具同步'],
     ['所有資料存在這份試算表。不同平板開同一個網頁網址，'],
     ['按「同步」或「存檔」後即可看到同一份座位與分數。']
   ];

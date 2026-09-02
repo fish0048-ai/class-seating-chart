@@ -71,7 +71,7 @@ CSV 欄位：
 教師模式 → **課表** 只顯示 [115 學年度課表](https://docs.google.com/spreadsheets/d/13VrWBx6hoKpUON_JNxIrynH_gyRV8HnhUt0MMscjkWg/edit)（何時上哪一班）。
 
 - **這份不是成績資料庫**，不會寫入名單、加扣分或考卷
-- 成績仍存在 [這份雲端資料庫](https://docs.google.com/spreadsheets/d/1AES93Jv8l65YI2LQ-scVRPqYSLFxtVOD-UqIU99gQSA/edit)
+- 成績仍存在 [這份雲端資料庫](https://docs.google.com/spreadsheets/d/1AES93Jv8l65YI2LQ-scVRPqYSLFxtVOD-UqIU99gQSA/edit)。打開後請看工作表 **「成績」**（考卷／作業／段考）和 **「每日加扣」**；「雲端資料」是系統備份，不是給人看的分數表。
 - 點 801／802／803／804 會切到該班座位表去上課
 
 ## 新增班級與學生（Excel）
