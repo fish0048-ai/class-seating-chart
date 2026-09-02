@@ -276,8 +276,11 @@
   var hydrated = false;
   var saveTimer = null;
   var lastPushAt = '';
+  var lastSyncedAt_ = '';
+  var scoreHold_ = false;
   var cloudError = '';
   var cloudSaving = false;
+  var SCORE_HOLD_KEY = 'class-seating-score-hold';
 
   function cloudOn() {
     return typeof CloudStore !== 'undefined' && CloudStore.enabled();
@@ -316,10 +319,17 @@
     return memStore;
   }
 
-  function saveStore(store) {
+  function saveStore(store, opts) {
+    opts = opts || {};
     memStore = store;
     if (!hydrated) return;
     if (typeof GoogleAuth !== 'undefined' && GoogleAuth.isSignedIn && GoogleAuth.isSignedIn() && !GoogleAuth.isTeacher()) {
+      return;
+    }
+    if (opts.cloud === false) {
+      scoreHold_ = true;
+      persistScoreHold_(store);
+      notifyCloud_('held');
       return;
     }
     store.updatedAt = nowIso();
@@ -327,6 +337,8 @@
       try {
         localStorage.setItem(KEY, JSON.stringify(store));
       } catch (err) {}
+      scoreHold_ = false;
+      clearScoreHold_();
       return;
     }
     scheduleCloudSave_();
@@ -336,6 +348,49 @@
     try {
       document.dispatchEvent(new CustomEvent('seat-cloud', { detail: { phase: phase || '' } }));
     } catch (err) {}
+  }
+
+  function markSynced_(store) {
+    lastSyncedAt_ = (store && store.updatedAt) || '';
+    lastPushAt = lastSyncedAt_;
+    scoreHold_ = false;
+    clearScoreHold_();
+  }
+
+  function clearScoreHold_() {
+    try { sessionStorage.removeItem(SCORE_HOLD_KEY); } catch (err) {}
+  }
+
+  function persistScoreHold_(store) {
+    try {
+      sessionStorage.setItem(SCORE_HOLD_KEY, JSON.stringify({
+        baseUpdatedAt: lastSyncedAt_,
+        store: store
+      }));
+    } catch (err) {}
+  }
+
+  function restoreScoreHold_(remote) {
+    try {
+      var raw = sessionStorage.getItem(SCORE_HOLD_KEY);
+      if (!raw) return remote;
+      var hold = JSON.parse(raw);
+      var held = hold && hold.store ? normalizeLoadedStore_(hold.store) : null;
+      if (!held) {
+        clearScoreHold_();
+        return remote;
+      }
+      var remoteAt = (remote && remote.updatedAt) || '';
+      if (hold.baseUpdatedAt && remoteAt && hold.baseUpdatedAt !== remoteAt) {
+        scoreHold_ = false;
+        clearScoreHold_();
+        return remote;
+      }
+      scoreHold_ = true;
+      return held;
+    } catch (err) {
+      return remote;
+    }
   }
 
   function scheduleCloudSave_() {
@@ -352,19 +407,35 @@
     if (!cloudOn() || !store) return Promise.resolve();
     attempt = attempt || 1;
     cloudSaving = true;
-    lastPushAt = store.updatedAt || nowIso();
-    store.updatedAt = lastPushAt;
     notifyCloud_('saving');
-    return CloudStore.putStore(store).then(function (data) {
+    return CloudStore.getStore().then(function (data) {
+      var remote = data && data.store ? normalizeLoadedStore_(data.store) : null;
+      var remoteAt = (remote && remote.updatedAt) || '';
+      if (remoteAt && lastSyncedAt_ && remoteAt > lastSyncedAt_) {
+        cloudSaving = false;
+        cloudError = '另一台已有較新資料，這台沒有覆蓋雲端。請重新載入後再加扣。';
+        notifyCloud_('conflict');
+        return Promise.reject(new Error(cloudError));
+      }
+      lastPushAt = store.updatedAt || nowIso();
+      store.updatedAt = lastPushAt;
+      return CloudStore.putStore(store);
+    }).then(function (data) {
+      if (!data) return data;
       cloudSaving = false;
       cloudError = '';
-      if (data && data.updatedAt) {
+      if (data.updatedAt) {
         store.updatedAt = data.updatedAt;
-        lastPushAt = data.updatedAt;
       }
+      markSynced_(store);
       notifyCloud_('ok');
       return data;
     }).catch(function (err) {
+      var msg = err && err.message ? err.message : '雲端存檔失敗';
+      if (/另一台已有較新/.test(msg)) {
+        cloudSaving = false;
+        return Promise.reject(err);
+      }
       if (attempt < 3) {
         return new Promise(function (resolve, reject) {
           setTimeout(function () {
@@ -373,7 +444,7 @@
         });
       }
       cloudSaving = false;
-      cloudError = err && err.message ? err.message : '雲端存檔失敗';
+      cloudError = msg;
       notifyCloud_('error');
       return Promise.reject(err);
     });
@@ -389,7 +460,10 @@
       if (remote) {
         memStore = remote;
         hydrated = true;
+        lastSyncedAt_ = remote.updatedAt || '';
+        lastPushAt = lastSyncedAt_;
         clearLegacyLocal_();
+        memStore = restoreScoreHold_(memStore);
         if (ensureRolledScores_(memStore)) saveStore(memStore);
         return memStore;
       }
@@ -443,6 +517,7 @@
       sheetUrl: typeof CloudStore !== 'undefined' ? CloudStore.spreadsheetUrl() : '',
       hydrated: hydrated,
       saving: cloudSaving,
+      scoreHold: scoreHold_,
       error: cloudError,
       updatedAt: memStore && memStore.updatedAt ? memStore.updatedAt : '',
       localOnly: !cloudOn()
@@ -623,14 +698,14 @@
     }, store);
   }
 
-  function persistRoom(store, classroom, bump) {
+  function persistRoom(store, classroom, bump, skipCloud) {
     autoPlace(classroom);
     ensureGroups(classroom);
     ensureLab(classroom);
     if (bump) classroom.version = (Number(classroom.version) || 1) + 1;
     classroom.updatedAt = nowIso();
     store.classes[classroom.className] = classroom;
-    saveStore(store);
+    saveStore(store, skipCloud ? { cloud: false } : {});
   }
 
   function addHistory(store, item) {
@@ -715,17 +790,29 @@
         return Object.assign(payload(store, current), { cloud: cloudStatusPayload_() });
       });
     },
-    flushCloud: function () {
+    flushCloud: function (opts) {
+      opts = opts || {};
       if (!cloudOn() || !memStore || !hydrated) {
         return wrap(cloudStatusPayload_());
       }
+      if (opts.pendingOnly && !saveTimer) {
+        return wrap(cloudStatusPayload_());
+      }
+      if (opts.skipHeld && scoreHold_) {
+        clearTimeout(saveTimer);
+        saveTimer = null;
+        cloudSaving = false;
+        notifyCloud_('held');
+        return wrap(cloudStatusPayload_());
+      }
       clearTimeout(saveTimer);
+      saveTimer = null;
       return pushCloud_(memStore).then(function () {
         return cloudStatusPayload_();
       });
     },
     pullIfNewer: function (className) {
-      if (!cloudOn() || !hydrated || cloudSaving) {
+      if (!cloudOn() || !hydrated || cloudSaving || scoreHold_) {
         return wrap({ changed: false, cloud: cloudStatusPayload_() });
       }
       return CloudStore.getStore().then(function (data) {
@@ -733,12 +820,14 @@
         if (!remote || !remote.updatedAt) {
           return { changed: false, cloud: cloudStatusPayload_() };
         }
-        var localAt = (memStore && memStore.updatedAt) || '';
+        var localAt = lastSyncedAt_ || (memStore && memStore.updatedAt) || '';
         if (!localAt || remote.updatedAt > localAt) {
           if (remote.updatedAt === lastPushAt) {
             return { changed: false, cloud: cloudStatusPayload_() };
           }
           memStore = remote;
+          lastSyncedAt_ = remote.updatedAt;
+          lastPushAt = remote.updatedAt;
           cloudError = '';
           var names = classNames(memStore);
           var target = className && memStore.classes[className] ? className : (names[0] || '範例班');
@@ -819,7 +908,7 @@
       if (gid) {
         pack.scores[String(gid)] = (Number(pack.scores[String(gid)]) || 0) + delta;
       }
-      persistRoom(store, room, false);
+      persistRoom(store, room, false, true);
       var causeSeatNo = '';
       var causeName = '';
       if (gid) {
@@ -857,7 +946,7 @@
         causeName: causeName,
         lab: useLab
       });
-      saveStore(store);
+      saveStore(store, { cloud: false });
       var data = payload(store, className);
       data.changedSeatNos = seatNos;
       data.groupId = gid || 0;
@@ -894,7 +983,7 @@
         pack.scores[gidKey] = (Number(pack.scores[gidKey]) || 0) - Number(item.delta || 0);
       }
       item.undone = true;
-      persistRoom(store, room, false);
+      persistRoom(store, room, false, true);
       addHistory(store, {
         className: className,
         type: '復原',
@@ -908,7 +997,7 @@
         seatNos: seatNos,
         lab: item.lab === true
       });
-      saveStore(store);
+      saveStore(store, { cloud: false });
       var data = payload(store, className);
       data.undone = {
         seatNo: item.seatNo,
@@ -934,7 +1023,7 @@
       (store.history || []).forEach(function (item) {
         if (item.className === className && item.undoable) item.undone = true;
       });
-      persistRoom(store, room, true);
+      persistRoom(store, room, true, true);
       addHistory(store, {
         className: className,
         type: '重製加扣分',
@@ -945,7 +1034,7 @@
         detail: '本班分數全部歸零',
         undoable: false
       });
-      saveStore(store);
+      saveStore(store, { cloud: false });
       return wrap(payload(store, className));
     },
     saveSettings: function (body) {

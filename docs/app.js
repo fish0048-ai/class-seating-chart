@@ -710,14 +710,18 @@
   setInterval(pullCloudQuiet, 12000);
   document.addEventListener('visibilitychange', function () {
     if (document.hidden) {
-      if (typeof SeatDB !== 'undefined' && SeatDB.flushCloud) SeatDB.flushCloud().catch(function () {});
+      if (typeof SeatDB !== 'undefined' && SeatDB.flushCloud) {
+        SeatDB.flushCloud({ pendingOnly: true, skipHeld: true }).catch(function () {});
+      }
       return;
     }
     syncScoreDay();
     pullCloudQuiet();
   });
   window.addEventListener('pagehide', function () {
-    if (typeof SeatDB !== 'undefined' && SeatDB.flushCloud) SeatDB.flushCloud().catch(function () {});
+    if (typeof SeatDB !== 'undefined' && SeatDB.flushCloud) {
+      SeatDB.flushCloud({ pendingOnly: true, skipHeld: true }).catch(function () {});
+    }
   });
 
   function cloudConnected() {
@@ -734,7 +738,8 @@
     var line = document.getElementById('cloudStatusLine');
     if (line) {
       if (info.saving) line.textContent = '正在存到雲端…';
-      else if (info.enabled && !info.error) line.textContent = '已連上雲端，修改後會自動存，平板與筆電共用';
+      else if (info.scoreHold) line.textContent = '加扣先留在這台。換平板／手機前請按「立即同步」，避免舊分頁蓋掉新紀錄';
+      else if (info.enabled && !info.error) line.textContent = '已連上雲端。座位改完會自動存；加扣請按「立即同步」再換機';
       else if (info.error) line.textContent = info.error;
       else line.textContent = '尚未連線：請先部署 Apps Script 並貼上網址';
     }
@@ -751,6 +756,8 @@
   function pullCloudQuiet() {
     if (App.busy || App.dirty || App.lotteryBusy) return;
     if (typeof SeatDB === 'undefined' || !SeatDB.pullIfNewer) return;
+    var info = SeatDB.cloudStatus ? SeatDB.cloudStatus() : {};
+    if (info.scoreHold) return;
     if (gradeSaveTimer || ruleSaveTimer) return;
     if (App.appView === 'teacher' && (App.teacherTab === 'summary' || App.teacherTab === 'settings')) return;
     var className = App.classroom && App.classroom.className;
@@ -968,10 +975,13 @@
     const dirty = App.dirty ? '（有未存檔變更）' : '';
     var info = typeof SeatDB !== 'undefined' && SeatDB.cloudStatus ? SeatDB.cloudStatus() : {};
     var where = info.saving ? '正在存到雲端'
-      : (info.enabled && !info.error) ? '已自動存到雲端'
-      : (info.error ? '雲端同步失敗' : '只在這台裝置');
+      : info.scoreHold ? '加扣尚未上傳，換機前請按立即同步'
+      : (info.enabled && !info.error) ? '座位已自動存到雲端'
+      : (info.error ? (info.error.indexOf('另一台') >= 0 ? info.error : '雲端同步失敗') : '只在這台裝置');
     els.syncMeta.textContent = App.classroom.students.length + ' 位學生 · ' + where +
       (time ? ' · ' + time : '') + dirty;
+    var saveBtn = document.getElementById('btnSave');
+    if (saveBtn) saveBtn.classList.toggle('need-sync', !!info.scoreHold);
   }
 
   function renderBoard() {
@@ -6279,12 +6289,15 @@
         SeatDB.flushCloud().then(function () {
           fillCloudSettings();
           renderMeta();
-        }).catch(function () {
+          toast(cloudConnected() ? '加扣已上傳雲端。換到另一台請重新整理再上課' : '已暫存在這台。請到設定連上雲端，另一台才看得到');
+        }).catch(function (err) {
           fillCloudSettings();
           renderMeta();
+          toast(err && err.message ? err.message : '同步失敗');
         });
+      } else {
+        toast('已暫存在這台');
       }
-      toast(cloudConnected() ? '已同步到雲端。平時改完就會自動存，不必再按' : '已暫存在這台。請到設定連上雲端，另一台才看得到');
     });
   }
 

@@ -139,6 +139,15 @@
     border-color: var(--primary);
   }
 
+  .tool.primary.need-sync {
+    box-shadow: 0 0 0 3px rgba(196, 122, 42, 0.45);
+    animation: need-sync-pulse 1.6s ease-in-out infinite;
+  }
+
+  @keyframes need-sync-pulse {
+    50% { box-shadow: 0 0 0 6px rgba(196, 122, 42, 0.15); }
+  }
+
   .tool.accent {
     background: var(--accent);
     color: #fff;
