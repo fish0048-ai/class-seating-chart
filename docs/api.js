@@ -1018,6 +1018,43 @@
       });
       return wrap(withRoll_({ ok: true, rows: rows, classNames: classNames(store) }, store));
     },
+    listSchoolOverview: function () {
+      var store = loadStore();
+      var active = store.scoreDate || scoreDateFromNow_();
+      var names = classNames(store);
+      var classes = names.map(function (cn) {
+        var room = ensureClass(store, cn);
+        var days = ((store.daily || {})[cn] || []).slice();
+        var live = makeDayRecord_(room, active, true);
+        if (!days.some(function (item) { return item.date === active; })) days.push(live);
+        days.sort(function (a, b) {
+          return String(a.date).localeCompare(String(b.date));
+        });
+        var rawBook = (store.grades && store.grades[cn]) || {};
+        return {
+          className: cn,
+          students: (room.students || []).map(function (s) {
+            return {
+              className: cn,
+              seatNo: s.seatNo,
+              name: s.name,
+              score: Number(s.score) || 0
+            };
+          }),
+          days: clone(days),
+          gradebook: {
+            yellow: clone(rawBook.yellow || rawBook.quizzes || []),
+            morning: clone(rawBook.morning || []),
+            exams: clone(rawBook.exams || []),
+            labs: clone(rawBook.labs || []),
+            practicals: clone(rawBook.practicals || []),
+            homeworks: clone(rawBook.homeworks || []),
+            rules: Object.assign({}, defaultGradeRules_(), rawBook.rules || {})
+          }
+        };
+      });
+      return wrap({ ok: true, classNames: names, classes: classes });
+    },
     listGroupDeductions: function (className) {
       var store = loadStore();
       className = String(className || '').trim();

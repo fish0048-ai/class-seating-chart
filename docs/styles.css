@@ -1245,11 +1245,13 @@
     flex-shrink: 0;
   }
 
-  .stats-wide tbody tr[data-seat] {
+  .stats-wide tbody tr[data-seat],
+  .stats-wide tbody tr[data-class] {
     cursor: pointer;
   }
 
-  .stats-wide tbody tr[data-seat]:hover td {
+  .stats-wide tbody tr[data-seat]:hover td,
+  .stats-wide tbody tr[data-class]:hover td {
     background: #eef6fb;
   }
 
@@ -1275,6 +1277,7 @@
   }
 
   #statsClassView,
+  #statsSchoolView,
   #statsPersonView {
     display: flex;
     flex-direction: column;
@@ -1282,6 +1285,7 @@
   }
 
   #statsClassView[hidden],
+  #statsSchoolView[hidden],
   #statsPersonView[hidden] {
     display: none !important;
   }

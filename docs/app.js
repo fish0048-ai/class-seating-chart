@@ -24,6 +24,7 @@
     weekKey: '',
     statsView: 'class',
     statsSeatNo: '',
+    schoolBusy: false,
     timetableSheet: 0,
     groupPanel: false,
     groupAssign: false,
@@ -124,6 +125,19 @@
     chartPersonPct: document.getElementById('chartPersonPct'),
     chartPersonBand: document.getElementById('chartPersonBand'),
     chartPersonSeries: document.getElementById('chartPersonSeries'),
+    schoolCards: document.getElementById('schoolCards'),
+    schoolWatch: document.getElementById('schoolWatch'),
+    schoolInsights: document.getElementById('schoolInsights'),
+    chartSchoolTermAvg: document.getElementById('chartSchoolTermAvg'),
+    chartSchoolPass: document.getElementById('chartSchoolPass'),
+    chartSchoolClassRaw: document.getElementById('chartSchoolClassRaw'),
+    chartSchoolHw: document.getElementById('chartSchoolHw'),
+    chartSchoolTermDist: document.getElementById('chartSchoolTermDist'),
+    chartSchoolKind: document.getElementById('chartSchoolKind'),
+    chartSchoolTop: document.getElementById('chartSchoolTop'),
+    schoolClassBody: document.getElementById('schoolClassBody'),
+    schoolTopBody: document.getElementById('schoolTopBody'),
+    schoolNeedBody: document.getElementById('schoolNeedBody'),
     timetableSheets: document.getElementById('timetableSheets'),
     timetableStatus: document.getElementById('timetableStatus'),
     timetableClock: document.getElementById('timetableClock'),
@@ -260,6 +274,20 @@
       setStatsView('person');
     });
   }
+  if (els.schoolClassBody) {
+    els.schoolClassBody.addEventListener('click', function (event) {
+      var row = event.target.closest('tr[data-class]');
+      if (!row) return;
+      openStatsClass(row.getAttribute('data-class'));
+    });
+  }
+  function schoolStudentClick(event) {
+    var row = event.target.closest('tr[data-class][data-seat]');
+    if (!row) return;
+    openStatsPerson(row.getAttribute('data-class'), row.getAttribute('data-seat'));
+  }
+  if (els.schoolTopBody) els.schoolTopBody.addEventListener('click', schoolStudentClick);
+  if (els.schoolNeedBody) els.schoolNeedBody.addEventListener('click', schoolStudentClick);
   var lockBtn = document.getElementById('btnTeacherLock');
   if (lockBtn) {
     lockBtn.addEventListener('click', lockTeacher);
@@ -1816,6 +1844,7 @@
     } else {
       stopTimetableClock();
     }
+    if (App.teacherTab === 'stats' && App.statsView === 'school') ensureSchoolStats();
     if (App.teacherTab !== 'roster' && App.teacherTab !== 'settings' && App.teacherTab !== 'timetable' && App.teacherTab !== 'homework') refreshTeacherExtras();
   }
 
@@ -2829,19 +2858,11 @@
     return Math.round(Math.sqrt(variance) * 10) / 10;
   }
 
-  function buildSheetModel() {
-    var className = teacherTargetClass();
-    var dates = (App.dailyDays || []).slice().sort(function (a, b) {
+  function buildSheetModelFrom(className, students, dates) {
+    dates = (dates || []).slice().sort(function (a, b) {
       return String(a.date).localeCompare(String(b.date));
     });
-    var students = (App.dbRows || []).filter(function (row) {
-      return row.className === className;
-    }).slice().sort(seatOrder);
-    if (!students.length && App.classroom && App.classroom.className === className) {
-      students = (App.classroom.students || []).map(function (s) {
-        return { className: className, seatNo: s.seatNo, name: s.name, score: s.score };
-      }).sort(seatOrder);
-    }
+    students = (students || []).slice().sort(seatOrder);
     var maps = dates.map(function (day) {
       var map = {};
       (day.students || []).forEach(function (s) {
@@ -2877,6 +2898,7 @@
       });
       var avg = cells.length ? Math.round((total / cells.length) * 10) / 10 : 0;
       return {
+        className: stu.className || className,
         seatNo: stu.seatNo,
         name: stu.name,
         cells: cells,
@@ -2930,6 +2952,22 @@
       classAvg: classAvg,
       median: medianOf(rows.map(function (row) { return row.total; }))
     };
+  }
+
+  function buildSheetModel() {
+    var className = teacherTargetClass();
+    var dates = (App.dailyDays || []).slice().sort(function (a, b) {
+      return String(a.date).localeCompare(String(b.date));
+    });
+    var students = (App.dbRows || []).filter(function (row) {
+      return row.className === className;
+    }).slice().sort(seatOrder);
+    if (!students.length && App.classroom && App.classroom.className === className) {
+      students = (App.classroom.students || []).map(function (s) {
+        return { className: className, seatNo: s.seatNo, name: s.name, score: s.score };
+      }).sort(seatOrder);
+    }
+    return buildSheetModelFrom(className, students, dates);
   }
 
   function renderDailyPanel(data) {
@@ -3830,7 +3868,7 @@
     limit = limit || 4;
     if (!list || !list.length) return '目前沒有';
     var names = list.slice(0, limit).map(function (row) {
-      return row.seatNo + ' ' + row.name;
+      return (row.className ? row.className + ' ' : '') + row.seatNo + ' ' + row.name;
     });
     var extra = list.length > limit ? ' 等 ' + list.length + ' 人' : '';
     return names.join('、') + extra;
@@ -3942,6 +3980,82 @@
         trend: delta
       });
     });
+  }
+
+  function withGradebook(book, fn) {
+    var prev = App.gradebook;
+    App.gradebook = book || emptyGradebook();
+    try {
+      return fn();
+    } finally {
+      App.gradebook = prev;
+    }
+  }
+
+  function isSchoolClassName(name) {
+    name = String(name || '').trim();
+    if (!name) return false;
+    return name.indexOf('範例') < 0;
+  }
+
+  function needHelpRow(row) {
+    return (row.total != null && row.total < 60) || row.hwMissing > 0 || (row.minusSum || 0) <= -5;
+  }
+
+  function summarizeClassPack(pack) {
+    var book = Object.assign(emptyGradebook(), pack.gradebook || {});
+    var model = buildSheetModelFrom(pack.className, pack.students || [], pack.days || []);
+    var people = withGradebook(book, function () {
+      return enrichStatsRows(model);
+    });
+    people.forEach(function (row) { row.className = pack.className; });
+    var termScores = people.map(function (row) { return row.total; }).filter(function (n) { return n != null; });
+    var pass60 = termScores.filter(function (n) { return n >= 60; }).length;
+    var needHelp = people.filter(needHelpRow);
+    var hwMissingPeople = people.filter(function (row) { return row.hwMissing > 0; }).length;
+    var hwMissingCount = people.reduce(function (sum, row) { return sum + (row.hwMissing || 0); }, 0);
+    return {
+      className: pack.className,
+      model: model,
+      people: people,
+      count: people.length,
+      termAvg: meanOf(termScores),
+      termMedian: termScores.length ? medianOf(termScores) : null,
+      passRate: termScores.length ? round1(pass60 / termScores.length * 100) : null,
+      passCount: pass60,
+      termCount: termScores.length,
+      usualAvg: meanOf(people.map(function (row) { return row.usual; })),
+      quizAvg: meanOf(people.map(function (row) { return row.quiz; })),
+      examAvg: meanOf(people.map(function (row) { return row.exam; })),
+      classAvg: model.classAvg,
+      plusTotal: model.plusTotal || 0,
+      minusTotal: model.minusTotal || 0,
+      hwMissingPeople: hwMissingPeople,
+      hwMissingCount: hwMissingCount,
+      needHelp: needHelp,
+      needCount: needHelp.length
+    };
+  }
+
+  function schoolTermBands(people) {
+    var bands = [
+      { label: '90↑', count: 0 },
+      { label: '80–89', count: 0 },
+      { label: '70–79', count: 0 },
+      { label: '60–69', count: 0 },
+      { label: '未滿60', count: 0 }
+    ];
+    var hasTerm = 0;
+    (people || []).forEach(function (row) {
+      if (row.total == null) return;
+      hasTerm += 1;
+      if (row.total >= 90) bands[0].count += 1;
+      else if (row.total >= 80) bands[1].count += 1;
+      else if (row.total >= 70) bands[2].count += 1;
+      else if (row.total >= 60) bands[3].count += 1;
+      else bands[4].count += 1;
+    });
+    return { bands: bands, hasTerm: hasTerm };
   }
 
   function renderStatsDashboard(model) {
@@ -4066,6 +4180,7 @@
     renderPersonStats();
     applyStatsView();
     renderGroupDeductStats();
+    if (App.statsView === 'school') ensureSchoolStats();
   }
 
   function formatHistoryTime(value) {
@@ -4179,10 +4294,12 @@
   }
 
   function applyStatsView() {
-    var mode = App.statsView === 'person' ? 'person' : 'class';
+    var mode = App.statsView === 'person' ? 'person' : (App.statsView === 'school' ? 'school' : 'class');
     var classView = document.getElementById('statsClassView');
+    var schoolView = document.getElementById('statsSchoolView');
     var personView = document.getElementById('statsPersonView');
     if (classView) classView.hidden = mode !== 'class';
+    if (schoolView) schoolView.hidden = mode !== 'school';
     if (personView) personView.hidden = mode !== 'person';
     document.querySelectorAll('[data-stats-view]').forEach(function (btn) {
       btn.classList.toggle('tab-on', btn.getAttribute('data-stats-view') === mode);
@@ -4191,14 +4308,249 @@
     if (hint) {
       hint.textContent = mode === 'person'
         ? '看單一學生的走勢、與全班比較，以及每一次考卷／作業。可用上一位／下一位切換。'
-        : '把上課加扣、考卷、作業、段考放在一起看，方便立刻看出亮點與需要關心的學生。';
+        : (mode === 'school'
+          ? '把 801～804 放在一起比學期平均、及格率、上課加扣與作業未繳，方便看出哪一班要加強。'
+          : '把上課加扣、考卷、作業、段考放在一起看，方便立刻看出亮點與需要關心的學生。');
     }
   }
 
   function setStatsView(mode) {
-    App.statsView = mode === 'person' ? 'person' : 'class';
+    if (mode === 'person') App.statsView = 'person';
+    else if (mode === 'school') App.statsView = 'school';
+    else App.statsView = 'class';
     applyStatsView();
     if (App.statsView === 'person') renderPersonStats();
+    if (App.statsView === 'school') ensureSchoolStats();
+  }
+
+  function openStatsClass(className) {
+    className = String(className || '').trim();
+    if (!className) return;
+    if (els.dbClassFilter) els.dbClassFilter.value = className;
+    App.dbFilter = className;
+    App.statsView = 'class';
+    applyStatsView();
+    refreshTeacherExtras();
+    toast('改看 ' + className + ' 的班級分析');
+  }
+
+  function openStatsPerson(className, seatNo) {
+    className = String(className || '').trim();
+    seatNo = String(seatNo || '').trim();
+    if (!className || !seatNo) return;
+    if (els.dbClassFilter) els.dbClassFilter.value = className;
+    App.dbFilter = className;
+    App.statsSeatNo = seatNo;
+    App.statsView = 'person';
+    applyStatsView();
+    refreshTeacherExtras();
+    toast('改看 ' + className + ' ' + seatNo);
+  }
+
+  function ensureSchoolStats() {
+    if (App.schoolBusy) return;
+    App.schoolBusy = true;
+    if (els.schoolCards && !App.schoolPacks) {
+      els.schoolCards.innerHTML = statCard('全校統計', '正在彙整各班…');
+    }
+    api('listSchoolOverview', []).then(function (data) {
+      App.schoolBusy = false;
+      renderSchoolStats(data);
+    }).catch(function (err) {
+      App.schoolBusy = false;
+      if (els.schoolCards) {
+        els.schoolCards.innerHTML = statCard('全校統計', '讀取失敗');
+      }
+      toast(err && err.message ? err.message : '全校統計讀取失敗');
+    });
+  }
+
+  function renderSchoolStats(data) {
+    var packs = ((data && data.classes) || []).filter(function (pack) {
+      return isSchoolClassName(pack.className);
+    }).map(summarizeClassPack);
+    App.schoolPacks = packs;
+    var people = [];
+    packs.forEach(function (pack) {
+      people = people.concat(pack.people);
+    });
+    var names = packs.map(function (pack) { return pack.className; });
+    var termScores = people.map(function (row) { return row.total; }).filter(function (n) { return n != null; });
+    var pass60 = termScores.filter(function (n) { return n >= 60; }).length;
+    var needHelp = people.filter(needHelpRow).sort(function (a, b) {
+      return (a.total == null ? 0 : a.total) - (b.total == null ? 0 : b.total) || (b.hwMissing || 0) - (a.hwMissing || 0);
+    });
+    var rankedTerm = people.filter(function (row) { return row.total != null; }).slice().sort(function (a, b) {
+      if (b.total !== a.total) return b.total - a.total;
+      return (b.classRaw || 0) - (a.classRaw || 0);
+    });
+    var byAvg = packs.filter(function (pack) { return pack.termAvg != null; }).slice().sort(function (a, b) {
+      return b.termAvg - a.termAvg;
+    });
+    var bestClass = byAvg[0] || null;
+    var weakClass = byAvg.length ? byAvg[byAvg.length - 1] : null;
+    var mostNeed = packs.slice().sort(function (a, b) { return b.needCount - a.needCount; })[0];
+    var emptyPacks = packs.filter(function (pack) { return !pack.count; });
+
+    if (els.schoolCards) {
+      if (!packs.length) {
+        els.schoolCards.innerHTML = statCard('全校統計', '還沒有正式班級');
+      } else {
+        els.schoolCards.innerHTML =
+          statCard('班級數', packs.length) +
+          statCard('學生總數', people.length) +
+          statCard('全校學期平均', fmtMaybe(meanOf(termScores))) +
+          statCard('全校及格率', termScores.length ? round1(pass60 / termScores.length * 100) + '%' : '尚無學期成績') +
+          statCard('上課平均加扣', fmtMaybe(meanOf(packs.map(function (pack) { return pack.classAvg; })))) +
+          statCard('作業未繳人數', people.filter(function (row) { return row.hwMissing > 0; }).length) +
+          statCard('需要關心', needHelp.length) +
+          statCard('學期第一', rankedTerm[0] ? rankedTerm[0].className + ' ' + rankedTerm[0].name + '（' + rankedTerm[0].total + '）' : '—');
+      }
+    }
+
+    if (els.schoolWatch) {
+      var cards = [];
+      if (!packs.length) {
+        cards.push(watchCard('info', '還沒有班級', '匯入 801～804 名單後，這裡會比較各班。'));
+      } else {
+        cards.push(watchCard('good', '學期平均最高', bestClass
+          ? bestClass.className + '　平均 ' + bestClass.termAvg
+          : '各班還沒有學期成績'));
+        cards.push(watchCard('alert', '學期平均最低', weakClass && bestClass && weakClass.className !== bestClass.className
+          ? weakClass.className + '　平均 ' + weakClass.termAvg
+          : (weakClass ? '目前各班學期平均相同' : '各班還沒有學期成績')));
+        cards.push(watchCard('warn', '需要關心最多', mostNeed && mostNeed.needCount
+          ? mostNeed.className + '　' + mostNeed.needCount + ' 人（' + peopleText(mostNeed.needHelp, 3) + '）'
+          : '目前沒有明顯低分或未繳作業'));
+        cards.push(watchCard('info', '還沒有名單', emptyPacks.length
+          ? emptyPacks.map(function (pack) { return pack.className; }).join('、')
+          : '每一班都已有學生'));
+      }
+      els.schoolWatch.innerHTML = cards.join('');
+    }
+
+    if (els.schoolInsights) {
+      var items = [];
+      packs.forEach(function (pack) {
+        items.push(insightItem(
+          pack.className,
+          pack.count
+            ? (pack.count + ' 人　學期 ' + fmtMaybe(pack.termAvg) +
+              '　及格 ' + (pack.passRate == null ? '—' : pack.passRate + '%') +
+              '　加扣 ' + pack.classAvg)
+            : '還沒有學生'
+        ));
+      });
+      if (termScores.length) items.push(insightItem('全校學期中位數', medianOf(termScores)));
+      items.push(insightItem('全校加分總和', '+' + packs.reduce(function (sum, pack) { return sum + pack.plusTotal; }, 0)));
+      items.push(insightItem('全校扣分總和', String(packs.reduce(function (sum, pack) { return sum + pack.minusTotal; }, 0))));
+      els.schoolInsights.innerHTML = items.join('');
+    }
+
+    var termAvgs = packs.map(function (pack) { return pack.termAvg == null ? 0 : pack.termAvg; });
+    var passRates = packs.map(function (pack) { return pack.passRate == null ? 0 : pack.passRate; });
+    if (els.chartSchoolTermAvg) {
+      els.chartSchoolTermAvg.innerHTML = packs.length
+        ? svgBars(names, termAvgs, { zeroLine: false })
+        : chartEmpty('匯入各班名單後，這裡會比較學期平均');
+    }
+    if (els.chartSchoolPass) {
+      els.chartSchoolPass.innerHTML = packs.some(function (pack) { return pack.passRate != null; })
+        ? svgBars(names, passRates, { zeroLine: false, barColors: names.map(function () { return '#2f6f8f'; }) })
+        : chartEmpty('打進學期成績後，這裡會比較各班及格率');
+    }
+    if (els.chartSchoolClassRaw) {
+      els.chartSchoolClassRaw.innerHTML = packs.length
+        ? svgBars(names, packs.map(function (pack) { return pack.classAvg; }), { zeroLine: true })
+        : chartEmpty('有上課加扣後，這裡會比較各班平均');
+    }
+    if (els.chartSchoolHw) {
+      els.chartSchoolHw.innerHTML = packs.some(function (pack) { return pack.hwMissingPeople; })
+        ? svgBars(names, packs.map(function (pack) { return pack.hwMissingPeople; }), {
+          zeroLine: false,
+          barColors: names.map(function () { return '#b4413c'; })
+        })
+        : chartEmpty('登記作業並標未繳後，這裡會比較各班未繳人數');
+    }
+    var dist = schoolTermBands(people);
+    if (els.chartSchoolTermDist) {
+      els.chartSchoolTermDist.innerHTML = dist.hasTerm
+        ? svgBars(dist.bands.map(function (b) { return b.label; }), dist.bands.map(function (b) { return b.count; }), {
+          zeroLine: false,
+          barColors: ['#2c7a4b', '#5aa576', '#d9a441', '#d9852b', '#b4413c']
+        })
+        : chartEmpty('有學期總分之後，這裡會顯示全校 90／80／70／60 分段人數');
+    }
+    if (els.chartSchoolKind) {
+      var kindLabels = ['平時', '平時考試', '段考'];
+      var kindValues = [
+        meanOf(people.map(function (row) { return row.usual; })),
+        meanOf(people.map(function (row) { return row.quiz; })),
+        meanOf(people.map(function (row) { return row.exam; }))
+      ];
+      els.chartSchoolKind.innerHTML = kindValues.some(function (n) { return n != null; })
+        ? svgBars(kindLabels, kindValues.map(function (n) { return n == null ? 0 : n; }), { zeroLine: false })
+        : chartEmpty('打進平時或段考後，這裡會出現全校各類型平均');
+    }
+    if (els.chartSchoolTop) {
+      var top10 = rankedTerm.slice(0, 10);
+      els.chartSchoolTop.innerHTML = top10.length
+        ? svgHBars(top10.map(function (row) { return row.className + ' ' + row.name; }), top10.map(function (row) { return row.total; }))
+        : chartEmpty('有學期總分後，這裡會出現全校前 10 名');
+    }
+
+    if (els.schoolClassBody) {
+      if (!packs.length) {
+        els.schoolClassBody.innerHTML = '<tr><td colspan="12">還沒有正式班級</td></tr>';
+      } else {
+        els.schoolClassBody.innerHTML = packs.map(function (pack) {
+          return '<tr data-class="' + escapeHtml(pack.className) + '">' +
+            '<td>' + escapeHtml(pack.className) + '</td>' +
+            '<td>' + pack.count + '</td>' +
+            '<td class="col-total">' + fmtMaybe(pack.termAvg) + '</td>' +
+            '<td>' + fmtMaybe(pack.termMedian) + '</td>' +
+            '<td>' + (pack.passRate == null ? '—' : pack.passRate + '%') + '</td>' +
+            '<td>' + fmtMaybe(pack.usualAvg) + '</td>' +
+            '<td>' + fmtMaybe(pack.examAvg) + '</td>' +
+            '<td class="' + scoreCellClass(pack.classAvg) + '">' + scoreCellText(pack.classAvg) + '</td>' +
+            '<td class="day-plus">+' + pack.plusTotal + '</td>' +
+            '<td class="day-minus">' + pack.minusTotal + '</td>' +
+            '<td>' + pack.hwMissingPeople + '</td>' +
+            '<td>' + pack.needCount + '</td>' +
+            '</tr>';
+        }).join('');
+      }
+    }
+    if (els.schoolTopBody) {
+      els.schoolTopBody.innerHTML = rankedTerm.length
+        ? rankedTerm.slice(0, 10).map(function (row, index) {
+          return '<tr data-class="' + escapeHtml(row.className) + '" data-seat="' + escapeHtml(String(row.seatNo)) + '">' +
+            '<td>' + (index + 1) + '</td>' +
+            '<td>' + escapeHtml(row.className) + '</td>' +
+            '<td>' + escapeHtml(row.seatNo) + '</td>' +
+            '<td>' + escapeHtml(row.name) + '</td>' +
+            '<td class="col-total">' + fmtMaybe(row.total) + '</td>' +
+            '<td>' + fmtMaybe(row.usual) + '</td>' +
+            '<td>' + fmtMaybe(row.exam) + '</td>' +
+            '<td class="' + scoreCellClass(row.classRaw) + '">' + scoreCellText(row.classRaw) + '</td>' +
+            '</tr>';
+        }).join('')
+        : '<tr><td colspan="8">尚無學期成績</td></tr>';
+    }
+    if (els.schoolNeedBody) {
+      els.schoolNeedBody.innerHTML = needHelp.length
+        ? needHelp.slice(0, 40).map(function (row) {
+          return '<tr data-class="' + escapeHtml(row.className) + '" data-seat="' + escapeHtml(String(row.seatNo)) + '">' +
+            '<td>' + escapeHtml(row.className) + '</td>' +
+            '<td>' + escapeHtml(row.seatNo) + '</td>' +
+            '<td>' + escapeHtml(row.name) + '</td>' +
+            '<td class="col-total">' + fmtMaybe(row.total) + '</td>' +
+            '<td>' + (row.hwMissing || 0) + '</td>' +
+            '<td class="day-minus">' + (row.minusSum || 0) + '</td>' +
+            '</tr>';
+        }).join('')
+        : '<tr><td colspan="6">目前沒有需要關心的學生</td></tr>';
+    }
   }
 
   function fillPersonSelect(people) {

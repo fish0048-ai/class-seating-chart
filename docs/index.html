@@ -297,6 +297,7 @@
           <div id="tabStats" class="teacher-panel stats-panel" hidden>
             <div class="stats-switch" role="tablist" aria-label="統計範圍">
               <button type="button" class="tool tab-on" data-stats-view="class">班級分析</button>
+              <button type="button" class="tool" data-stats-view="school">全校統計</button>
               <button type="button" class="tool" data-stats-view="person">個人分析</button>
             </div>
             <p class="hint" id="statsHint">把上課加扣、考卷、作業、段考放在一起看，方便立刻看出亮點與需要關心的學生。</p>
@@ -431,6 +432,112 @@
                 <tbody id="statsBody"></tbody>
               </table>
             </div>
+            </div>
+
+            <div id="statsSchoolView" hidden>
+              <div id="schoolCards" class="stat-cards stats-hero"></div>
+              <div id="schoolWatch" class="stats-watch"></div>
+              <div id="schoolInsights" class="insight-list"></div>
+
+              <section class="stats-block">
+                <h3>各班比較</h3>
+                <p class="hint">點某一班可改看該班的班級分析。這裡彙整你教的每一班，不含範例班。</p>
+                <div class="chart-grid">
+                  <figure class="chart-card">
+                    <figcaption>各班學期平均</figcaption>
+                    <div id="chartSchoolTermAvg"></div>
+                  </figure>
+                  <figure class="chart-card">
+                    <figcaption>各班及格率（60 分）</figcaption>
+                    <div id="chartSchoolPass"></div>
+                  </figure>
+                  <figure class="chart-card">
+                    <figcaption>各班上課加扣平均</figcaption>
+                    <div id="chartSchoolClassRaw"></div>
+                  </figure>
+                  <figure class="chart-card">
+                    <figcaption>各班作業未繳人數</figcaption>
+                    <div id="chartSchoolHw"></div>
+                  </figure>
+                </div>
+                <div class="chart-grid">
+                  <figure class="chart-card">
+                    <figcaption>全校學期總分分布</figcaption>
+                    <div id="chartSchoolTermDist"></div>
+                  </figure>
+                  <figure class="chart-card">
+                    <figcaption>全校各類型平均（平時／平時考試／段考）</figcaption>
+                    <div id="chartSchoolKind"></div>
+                  </figure>
+                </div>
+                <div class="db-table-wrap stats-table-wrap">
+                  <table class="db-table stats-wide">
+                    <thead>
+                      <tr>
+                        <th>班級</th>
+                        <th>人數</th>
+                        <th>學期平均</th>
+                        <th>中位數</th>
+                        <th>及格率</th>
+                        <th>平時</th>
+                        <th>段考</th>
+                        <th>上課加扣平均</th>
+                        <th>加分合計</th>
+                        <th>扣分合計</th>
+                        <th>未繳作業</th>
+                        <th>需關心</th>
+                      </tr>
+                    </thead>
+                    <tbody id="schoolClassBody"></tbody>
+                  </table>
+                </div>
+              </section>
+
+              <section class="stats-block">
+                <h3>全校學生</h3>
+                <p class="hint">點姓名會改看該班的個人分析。</p>
+                <div class="chart-grid">
+                  <figure class="chart-card chart-wide">
+                    <figcaption>全校學期前 10 名</figcaption>
+                    <div id="chartSchoolTop"></div>
+                  </figure>
+                </div>
+                <h4 class="chart-sub">學期前 10 名</h4>
+                <div class="db-table-wrap stats-table-wrap">
+                  <table class="db-table stats-wide">
+                    <thead>
+                      <tr>
+                        <th>名次</th>
+                        <th>班級</th>
+                        <th>座號</th>
+                        <th>姓名</th>
+                        <th>學期總分</th>
+                        <th>平時</th>
+                        <th>段考</th>
+                        <th>上課加扣</th>
+                      </tr>
+                    </thead>
+                    <tbody id="schoolTopBody"></tbody>
+                  </table>
+                </div>
+                <h4 class="chart-sub">需要關心</h4>
+                <p class="hint">學期未滿 60、有作業未繳，或上課扣分合計達 5 分。</p>
+                <div class="db-table-wrap stats-table-wrap">
+                  <table class="db-table stats-wide">
+                    <thead>
+                      <tr>
+                        <th>班級</th>
+                        <th>座號</th>
+                        <th>姓名</th>
+                        <th>學期總分</th>
+                        <th>未繳作業</th>
+                        <th>扣分合計</th>
+                      </tr>
+                    </thead>
+                    <tbody id="schoolNeedBody"></tbody>
+                  </table>
+                </div>
+              </section>
             </div>
 
             <div id="statsPersonView" hidden>
