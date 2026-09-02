@@ -338,12 +338,13 @@
     position: relative;
   }
 
-  .seat:has(.seat-exam) {
-    min-height: 118px;
+  .exam-table .exam-chip {
+    font-size: 12px;
+    padding: 2px 6px;
   }
 
-  .lab-board .seat-card:has(.seat-exam) {
-    min-height: 96px;
+  .exam-table td {
+    white-space: nowrap;
   }
 
   .seat.drop-target {

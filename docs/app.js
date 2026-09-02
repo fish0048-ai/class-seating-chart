@@ -36,10 +36,7 @@
     hwRows: [],
     hwPickedSeat: '',
     hwStudentUrl: '',
-    mockExam: null,
-    showExamTags: (function () {
-      try { return sessionStorage.getItem('seat-exam-tags') !== '0'; } catch (err) { return true; }
-    })()
+    mockExam: null
   };
 
   const GROUP_COLORS = [
@@ -351,6 +348,7 @@
         if (hwClass) hwClass.value = teacherTargetClass();
         loadHomeworkTab();
       }
+      if (App.teacherTab === 'exam') renderMockExamTable();
     });
   }
   if (els.dbDateFilter) {
@@ -535,14 +533,6 @@
   if (clearMock) {
     clearMock.addEventListener('click', function () {
       requireTeacher(clearMockExamTags);
-    });
-  }
-  var examBtn = document.getElementById('btnExamTags');
-  if (examBtn) {
-    examBtn.addEventListener('click', function () {
-      App.showExamTags = !App.showExamTags;
-      try { sessionStorage.setItem('seat-exam-tags', App.showExamTags ? '1' : '0'); } catch (err) {}
-      renderAll();
     });
   }
   var cloudBtn = document.getElementById('btnCloudConnect');
@@ -988,7 +978,7 @@
     renderGroupRoster();
     renderMode();
     renderDelta();
-    updateExamTagButton();
+    if (App.appView === 'teacher' && App.teacherTab === 'exam') renderMockExamTable();
   }
 
   function renderClassSelect() {
@@ -1092,49 +1082,19 @@
     return '';
   }
 
-  function examTagFor(student) {
+  function examRowFor(className, seatNo) {
     var pack = App.mockExam;
-    if (!pack || !pack.byClass || !student || !App.classroom) return null;
-    var cn = normExamClass(App.classroom.className);
-    var bucket = pack.byClass[cn] || pack.byClass[App.classroom.className];
+    if (!pack || !pack.byClass) return null;
+    var cn = normExamClass(className);
+    var bucket = pack.byClass[cn] || pack.byClass[className];
     if (!bucket) return null;
-    var key = normExamSeat(student.seatNo);
-    var row = bucket[key];
-    return row || null;
+    return bucket[normExamSeat(seatNo)] || null;
   }
 
-  function examTagHtml(student) {
-    if (!App.showExamTags) return '';
-    var row = examTagFor(student);
-    if (!row) return '';
-    var chips = [];
-    var order = ['國', '英', '數', '社', '自'];
-    order.forEach(function (key) {
-      var lv = row.levels && row.levels[key];
-      if (!lv || !lv.mark) return;
-      chips.push('<span class="exam-chip tone-' + levelTone(lv) + '">' + key + escapeHtml(lv.mark) + '</span>');
-    });
-    if (row.writing) chips.push('<span class="exam-chip tone-w">寫' + escapeHtml(row.writing) + '</span>');
-    if (row.schoolRank) chips.push('<span class="exam-rank">校' + escapeHtml(row.schoolRank) + '</span>');
-    if (!chips.length) return '';
-    return '<div class="seat-exam">' + chips.join('') + '</div>';
-  }
-
-  function toastExamTag(student) {
-    var row = examTagFor(student);
-    if (!row) return;
-    var bits = [];
-    if (row.combo) bits.push(row.combo);
-    var order = ['國', '英', '數', '社', '自'];
-    var lv = order.map(function (key) {
-      var item = row.levels && row.levels[key];
-      return item && item.mark ? key + item.mark : '';
-    }).filter(Boolean);
-    if (lv.length) bits.push(lv.join(' '));
-    if (row.writing) bits.push('寫作 ' + row.writing);
-    if (row.schoolRank) bits.push('校排 ' + row.schoolRank);
-    if (row.classRank) bits.push('班排 ' + row.classRank);
-    if (bits.length) toast(student.name + '　' + bits.join('　'), 5000);
+  function examLevelChip(row, key) {
+    var lv = row && row.levels && row.levels[key];
+    if (!lv || !lv.mark) return '—';
+    return '<span class="exam-chip tone-' + levelTone(lv) + '">' + escapeHtml(lv.mark) + '</span>';
   }
 
   function hasMockExam() {
@@ -1142,29 +1102,110 @@
     return !!(pack && pack.byClass && Object.keys(pack.byClass).length);
   }
 
-  function updateExamTagButton() {
-    var btn = document.getElementById('btnExamTags');
-    if (!btn) return;
-    var on = hasMockExam();
-    btn.hidden = !on;
-    btn.classList.toggle('tab-on', on && App.showExamTags);
-    btn.textContent = on && App.showExamTags ? '模擬考標註開' : '模擬考標註';
+  function mockExamCount() {
+    var pack = App.mockExam;
+    var n = 0;
+    if (!pack || !pack.byClass) return 0;
+    Object.keys(pack.byClass).forEach(function (cn) {
+      n += Object.keys(pack.byClass[cn] || {}).length;
+    });
+    return n;
   }
 
   function fillMockExamMeta() {
     var line = document.getElementById('mockExamMeta');
     if (!line) return;
-    var pack = App.mockExam;
     if (!hasMockExam()) {
       line.textContent = '還沒有匯入模擬考。請選學力診斷的「學校能力等級成績統計表」。';
       return;
     }
-    var n = 0;
-    Object.keys(pack.byClass).forEach(function (cn) {
-      n += Object.keys(pack.byClass[cn] || {}).length;
+    var title = (App.mockExam.meta && (App.mockExam.meta.code || App.mockExam.meta.title)) || '模擬考';
+    line.textContent = '已匯入 ' + title + '，共 ' + mockExamCount() + ' 人。請到教師模式「模擬考」分頁查看。';
+  }
+
+  function collectExamTableRows() {
+    var filter = els.dbClassFilter ? els.dbClassFilter.value : '__all__';
+    var list = [];
+    var seen = {};
+    (App.dbRows || []).forEach(function (s) {
+      if (filter !== '__all__' && String(s.className) !== String(filter)) return;
+      var key = normExamClass(s.className) + ':' + normExamSeat(s.seatNo);
+      if (seen[key]) return;
+      seen[key] = true;
+      list.push({
+        className: s.className,
+        seatNo: s.seatNo,
+        name: s.name,
+        exam: examRowFor(s.className, s.seatNo)
+      });
     });
-    var title = (pack.meta && (pack.meta.code || pack.meta.title)) || '模擬考';
-    line.textContent = '已匯入 ' + title + '，共 ' + n + ' 人。上課模式可開關「模擬考標註」。';
+    var pack = App.mockExam;
+    if (pack && pack.byClass) {
+      Object.keys(pack.byClass).forEach(function (cn) {
+        if (filter !== '__all__' && normExamClass(filter) !== cn && String(filter) !== cn) return;
+        Object.keys(pack.byClass[cn] || {}).forEach(function (seat) {
+          var key = cn + ':' + seat;
+          if (seen[key]) return;
+          seen[key] = true;
+          var row = pack.byClass[cn][seat] || {};
+          list.push({
+            className: row.className || cn,
+            seatNo: row.seatNo || seat,
+            name: row.name || '',
+            exam: row
+          });
+        });
+      });
+    }
+    list.sort(function (a, b) {
+      var ra = parseInt(String((a.exam && a.exam.schoolRank) || '').replace(/\D/g, ''), 10);
+      var rb = parseInt(String((b.exam && b.exam.schoolRank) || '').replace(/\D/g, ''), 10);
+      if (!ra) ra = 9999;
+      if (!rb) rb = 9999;
+      if (ra !== rb) return ra - rb;
+      if (String(a.className) !== String(b.className)) {
+        return String(a.className).localeCompare(String(b.className), 'zh-Hant');
+      }
+      return (parseInt(normExamSeat(a.seatNo), 10) || 0) - (parseInt(normExamSeat(b.seatNo), 10) || 0);
+    });
+    return list;
+  }
+
+  function renderMockExamTable() {
+    var body = document.getElementById('examBody');
+    var hint = document.getElementById('examTabHint');
+    if (!body) return;
+    if (!hasMockExam()) {
+      body.innerHTML = '<tr><td colspan="12">還沒有匯入模擬考。請到「設定與上傳」選擇學力診斷統計表。</td></tr>';
+      if (hint) hint.textContent = '這裡才看得到模擬考能力等級。上課與實驗室座位卡不會標，避免學生看見校排。';
+      return;
+    }
+    var rows = collectExamTableRows();
+    var title = (App.mockExam.meta && (App.mockExam.meta.code || App.mockExam.meta.title)) || '模擬考';
+    if (hint) {
+      hint.textContent = title + '，共 ' + mockExamCount() + ' 人。上方可改班級。預設依校排。上課座位卡不會顯示這些標註。';
+    }
+    if (!rows.length) {
+      body.innerHTML = '<tr><td colspan="12">這個班沒有對上的模擬考資料。</td></tr>';
+      return;
+    }
+    body.innerHTML = rows.map(function (item) {
+      var ex = item.exam;
+      return '<tr>' +
+        '<td>' + escapeHtml(item.className) + '</td>' +
+        '<td>' + escapeHtml(item.seatNo) + '</td>' +
+        '<td>' + escapeHtml(item.name) + '</td>' +
+        '<td>' + examLevelChip(ex, '國') + '</td>' +
+        '<td>' + examLevelChip(ex, '英') + '</td>' +
+        '<td>' + examLevelChip(ex, '數') + '</td>' +
+        '<td>' + examLevelChip(ex, '社') + '</td>' +
+        '<td>' + examLevelChip(ex, '自') + '</td>' +
+        '<td>' + (ex && ex.writing ? escapeHtml(ex.writing) : '—') + '</td>' +
+        '<td>' + (ex && ex.combo ? escapeHtml(ex.combo) : '—') + '</td>' +
+        '<td>' + (ex && ex.classRank ? escapeHtml(ex.classRank) : '—') + '</td>' +
+        '<td>' + (ex && ex.schoolRank ? escapeHtml(ex.schoolRank) : '—') + '</td>' +
+        '</tr>';
+    }).join('');
   }
 
   function findHeaderCol(rows, start, end, test) {
@@ -1284,12 +1325,11 @@
           var pack = parseAbilityWorkbook(X, wb);
           api('importMockExam', [pack]).then(function (data) {
             App.mockExam = data.mockExam || pack;
-            App.showExamTags = true;
-            try { sessionStorage.setItem('seat-exam-tags', '1'); } catch (err) {}
             fillMockExamMeta();
-            updateExamTagButton();
-            renderAll();
-            toast('已標註模擬考 ' + pack.count + ' 人。上課座位卡會顯示五科能力等級', 5000);
+            renderMockExamTable();
+            showTeacherView();
+            switchTeacherTab('exam');
+            toast('已匯入模擬考 ' + pack.count + ' 人。請在教師模式「模擬考」查看', 5000);
           }).catch(function (err) {
             toast(err && err.message ? err.message : '匯入失敗');
           });
@@ -1306,12 +1346,11 @@
       toast('目前沒有模擬考標註');
       return;
     }
-    if (!window.confirm('清除座位卡上的模擬考能力等級標註？名單與加扣不會動。')) return;
+    if (!window.confirm('清除模擬考能力等級標註？名單與加扣不會動。')) return;
     api('clearMockExam', []).then(function (data) {
       App.mockExam = data.mockExam || { meta: {}, byClass: {} };
       fillMockExamMeta();
-      updateExamTagButton();
-      renderAll();
+      renderMockExamTable();
       toast('已清除模擬考標註');
     }).catch(function (err) {
       toast(err && err.message ? err.message : '清除失敗');
@@ -1331,7 +1370,6 @@
         groupBadge +
         '<span class="seat-no">' + escapeHtml(student.seatNo) + '</span>' +
         '<span class="seat-name">' + escapeHtml(student.name) + '</span>' +
-        examTagHtml(student) +
         '<span class="seat-score ' + scoreClass(student.score) + '">' + student.score + '</span>' +
       '</article>'
     ) : '';
@@ -1357,7 +1395,6 @@
     App.selectedSeatNo = seatNo;
     if (!canEdit()) {
       renderAll();
-      toastExamTag(student);
       return;
     }
     if (App.groupAssign && App.groupPanel) {
@@ -1369,7 +1406,6 @@
       changeScore(student, sign * App.delta);
     } else {
       renderAll();
-      toastExamTag(student);
     }
   }
 
@@ -1776,7 +1812,6 @@
     return '<article class="seat-card has-group' + selected + '" data-seat="' + escapeHtml(student.seatNo) + '" style="--group-color:' + groupColor(gid) + '">' +
       '<span class="seat-no">' + escapeHtml(student.seatNo) + '</span>' +
       '<span class="seat-name">' + escapeHtml(student.name) + '</span>' +
-      examTagHtml(student) +
       '<span class="seat-score ' + scoreClass(student.score) + '">' + student.score + '</span>' +
       '</article>';
   }
@@ -2128,12 +2163,14 @@
     var summary = document.getElementById('tabSummary');
     var stats = document.getElementById('tabStats');
     var homework = document.getElementById('tabHomework');
+    var exam = document.getElementById('tabExam');
     var settings = document.getElementById('tabSettings');
     if (roster) roster.hidden = App.teacherTab !== 'roster';
     if (timetable) timetable.hidden = App.teacherTab !== 'timetable';
     if (daily) daily.hidden = App.teacherTab !== 'daily';
     if (summary) summary.hidden = App.teacherTab !== 'summary';
     if (stats) stats.hidden = App.teacherTab !== 'stats';
+    if (exam) exam.hidden = App.teacherTab !== 'exam';
     if (homework) homework.hidden = App.teacherTab !== 'homework';
     if (settings) settings.hidden = App.teacherTab !== 'settings';
     document.querySelectorAll('.teacher-tab-only').forEach(function (btn) {
@@ -2147,10 +2184,11 @@
       els.dbClassFilter.parentElement.hidden = App.teacherTab === 'settings' || App.teacherTab === 'timetable';
     }
     document.querySelectorAll('.teacher-date-only').forEach(function (el) {
-      el.hidden = App.teacherTab === 'settings' || App.teacherTab === 'stats' || App.teacherTab === 'summary' || App.teacherTab === 'timetable' || App.teacherTab === 'homework';
+      el.hidden = App.teacherTab === 'settings' || App.teacherTab === 'stats' || App.teacherTab === 'summary' || App.teacherTab === 'timetable' || App.teacherTab === 'homework' || App.teacherTab === 'exam';
     });
     updateScoreDayLabel();
     if (App.teacherTab === 'settings' && changed) openSettings();
+    if (App.teacherTab === 'exam') renderMockExamTable();
     if (App.teacherTab === 'homework') loadHomeworkTab();
     if (App.teacherTab === 'timetable') {
       App.ttFocusKey = '';
@@ -2160,7 +2198,7 @@
       stopTimetableClock();
     }
     if (App.teacherTab === 'stats' && App.statsView === 'school') ensureSchoolStats();
-    if (App.teacherTab !== 'roster' && App.teacherTab !== 'settings' && App.teacherTab !== 'timetable' && App.teacherTab !== 'homework') refreshTeacherExtras();
+    if (App.teacherTab !== 'roster' && App.teacherTab !== 'settings' && App.teacherTab !== 'timetable' && App.teacherTab !== 'homework' && App.teacherTab !== 'exam') refreshTeacherExtras();
   }
 
   function refreshTeacherExtras() {

@@ -72,7 +72,6 @@
         <button type="button" class="tool" id="btnUndo">復原</button>
         <button type="button" class="tool accent" id="btnLottery">抽籤</button>
         <button type="button" class="tool" id="btnGroup">分組</button>
-        <button type="button" class="tool" id="btnExamTags" hidden>模擬考標註</button>
         <button type="button" class="tool primary" id="btnSave">立即同步</button>
       </nav>
 
@@ -148,6 +147,7 @@
         <button type="button" class="tool" data-teacher-tab="daily">成績表</button>
         <button type="button" class="tool" data-teacher-tab="summary">成績統計表</button>
         <button type="button" class="tool" data-teacher-tab="stats">統計圖表</button>
+        <button type="button" class="tool" data-teacher-tab="exam">模擬考</button>
         <button type="button" class="tool" data-teacher-tab="homework">作業檢核</button>
         <button type="button" class="tool" data-teacher-tab="settings">設定與上傳</button>
         <button type="button" class="tool" id="btnExport">下載備份</button>
@@ -293,6 +293,31 @@
                 </table>
               </div>
             </details>
+          </div>
+
+          <div id="tabExam" class="teacher-panel exam-panel" hidden>
+            <p class="hint" id="examTabHint">這裡才看得到模擬考能力等級。上課與實驗室座位卡不會標，避免學生看見校排。</p>
+            <div class="db-table-wrap">
+              <table class="db-table exam-table">
+                <thead>
+                  <tr>
+                    <th>班級</th>
+                    <th>座號</th>
+                    <th>姓名</th>
+                    <th>國</th>
+                    <th>英</th>
+                    <th>數</th>
+                    <th>社</th>
+                    <th>自</th>
+                    <th>寫作</th>
+                    <th>五科標示</th>
+                    <th>班排</th>
+                    <th>校排</th>
+                  </tr>
+                </thead>
+                <tbody id="examBody"></tbody>
+              </table>
+            </div>
           </div>
 
           <div id="tabStats" class="teacher-panel stats-panel" hidden>
@@ -730,7 +755,7 @@
               </div>
             </div>
             <h3 class="subhead">模擬考能力等級</h3>
-            <p class="hint">匯入學力診斷「學校能力等級成績統計表」（國英數社自＋寫作）。依班級與座號對上（041 等於 41），不會改名單或加扣。座位卡會標精熟／基礎／待加強，點學生可看完整標示與校排。</p>
+            <p class="hint">匯入學力診斷「學校能力等級成績統計表」（國英數社自＋寫作）。依班級與座號對上（041 等於 41），不會改名單或加扣。標註只出現在教師模式「模擬考」分頁，上課座位卡不會顯示。</p>
             <div class="modal-actions">
               <button type="button" class="tool" id="btnPickMockExam">選擇模擬考 Excel</button>
               <button type="button" class="tool" id="btnClearMockExam">清除標註</button>
