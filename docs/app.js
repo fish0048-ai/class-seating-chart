@@ -22,6 +22,7 @@
     gradeOpen: { usual: true, quiz: false, exam: false, sum: false },
     gradebook: null,
     gradebookReady: false,
+    gradeDirty: {},
     weekKey: '',
     statsView: 'class',
     statsKind: 'all',
@@ -459,7 +460,7 @@
       deleteGradeColumn(btn.getAttribute('data-kind'), btn.getAttribute('data-id'));
     });
     gradeTermWrap.addEventListener('change', onGradeCellChange);
-    gradeTermWrap.addEventListener('input', scheduleAutoGradeSave);
+    gradeTermWrap.addEventListener('input', onGradeCellInput);
   }
   ['ruleBase', 'ruleClassW', 'ruleQuizW', 'ruleExamW', 'ruleHolidays'].forEach(function (id) {
     var field = document.getElementById(id);
@@ -2477,6 +2478,8 @@
     var className = teacherTargetClass();
     if (!className) return;
     App.gradebookReady = false;
+    clearTimeout(gradeSaveTimer);
+    gradeSaveTimer = null;
     api('listDaily', [className]).then(function (data) {
       noteScoreRoll(data);
       renderDailyPanel(data);
@@ -3913,7 +3916,63 @@
     if (els.gradeDueWrap) els.gradeDueWrap.hidden = !isHw;
   }
 
+  function gradeDirtyKey(kind, id, seat, field) {
+    return String(kind || '') + '\t' + String(id || '') + '\t' + String(seat || '') + '\t' + String(field || 'score');
+  }
+
+  function markGradeDirty(kind, id, seat, field) {
+    App.gradeDirty = App.gradeDirty || {};
+    App.gradeDirty[gradeDirtyKey(kind, id, seat, field)] = true;
+  }
+
+  function isGradeDirty(kind, id, seat, field) {
+    return !!(App.gradeDirty && App.gradeDirty[gradeDirtyKey(kind, id, seat, field)]);
+  }
+
+  function isGradeCellDirty(kind, id, seat) {
+    return isGradeDirty(kind, id, seat, 'score') || isGradeDirty(kind, id, seat, 'leave') ||
+      isGradeDirty(kind, id, seat, 'status') || isGradeDirty(kind, id, seat, 'date');
+  }
+
+  function clearGradeDirty() {
+    App.gradeDirty = {};
+  }
+
+  function markDirtyFromGradeEl(el) {
+    if (!el) return;
+    var score = el.closest('[data-grade-score]');
+    var mark = el.closest('[data-grade-mark]');
+    var hwStatus = el.closest('[data-hw-status]');
+    var hwScore = el.closest('[data-hw-score]');
+    var hwDate = el.closest('[data-hw-date]');
+    if (score) {
+      markGradeDirty(score.getAttribute('data-kind'), score.getAttribute('data-id'), score.getAttribute('data-seat'), 'score');
+      return;
+    }
+    if (mark) {
+      markGradeDirty(mark.getAttribute('data-kind'), mark.getAttribute('data-id'), mark.getAttribute('data-seat'), 'leave');
+      return;
+    }
+    if (hwStatus) {
+      markGradeDirty('homework', hwStatus.getAttribute('data-id'), hwStatus.getAttribute('data-seat'), 'status');
+      return;
+    }
+    if (hwScore) {
+      markGradeDirty('homework', hwScore.getAttribute('data-id'), hwScore.getAttribute('data-seat'), 'score');
+      return;
+    }
+    if (hwDate) {
+      markGradeDirty('homework', hwDate.getAttribute('data-id'), hwDate.getAttribute('data-seat'), 'date');
+    }
+  }
+
+  function onGradeCellInput(event) {
+    markDirtyFromGradeEl(event.target);
+    scheduleAutoGradeSave();
+  }
+
   function onGradeCellChange(event) {
+    markDirtyFromGradeEl(event.target);
     var mark = event.target.closest('[data-grade-mark]');
     if (mark) {
       var cell = mark.closest('td');
@@ -3949,6 +4008,7 @@
 
   function scheduleAutoGradeSave() {
     if (!App.gradebookReady || !App.gradebook || !document.querySelector('#gradeTermWrap table')) return;
+    if (!App.gradeDirty || !Object.keys(App.gradeDirty).length) return;
     clearTimeout(gradeSaveTimer);
     gradeSaveTimer = setTimeout(function () {
       saveGradebookFromTable(false);
@@ -3974,6 +4034,7 @@
       rules: Object.assign(defaultGradeRules(), data.rules || {})
     };
     App.gradebookReady = true;
+    clearGradeDirty();
     fillRuleInputs();
   }
 
@@ -4384,7 +4445,9 @@
     return hit;
   }
 
-  function collectGradebookFromTable() {
+  function collectGradebookFromTable(opts) {
+    opts = opts || {};
+    var dirtyOnly = opts.dirtyOnly !== false;
     var book = App.gradebook || emptyGradebook();
     var yellow = cloneScoreCols(book.yellow);
     var morning = cloneScoreCols(book.morning);
@@ -4401,9 +4464,11 @@
     };
     document.querySelectorAll('[data-grade-score]').forEach(function (input) {
       var kind = input.getAttribute('data-kind');
-      var col = findCol(lists[kind], input.getAttribute('data-id'));
-      if (!col) return;
+      var id = input.getAttribute('data-id');
       var seat = input.getAttribute('data-seat');
+      if (dirtyOnly && !isGradeCellDirty(kind, id, seat)) return;
+      var col = findCol(lists[kind], id);
+      if (!col) return;
       var cell = input.closest('td');
       var mark = cell && cell.querySelector('[data-grade-mark]');
       var leave = mark && (mark.type === 'checkbox' ? mark.checked : mark.value === 'leave');
@@ -4415,9 +4480,11 @@
       else writeSeatScore(col.scores, seat, Number(input.value));
     });
     document.querySelectorAll('[data-hw-status]').forEach(function (sel) {
-      var col = findCol(homeworks, sel.getAttribute('data-id'));
-      if (!col) return;
+      var id = sel.getAttribute('data-id');
       var seat = sel.getAttribute('data-seat');
+      if (dirtyOnly && !isGradeCellDirty('homework', id, seat)) return;
+      var col = findCol(homeworks, id);
+      if (!col) return;
       var cell = sel.closest('td');
       var score = cell && cell.querySelector('[data-hw-score]');
       var date = cell && cell.querySelector('[data-hw-date]');
@@ -4444,13 +4511,14 @@
   }
 
   function saveGradebookFromTable(showToast) {
-    var body = collectGradebookFromTable();
-    if (!body.className) {
-      toast('請先選擇班級');
-      return;
-    }
     if (!App.gradebookReady) {
       if (showToast) toast('成績還在載入，請稍後再存');
+      return;
+    }
+    if (!showToast && (!App.gradeDirty || !Object.keys(App.gradeDirty).length)) return;
+    var body = collectGradebookFromTable({ dirtyOnly: true });
+    if (!body.className) {
+      toast('請先選擇班級');
       return;
     }
     api('saveGradebook', [body]).then(function (data) {

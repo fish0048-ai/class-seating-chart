@@ -347,6 +347,9 @@
     Object.keys(remote.classes || {}).forEach(function (cn) {
       if (!local.classes[cn]) local.classes[cn] = clone(remote.classes[cn]);
     });
+    if (!scoreHold_) {
+      mergeLiveScoresProtect_(local, remote);
+    }
     if ((!local.mockExam || !local.mockExam.byClass || !Object.keys(local.mockExam.byClass).length) &&
         remote.mockExam && remote.mockExam.byClass && Object.keys(remote.mockExam.byClass).length) {
       local.mockExam = clone(remote.mockExam);
@@ -356,6 +359,67 @@
       local.lessonLog = clone(remote.lessonLog);
     }
     return local;
+  }
+
+  function classAbsScoreSum_(room) {
+    var sum = 0;
+    ((room && room.students) || []).forEach(function (s) {
+      sum += Math.abs(Number(s.score) || 0);
+    });
+    return sum;
+  }
+
+  /** 同日加扣：本機全 0、雲端有分，且不是換日時，避免座位改動把加扣蓋成空白。 */
+  function mergeLiveScoresProtect_(local, remote) {
+    var localDate = local.scoreDate || '';
+    var remoteDate = remote.scoreDate || '';
+    if (localDate && remoteDate && localDate > remoteDate) return;
+    Object.keys(remote.classes || {}).forEach(function (cn) {
+      var lroom = local.classes && local.classes[cn];
+      var rroom = remote.classes[cn];
+      if (!lroom || !rroom) return;
+      if (localDate && remoteDate && localDate !== remoteDate) return;
+      var lSum = classAbsScoreSum_(lroom);
+      var rSum = classAbsScoreSum_(rroom);
+      if (rSum > 0 && lSum === 0) {
+        var bySeat = {};
+        (rroom.students || []).forEach(function (s) {
+          bySeat[String(s.seatNo)] = Number(s.score) || 0;
+        });
+        (lroom.students || []).forEach(function (s) {
+          var key = String(s.seatNo);
+          if (Object.prototype.hasOwnProperty.call(bySeat, key)) s.score = bySeat[key];
+        });
+      }
+      if (rroom.groups && rroom.groups.scores) {
+        var gRemote = Object.keys(rroom.groups.scores).reduce(function (n, k) {
+          return n + Math.abs(Number(rroom.groups.scores[k]) || 0);
+        }, 0);
+        var gLocal = lroom.groups && lroom.groups.scores
+          ? Object.keys(lroom.groups.scores).reduce(function (n, k) {
+            return n + Math.abs(Number(lroom.groups.scores[k]) || 0);
+          }, 0)
+          : 0;
+        if (gRemote > 0 && gLocal === 0) {
+          lroom.groups = lroom.groups || { size: rroom.groups.size || 0, assign: {}, scores: {} };
+          lroom.groups.scores = Object.assign({}, rroom.groups.scores, lroom.groups.scores || {});
+        }
+      }
+      if (rroom.lab && rroom.lab.scores) {
+        var labSum = Object.keys(rroom.lab.scores).reduce(function (n, k) {
+          return n + Math.abs(Number(rroom.lab.scores[k]) || 0);
+        }, 0);
+        var localLabSum = lroom.lab && lroom.lab.scores
+          ? Object.keys(lroom.lab.scores).reduce(function (n, k) {
+            return n + Math.abs(Number(lroom.lab.scores[k]) || 0);
+          }, 0)
+          : 0;
+        if (labSum > 0 && localLabSum === 0) {
+          lroom.lab = lroom.lab || { assign: {}, scores: {} };
+          lroom.lab.scores = Object.assign({}, rroom.lab.scores, lroom.lab.scores || {});
+        }
+      }
+    });
   }
 
   function normalizeGradeColumns_(list) {
@@ -373,13 +437,48 @@
   function replaceGradeListIfSafe_(incoming, existing) {
     if (!incoming) return existing;
     if (!incoming.length && (existing || []).length) return existing;
-    return normalizeGradeColumns_(incoming);
+    var normalized = normalizeGradeColumns_(incoming);
+    var exById = {};
+    (existing || []).forEach(function (col) {
+      if (col && col.id) exById[String(col.id)] = col;
+    });
+    return normalized.map(function (col) {
+      var prev = exById[String(col.id)];
+      if (!prev) return col;
+      var ic = countScoreMap_(col.scores);
+      var ec = countScoreMap_(prev.scores);
+      if (ec > 0 && ic === 0) {
+        col.scores = Object.assign({}, normalizeScoreMap_(prev.scores));
+      } else if (ec > ic && (ec - ic) >= 3 && ic * 2 < ec) {
+        col.scores = mergeScoreMapPreserve_(col.scores, prev.scores);
+      }
+      return col;
+    });
   }
 
   function replaceHomeworkListIfSafe_(incoming, existing) {
     if (!incoming) return existing;
     if (!incoming.length && (existing || []).length) return existing;
-    return normalizeHomeworkColumns_(incoming);
+    var normalized = normalizeHomeworkColumns_(incoming);
+    var exById = {};
+    (existing || []).forEach(function (col) {
+      if (col && col.id) exById[String(col.id)] = col;
+    });
+    return normalized.map(function (col) {
+      var prev = exById[String(col.id)];
+      if (!prev) return col;
+      var ic = Object.keys(col.records || {}).length;
+      var ec = Object.keys(prev.records || {}).length;
+      if (ec > 0 && ic === 0) {
+        col.records = JSON.parse(JSON.stringify(prev.records || {}));
+      } else if (ec > ic && (ec - ic) >= 3 && ic * 2 < ec) {
+        col.records = col.records || {};
+        Object.keys(prev.records || {}).forEach(function (seat) {
+          if (!col.records[seat]) col.records[seat] = JSON.parse(JSON.stringify(prev.records[seat]));
+        });
+      }
+      return col;
+    });
   }
 
   function normalizeHolidayList_(value) {

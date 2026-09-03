@@ -864,6 +864,7 @@ function mergeProtectCloudStore_(incoming, existing) {
   Object.keys(existing.classes || {}).forEach(function (cn) {
     if (!store.classes[cn]) store.classes[cn] = existing.classes[cn];
   });
+  mergeCloudLiveScores_(store, existing);
   if ((!store.mockExam || !store.mockExam.byClass || !Object.keys(store.mockExam.byClass).length) &&
       existing.mockExam && existing.mockExam.byClass && Object.keys(existing.mockExam.byClass).length) {
     store.mockExam = existing.mockExam;
@@ -873,6 +874,35 @@ function mergeProtectCloudStore_(incoming, existing) {
     store.lessonLog = existing.lessonLog;
   }
   return store;
+}
+
+function classCloudAbsSum_(room) {
+  var sum = 0;
+  ((room && room.students) || []).forEach(function (s) {
+    sum += Math.abs(Number(s.score) || 0);
+  });
+  return sum;
+}
+
+function mergeCloudLiveScores_(local, remote) {
+  var localDate = local.scoreDate || '';
+  var remoteDate = remote.scoreDate || '';
+  if (localDate && remoteDate && localDate > remoteDate) return;
+  Object.keys(remote.classes || {}).forEach(function (cn) {
+    var lroom = local.classes && local.classes[cn];
+    var rroom = remote.classes[cn];
+    if (!lroom || !rroom) return;
+    if (localDate && remoteDate && localDate !== remoteDate) return;
+    if (!(classCloudAbsSum_(rroom) > 0 && classCloudAbsSum_(lroom) === 0)) return;
+    var bySeat = {};
+    (rroom.students || []).forEach(function (s) {
+      bySeat[String(s.seatNo)] = Number(s.score) || 0;
+    });
+    (lroom.students || []).forEach(function (s) {
+      var key = String(s.seatNo);
+      if (Object.prototype.hasOwnProperty.call(bySeat, key)) s.score = bySeat[key];
+    });
+  });
 }
 
 function ensureCloudSheet_(ss) {
