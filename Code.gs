@@ -1,4 +1,4 @@
-/**
+教師模式ㄒ/**
  * 班級座位表 — Google Apps Script 後端
  * 以「座位／成績」那份試算表為資料庫。課表是另一份檔案，這裡不會寫入。
  */
@@ -713,6 +713,16 @@ function putCloudStore(store) {
     var ss = getSs_();
     ensureSheets_(ss);
     var sheet = ensureCloudSheet_(ss);
+    var existing = null;
+    try {
+      var current = getCloudStore();
+      existing = current && current.store ? current.store : null;
+    } catch (readErr) {
+      existing = null;
+    }
+    if (existing) {
+      store = mergeProtectCloudStore_(store, existing);
+    }
     store.updatedAt = new Date().toISOString();
     writeCloudChunks_(sheet, JSON.stringify(store));
     syncVisibleRoster_(ss, store);
@@ -721,6 +731,148 @@ function putCloudStore(store) {
     } catch (gradeErr) {}
     return { ok: true, updatedAt: store.updatedAt };
   });
+}
+
+function countCloudScoreMap_(scores) {
+  var n = 0;
+  Object.keys(scores || {}).forEach(function (seat) {
+    var v = scores[seat];
+    if (v === '' || v == null) return;
+    n += 1;
+  });
+  return n;
+}
+
+function countCloudBookScores_(book) {
+  var n = 0;
+  if (!book) return 0;
+  ['yellow', 'morning', 'exams', 'labs', 'practicals', 'quizzes'].forEach(function (key) {
+    (book[key] || []).forEach(function (col) {
+      n += countCloudScoreMap_(col && col.scores);
+    });
+  });
+  (book.homeworks || []).forEach(function (col) {
+    Object.keys((col && col.records) || {}).forEach(function (seat) {
+      var rec = col.records[seat] || {};
+      if (rec.status || rec.score != null || rec.submittedAt) n += 1;
+    });
+  });
+  return n;
+}
+
+function mergeCloudScoreMap_(localScores, remoteScores) {
+  var out = {};
+  Object.keys(localScores || {}).forEach(function (seat) {
+    var v = localScores[seat];
+    if (v === '' || v == null) return;
+    out[String(seat)] = v;
+  });
+  Object.keys(remoteScores || {}).forEach(function (seat) {
+    var rv = remoteScores[seat];
+    if (rv === '' || rv == null) return;
+    if (!Object.prototype.hasOwnProperty.call(out, seat)) out[String(seat)] = rv;
+  });
+  return out;
+}
+
+function mergeCloudGradeColumns_(localList, remoteList, fillEmptyScores) {
+  var local = JSON.parse(JSON.stringify(localList || []));
+  var byId = {};
+  local.forEach(function (col, idx) {
+    if (col && col.id) byId[String(col.id)] = idx;
+  });
+  (remoteList || []).forEach(function (remoteCol) {
+    if (!remoteCol || !remoteCol.id) return;
+    var id = String(remoteCol.id);
+    if (!Object.prototype.hasOwnProperty.call(byId, id)) {
+      local.push(JSON.parse(JSON.stringify(remoteCol)));
+      byId[id] = local.length - 1;
+      return;
+    }
+    if (!fillEmptyScores) return;
+    var cur = local[byId[id]];
+    if (remoteCol.scores) cur.scores = mergeCloudScoreMap_(cur.scores, remoteCol.scores);
+    if (remoteCol.records) {
+      cur.records = cur.records || {};
+      Object.keys(remoteCol.records).forEach(function (seat) {
+        if (!cur.records[seat]) cur.records[seat] = JSON.parse(JSON.stringify(remoteCol.records[seat]));
+      });
+    }
+  });
+  return local;
+}
+
+function mergeCloudGradeBook_(localBook, remoteBook) {
+  localBook = localBook || {};
+  remoteBook = remoteBook || {};
+  var lc = countCloudBookScores_(localBook);
+  var rc = countCloudBookScores_(remoteBook);
+  var fillEmpty = rc > 0 && (lc === 0 || (rc > lc && (rc - lc) >= 3 && lc * 2 < rc));
+  return {
+    rules: localBook.rules || remoteBook.rules,
+    yellow: mergeCloudGradeColumns_(localBook.yellow || localBook.quizzes, remoteBook.yellow || remoteBook.quizzes, fillEmpty),
+    morning: mergeCloudGradeColumns_(localBook.morning, remoteBook.morning, fillEmpty),
+    exams: mergeCloudGradeColumns_(localBook.exams, remoteBook.exams, fillEmpty),
+    labs: mergeCloudGradeColumns_(localBook.labs, remoteBook.labs, fillEmpty),
+    practicals: mergeCloudGradeColumns_(localBook.practicals, remoteBook.practicals, fillEmpty),
+    homeworks: mergeCloudGradeColumns_(localBook.homeworks, remoteBook.homeworks, fillEmpty)
+  };
+}
+
+function dayCloudWeight_(day) {
+  var w = 0;
+  ((day && day.students) || []).forEach(function (s) {
+    w += Math.abs(Number(s.score) || 0);
+  });
+  return w;
+}
+
+function mergeCloudDailyLists_(localList, remoteList) {
+  var byDate = {};
+  (remoteList || []).forEach(function (day) {
+    if (day && day.date) byDate[day.date] = day;
+  });
+  (localList || []).forEach(function (day) {
+    if (!day || !day.date) return;
+    var prev = byDate[day.date];
+    if (!prev || dayCloudWeight_(day) >= dayCloudWeight_(prev)) byDate[day.date] = day;
+  });
+  return Object.keys(byDate).sort().map(function (d) { return byDate[d]; });
+}
+
+/** 後端最後一道防護：本機空成績／缺班級／空每日紀錄時，保留雲端舊資料。 */
+function mergeProtectCloudStore_(incoming, existing) {
+  if (!incoming || !existing) return incoming || existing;
+  var store = incoming;
+  store.grades = store.grades || {};
+  Object.keys(existing.grades || {}).forEach(function (cn) {
+    if (!store.grades[cn]) {
+      store.grades[cn] = existing.grades[cn];
+      return;
+    }
+    store.grades[cn] = mergeCloudGradeBook_(store.grades[cn], existing.grades[cn]);
+  });
+  store.daily = store.daily || {};
+  Object.keys(existing.daily || {}).forEach(function (cn) {
+    if (!store.daily[cn] || !store.daily[cn].length) {
+      if ((existing.daily[cn] || []).length) store.daily[cn] = existing.daily[cn];
+    } else {
+      store.daily[cn] = mergeCloudDailyLists_(store.daily[cn], existing.daily[cn]);
+    }
+  });
+  store.classes = store.classes || {};
+  Object.keys(existing.classes || {}).forEach(function (cn) {
+    if (!store.classes[cn]) store.classes[cn] = existing.classes[cn];
+  });
+  if ((!store.mockExam || !store.mockExam.byClass || !Object.keys(store.mockExam.byClass).length) &&
+      existing.mockExam && existing.mockExam.byClass && Object.keys(existing.mockExam.byClass).length) {
+    store.mockExam = existing.mockExam;
+  }
+  if ((!store.lessonLog || !Object.keys(store.lessonLog).length) &&
+      existing.lessonLog && Object.keys(existing.lessonLog).length) {
+    store.lessonLog = existing.lessonLog;
+  }
+  return store;
 }
 
 function ensureCloudSheet_(ss) {

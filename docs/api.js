@@ -207,6 +207,157 @@
     return scores;
   }
 
+  function countScoreMap_(scores) {
+    var n = 0;
+    Object.keys(scores || {}).forEach(function (seat) {
+      var v = scores[seat];
+      if (v === '' || v == null) return;
+      n += 1;
+    });
+    return n;
+  }
+
+  function countBookScores_(book) {
+    var n = 0;
+    if (!book) return 0;
+    ['yellow', 'morning', 'exams', 'labs', 'practicals'].forEach(function (key) {
+      (book[key] || []).forEach(function (col) {
+        n += countScoreMap_(col && col.scores);
+      });
+    });
+    (book.homeworks || []).forEach(function (col) {
+      Object.keys((col && col.records) || {}).forEach(function (seat) {
+        var rec = col.records[seat] || {};
+        if (rec.status || rec.score != null || rec.submittedAt) n += 1;
+      });
+    });
+    return n;
+  }
+
+  function mergeScoreMapPreserve_(localScores, remoteScores) {
+    var out = Object.assign({}, normalizeScoreMap_(localScores));
+    Object.keys(remoteScores || {}).forEach(function (seat) {
+      var rv = remoteScores[seat];
+      if (rv === '' || rv == null) return;
+      if (!Object.prototype.hasOwnProperty.call(out, seat) || out[seat] === '' || out[seat] == null) {
+        if (rv === 'leave' || rv === '請假') out[String(seat)] = 'leave';
+        else if (isFinite(Number(rv))) out[String(seat)] = Number(rv);
+      }
+    });
+    return out;
+  }
+
+  function mergeGradeColumnsPreserve_(localList, remoteList, fillEmptyScores) {
+    var local = (localList || []).map(function (col) {
+      return {
+        id: String(col.id || ''),
+        title: col.title,
+        date: col.date,
+        dueDate: col.dueDate,
+        max: col.max,
+        scores: Object.assign({}, col.scores || {}),
+        records: col.records ? JSON.parse(JSON.stringify(col.records)) : undefined
+      };
+    });
+    var byId = {};
+    local.forEach(function (col, idx) { if (col.id) byId[col.id] = idx; });
+    (remoteList || []).forEach(function (remoteCol) {
+      var id = String((remoteCol && remoteCol.id) || '');
+      if (!id) return;
+      if (!Object.prototype.hasOwnProperty.call(byId, id)) {
+        local.push(JSON.parse(JSON.stringify(remoteCol)));
+        byId[id] = local.length - 1;
+        return;
+      }
+      if (!fillEmptyScores) return;
+      var cur = local[byId[id]];
+      if (remoteCol.scores) {
+        cur.scores = mergeScoreMapPreserve_(cur.scores, remoteCol.scores);
+      }
+      if (remoteCol.records) {
+        cur.records = cur.records || {};
+        Object.keys(remoteCol.records).forEach(function (seat) {
+          if (!cur.records[seat]) cur.records[seat] = JSON.parse(JSON.stringify(remoteCol.records[seat]));
+        });
+      }
+    });
+    return local;
+  }
+
+  function mergeGradeBookPreserve_(localBook, remoteBook) {
+    localBook = localBook || {};
+    remoteBook = remoteBook || {};
+    var lc = countBookScores_(localBook);
+    var rc = countBookScores_(remoteBook);
+    var fillEmpty = rc > 0 && (lc === 0 || (rc > lc && (rc - lc) >= 3 && lc * 2 < rc));
+    var out = {
+      rules: localBook.rules || remoteBook.rules,
+      yellow: mergeGradeColumnsPreserve_(localBook.yellow, remoteBook.yellow, fillEmpty),
+      morning: mergeGradeColumnsPreserve_(localBook.morning, remoteBook.morning, fillEmpty),
+      exams: mergeGradeColumnsPreserve_(localBook.exams, remoteBook.exams, fillEmpty),
+      labs: mergeGradeColumnsPreserve_(localBook.labs, remoteBook.labs, fillEmpty),
+      practicals: mergeGradeColumnsPreserve_(localBook.practicals, remoteBook.practicals, fillEmpty),
+      homeworks: mergeGradeColumnsPreserve_(localBook.homeworks, remoteBook.homeworks, fillEmpty)
+    };
+    if (remoteBook.quizzes && (!out.yellow || !out.yellow.length)) out.yellow = remoteBook.quizzes;
+    return out;
+  }
+
+  function dayScoreWeight_(day) {
+    var w = 0;
+    ((day && day.students) || []).forEach(function (s) {
+      w += Math.abs(Number(s.score) || 0);
+    });
+    return w;
+  }
+
+  function mergeDailyListsPreserve_(localList, remoteList) {
+    var byDate = {};
+    (remoteList || []).forEach(function (day) {
+      if (day && day.date) byDate[day.date] = day;
+    });
+    (localList || []).forEach(function (day) {
+      if (!day || !day.date) return;
+      var prev = byDate[day.date];
+      if (!prev || dayScoreWeight_(day) >= dayScoreWeight_(prev)) byDate[day.date] = day;
+    });
+    return Object.keys(byDate).sort().map(function (d) { return byDate[d]; });
+  }
+
+  /** 上傳前保護：避免本機空成績／空每日紀錄把雲端舊資料蓋掉。 */
+  function mergeProtectStore_(local, remote) {
+    if (!local || !remote) return local || remote;
+    local.grades = local.grades || {};
+    Object.keys(remote.grades || {}).forEach(function (cn) {
+      if (!local.grades[cn]) {
+        local.grades[cn] = clone(remote.grades[cn]);
+        return;
+      }
+      local.grades[cn] = mergeGradeBookPreserve_(local.grades[cn], remote.grades[cn]);
+    });
+    local.daily = local.daily || {};
+    Object.keys(remote.daily || {}).forEach(function (cn) {
+      if (!local.daily[cn] || !local.daily[cn].length) {
+        if ((remote.daily[cn] || []).length) local.daily[cn] = clone(remote.daily[cn]);
+      } else {
+        local.daily[cn] = mergeDailyListsPreserve_(local.daily[cn], remote.daily[cn]);
+      }
+    });
+    local.classes = local.classes || {};
+    Object.keys(remote.classes || {}).forEach(function (cn) {
+      if (!local.classes[cn]) local.classes[cn] = clone(remote.classes[cn]);
+    });
+    if ((!local.mockExam || !local.mockExam.byClass || !Object.keys(local.mockExam.byClass).length) &&
+        remote.mockExam && remote.mockExam.byClass && Object.keys(remote.mockExam.byClass).length) {
+      local.mockExam = clone(remote.mockExam);
+    }
+    if ((!local.lessonLog || !Object.keys(local.lessonLog).length) &&
+        remote.lessonLog && Object.keys(remote.lessonLog).length) {
+      local.lessonLog = clone(remote.lessonLog);
+    }
+    return local;
+  }
+
   function normalizeGradeColumns_(list) {
     return (list || []).map(function (raw) {
       return {
@@ -217,6 +368,18 @@
         scores: normalizeScoreMap_(raw.scores)
       };
     });
+  }
+
+  function replaceGradeListIfSafe_(incoming, existing) {
+    if (!incoming) return existing;
+    if (!incoming.length && (existing || []).length) return existing;
+    return normalizeGradeColumns_(incoming);
+  }
+
+  function replaceHomeworkListIfSafe_(incoming, existing) {
+    if (!incoming) return existing;
+    if (!incoming.length && (existing || []).length) return existing;
+    return normalizeHomeworkColumns_(incoming);
   }
 
   function normalizeHolidayList_(value) {
@@ -499,6 +662,9 @@
         cloudError = '另一台已有較新資料，這台沒有覆蓋雲端。請重新載入後再加扣。';
         notifyCloud_('conflict');
         return Promise.reject(new Error(cloudError));
+      }
+      if (remote) {
+        mergeProtectStore_(store, remote);
       }
       lastPushAt = store.updatedAt || nowIso();
       store.updatedAt = lastPushAt;
@@ -1476,12 +1642,12 @@
           max: 100
         });
       }
-      if (body.yellow) book.yellow = normalizeGradeColumns_(body.yellow);
-      if (body.morning) book.morning = normalizeGradeColumns_(body.morning);
-      if (body.exams) book.exams = normalizeGradeColumns_(body.exams);
-      if (body.labs) book.labs = normalizeGradeColumns_(body.labs);
-      if (body.practicals) book.practicals = normalizeGradeColumns_(body.practicals);
-      if (body.homeworks) book.homeworks = normalizeHomeworkColumns_(body.homeworks);
+      if (body.yellow) book.yellow = replaceGradeListIfSafe_(body.yellow, book.yellow);
+      if (body.morning) book.morning = replaceGradeListIfSafe_(body.morning, book.morning);
+      if (body.exams) book.exams = replaceGradeListIfSafe_(body.exams, book.exams);
+      if (body.labs) book.labs = replaceGradeListIfSafe_(body.labs, book.labs);
+      if (body.practicals) book.practicals = replaceGradeListIfSafe_(body.practicals, book.practicals);
+      if (body.homeworks) book.homeworks = replaceHomeworkListIfSafe_(body.homeworks, book.homeworks);
       saveStore(store);
       return gradebookResult_(className, book);
     },

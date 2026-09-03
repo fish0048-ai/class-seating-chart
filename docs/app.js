@@ -21,6 +21,7 @@
     gradeView: 'term',
     gradeOpen: { usual: true, quiz: false, exam: false, sum: false },
     gradebook: null,
+    gradebookReady: false,
     weekKey: '',
     statsView: 'class',
     statsKind: 'all',
@@ -2475,12 +2476,14 @@
   function refreshTeacherExtras() {
     var className = teacherTargetClass();
     if (!className) return;
+    App.gradebookReady = false;
     api('listDaily', [className]).then(function (data) {
       noteScoreRoll(data);
       renderDailyPanel(data);
       renderDatabaseTable(App.dbRows || []);
       return api('getGradebook', [className]);
     }).then(function (data) {
+      if (teacherTargetClass() !== className) return;
       applyGradebook(data);
       renderGradebook();
     }).catch(function () {});
@@ -3945,7 +3948,7 @@
   var ruleSaveTimer = null;
 
   function scheduleAutoGradeSave() {
-    if (!App.gradebook || !document.querySelector('#gradeTermWrap table')) return;
+    if (!App.gradebookReady || !App.gradebook || !document.querySelector('#gradeTermWrap table')) return;
     clearTimeout(gradeSaveTimer);
     gradeSaveTimer = setTimeout(function () {
       saveGradebookFromTable(false);
@@ -3970,6 +3973,7 @@
       homeworks: data.homeworks || [],
       rules: Object.assign(defaultGradeRules(), data.rules || {})
     };
+    App.gradebookReady = true;
     fillRuleInputs();
   }
 
@@ -4080,8 +4084,53 @@
       kind + '" data-id="' + escapeHtml(col.id) + '">刪</button></th>';
   }
 
+  function seatKeyAliases(seatNo) {
+    var raw = String(seatNo == null ? '' : seatNo).trim();
+    var keys = [];
+    function add(k) {
+      if (k !== '' && keys.indexOf(k) < 0) keys.push(k);
+    }
+    add(raw);
+    if (/^\d+$/.test(raw)) {
+      var n = String(Number(raw));
+      add(n);
+      add(n.length < 2 ? ('0' + n) : n);
+    }
+    return keys;
+  }
+
+  function readSeatScore(scores, seatNo) {
+    scores = scores || {};
+    var keys = seatKeyAliases(seatNo);
+    var i;
+    for (i = 0; i < keys.length; i++) {
+      if (Object.prototype.hasOwnProperty.call(scores, keys[i])) {
+        return scores[keys[i]];
+      }
+    }
+    return undefined;
+  }
+
+  function writeSeatScore(scores, seatNo, value) {
+    seatKeyAliases(seatNo).forEach(function (k) { delete scores[k]; });
+    if (value === undefined) return;
+    scores[String(seatNo)] = value;
+  }
+
+  function readHwRecord(records, seatNo) {
+    records = records || {};
+    var keys = seatKeyAliases(seatNo);
+    var i;
+    for (i = 0; i < keys.length; i++) {
+      if (Object.prototype.hasOwnProperty.call(records, keys[i])) {
+        return records[keys[i]] || {};
+      }
+    }
+    return {};
+  }
+
   function scoreCellHtml(kind, col, seatNo, allowLeave) {
-    var v = col.scores && col.scores[seatNo];
+    var v = readSeatScore(col.scores, seatNo);
     var leave = isLeaveScore(v);
     var shown = leave || v == null || v === '' ? '' : v;
     var input = '<input class="mini-num" data-grade-score data-kind="' + kind + '" data-id="' + escapeHtml(col.id) +
@@ -4097,7 +4146,7 @@
   }
 
   function hwCellHtml(col, seatNo) {
-    var rec = (col.records || {})[seatNo] || {};
+    var rec = readHwRecord(col.records, seatNo);
     var submitted = rec.status === 'submitted';
     var result = homeworkResult(col, seatNo);
     var note = '未繳 0';
@@ -4359,11 +4408,11 @@
       var mark = cell && cell.querySelector('[data-grade-mark]');
       var leave = mark && (mark.type === 'checkbox' ? mark.checked : mark.value === 'leave');
       if (leave) {
-        col.scores[seat] = 'leave';
+        writeSeatScore(col.scores, seat, 'leave');
         return;
       }
-      if (input.value === '') delete col.scores[seat];
-      else col.scores[seat] = Number(input.value);
+      if (input.value === '') writeSeatScore(col.scores, seat, undefined);
+      else writeSeatScore(col.scores, seat, Number(input.value));
     });
     document.querySelectorAll('[data-hw-status]').forEach(function (sel) {
       var col = findCol(homeworks, sel.getAttribute('data-id'));
@@ -4372,14 +4421,15 @@
       var cell = sel.closest('td');
       var score = cell && cell.querySelector('[data-hw-score]');
       var date = cell && cell.querySelector('[data-hw-date]');
+      seatKeyAliases(seat).forEach(function (k) { delete col.records[k]; });
       if (sel.value !== 'submitted') {
-        col.records[seat] = { status: 'missing' };
+        col.records[String(seat)] = { status: 'missing' };
         return;
       }
       var rec = { status: 'submitted' };
       if (score && score.value !== '') rec.score = Number(score.value);
       if (date && date.value) rec.submittedAt = date.value;
-      col.records[seat] = rec;
+      col.records[String(seat)] = rec;
     });
     return {
       className: teacherTargetClass(),
@@ -4399,6 +4449,10 @@
       toast('請先選擇班級');
       return;
     }
+    if (!App.gradebookReady) {
+      if (showToast) toast('成績還在載入，請稍後再存');
+      return;
+    }
     api('saveGradebook', [body]).then(function (data) {
       applyGradebook(data);
       if (showToast) {
@@ -4414,6 +4468,10 @@
     var className = teacherTargetClass();
     if (!className) {
       toast('請先選擇班級');
+      return;
+    }
+    if (!App.gradebookReady) {
+      toast('成績還在載入，請稍後再新增欄位');
       return;
     }
     var title = els.gradeColName ? els.gradeColName.value.trim() : '';
@@ -6549,13 +6607,13 @@
       var line = [stu.seatNo, stu.name];
       fields.forEach(function (field) {
         if (field.kind.indexOf('homework') === 0) {
-          var rec = ((field.col.records || {})[stu.seatNo]) || {};
+          var rec = readHwRecord(field.col.records, stu.seatNo);
           if (field.kind === 'homework-status') line.push(rec.status === 'submitted' ? '已繳交' : (rec.status === 'missing' ? '未繳交' : ''));
           else if (field.kind === 'homework-score') line.push(rec.score == null || rec.score === '' ? '' : rec.score);
           else line.push(rec.submittedAt || '');
           return;
         }
-        var v = field.col.scores && field.col.scores[stu.seatNo];
+        var v = readSeatScore(field.col.scores, stu.seatNo);
         if (isLeaveScore(v)) line.push('請假');
         else if (v == null || v === '') line.push('');
         else line.push(v);
@@ -6629,10 +6687,11 @@
       ['1. 請在「成績輸入」工作表填分數，不要改第一列欄名。'],
       ['2. 黃卷、早自習、段考、實作：填數字；請假請填「請假」。'],
       ['3. 作業分三欄：作業繳交填「已繳交」或「未繳交」；作業成績填分數；作業日期填 YYYY-MM-DD。'],
-      ['4. 填完後，回到網頁按「從 Excel 匯入」，選這個檔。'],
-      ['5. 「學期總表」「每週成績」是計算結果，匯入時會略過，改了也不會寫回。'],
-      ['6. 若要在 Excel 新增一欄，欄名格式請用：黃卷｜第三次　或　段考｜第一次段考　或　作業繳交｜第一次作業。'],
-      ['7. 座號要和網頁名單一致，系統用座號對應學生。']
+      ['4. 空白格＝不改動，匯入時會保留雲端已有分數，不會用空白蓋掉。若要在網頁清除某格，請到成績表手動清空後儲存。'],
+      ['5. 填完後，回到網頁按「從 Excel 匯入」，選這個檔。'],
+      ['6. 「學期總表」「每週成績」是計算結果，匯入時會略過，改了也不會寫回。'],
+      ['7. 若要在 Excel 新增一欄，欄名格式請用：黃卷｜第三次　或　段考｜第一次段考　或　作業繳交｜第一次作業。'],
+      ['8. 座號要和網頁名單一致，系統用座號對應學生。']
     ];
   }
 
@@ -6706,6 +6765,10 @@
       toast('檔案是空的');
       return;
     }
+    if (!App.gradebookReady) {
+      toast('成績還在載入，請稍後再匯入');
+      return;
+    }
     var headers = (rows[0] || []).map(function (h) { return String(h || '').trim(); });
     var seatIdx = headers.indexOf('座號');
     var nameIdx = headers.indexOf('姓名');
@@ -6727,6 +6790,7 @@
     };
     var updated = 0;
     var created = 0;
+    var kept = 0;
     var unknown = 0;
 
     function listFor(kind) {
@@ -6782,34 +6846,50 @@
       colMap.forEach(function (item) {
         var raw = row[item.index];
         if (item.kind === 'homework-status' || item.kind === 'homework-score' || item.kind === 'homework-date') {
-          var rec = item.col.records[seat] || {};
+          var rec = Object.assign({}, readHwRecord(item.col.records, seat));
+          seatKeyAliases(seat).forEach(function (k) { delete item.col.records[k]; });
           if (item.kind === 'homework-status') {
             var status = parseHwStatus(raw);
-            if (status) rec.status = status;
-            else if (String(raw || '').trim() === '') rec.status = rec.status || 'missing';
+            if (status) {
+              rec.status = status;
+              updated += 1;
+            } else if (String(raw || '').trim() === '') {
+              kept += 1;
+            }
           } else if (item.kind === 'homework-score') {
             var parsed = parseLeaveOrScore(raw);
             if (parsed.score != null) {
               rec.score = parsed.score;
               if (!rec.status) rec.status = 'submitted';
+              updated += 1;
             } else if (parsed.empty) {
-              delete rec.score;
+              kept += 1;
             }
           } else {
             var day = parseExcelDateValue(raw);
-            if (day) rec.submittedAt = day;
-            else if (String(raw || '').trim() === '') delete rec.submittedAt;
+            if (day) {
+              rec.submittedAt = day;
+              updated += 1;
+            } else if (String(raw || '').trim() === '') {
+              kept += 1;
+            }
           }
-          if (rec.status !== 'submitted' && rec.score == null) rec.status = rec.status || 'missing';
-          item.col.records[seat] = rec;
-          updated += 1;
+          if (rec.status || rec.score != null || rec.submittedAt) {
+            if (rec.status !== 'submitted' && rec.score == null) rec.status = rec.status || 'missing';
+            item.col.records[String(seat)] = rec;
+          }
           return;
         }
         var cell = parseLeaveOrScore(raw);
-        if (cell.leave) item.col.scores[seat] = 'leave';
-        else if (cell.score != null) item.col.scores[seat] = cell.score;
-        else delete item.col.scores[seat];
-        updated += 1;
+        if (cell.leave) {
+          writeSeatScore(item.col.scores, seat, 'leave');
+          updated += 1;
+        } else if (cell.score != null) {
+          writeSeatScore(item.col.scores, seat, cell.score);
+          updated += 1;
+        } else {
+          kept += 1;
+        }
       });
     });
 
@@ -6825,8 +6905,9 @@
     }]).then(function (data) {
       applyGradebook(data);
       renderGradebook();
-      var msg = '已從 Excel 匯入成績';
+      var msg = '已從 Excel 匯入成績（空白格會保留雲端舊分數，不會清掉）';
       if (created) msg += '，並新增 ' + created + ' 欄';
+      if (updated) msg += '，更新 ' + updated + ' 格';
       toast(msg);
     }).catch(function (error) {
       toast(error && error.message ? error.message : '匯入失敗');
