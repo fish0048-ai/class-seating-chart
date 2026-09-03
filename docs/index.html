@@ -149,6 +149,7 @@
         <button type="button" class="tool" data-teacher-tab="summary">成績統計表</button>
         <button type="button" class="tool" data-teacher-tab="stats">統計圖表</button>
         <button type="button" class="tool" data-teacher-tab="exam">模擬考</button>
+        <button type="button" class="tool" data-teacher-tab="journal">教學日誌</button>
         <button type="button" class="tool" data-teacher-tab="homework">作業檢核</button>
         <button type="button" class="tool" data-teacher-tab="settings">設定與上傳</button>
         <button type="button" class="tool" id="btnExport">下載備份</button>
@@ -635,6 +636,39 @@
                 </figure>
                 <div id="personAssessTable" class="assess-wrap"></div>
               </section>
+            </div>
+          </div>
+
+          <div id="tabJournal" class="teacher-panel journal-panel" hidden>
+            <p class="hint">記下各班目前上到哪。平板與筆電會共用。不會寫進課表試算表。</p>
+            <div id="journalOverview" class="journal-overview"></div>
+            <h3 class="subhead" id="journalFormTitle">本班進度</h3>
+            <div class="form-grid journal-form">
+              <label>目前進度
+                <input id="journalProgress" type="text" maxlength="80" placeholder="例如 第 3 冊 Ch.2 一次函數" />
+              </label>
+              <label>日期
+                <input id="journalDate" type="date" />
+              </label>
+              <label>本堂備註
+                <input id="journalNote" type="text" maxlength="200" placeholder="可空，例如明天複習例題" />
+              </label>
+            </div>
+            <div class="modal-actions">
+              <button type="button" class="tool primary" id="btnJournalSave">儲存進度</button>
+            </div>
+            <div class="db-table-wrap">
+              <table class="db-table journal-table">
+                <thead>
+                  <tr>
+                    <th>日期</th>
+                    <th>進度</th>
+                    <th>備註</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="journalBody"></tbody>
+              </table>
             </div>
           </div>
 

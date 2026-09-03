@@ -650,6 +650,48 @@
     flex: 1;
   }
 
+  .journal-overview {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 8px;
+  }
+
+  .journal-card {
+    display: grid;
+    gap: 4px;
+    text-align: left;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fff;
+    cursor: pointer;
+  }
+
+  .journal-card span {
+    color: var(--muted);
+    font-size: 13px;
+  }
+
+  .journal-card strong {
+    font-size: 16px;
+    line-height: 1.35;
+  }
+
+  .journal-card em {
+    font-style: normal;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .journal-card.tab-on {
+    border-color: var(--primary);
+    box-shadow: inset 0 0 0 1px var(--primary);
+  }
+
+  .journal-form {
+    grid-template-columns: 1.6fr 0.8fr 1.2fr;
+  }
+
   #tabDaily.teacher-panel {
     overflow: hidden;
   }

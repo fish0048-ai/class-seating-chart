@@ -292,11 +292,61 @@
     if (!parsed.history) parsed.history = [];
     if (!parsed.grades) parsed.grades = {};
     parsed.mockExam = normalizeMockExam_(parsed.mockExam);
+    parsed.lessonLog = normalizeLessonLog_(parsed.lessonLog);
     return parsed;
   }
 
   function emptyMockExam_() {
     return { meta: {}, byClass: {} };
+  }
+
+  function emptyLessonLog_() {
+    return {};
+  }
+
+  function normalizeLessonEntry_(raw, className) {
+    raw = raw || {};
+    var id = String(raw.id || '').trim();
+    if (!id) id = 'L' + Date.now() + String(Math.floor(Math.random() * 1000));
+    return {
+      id: id,
+      className: String(raw.className || className || ''),
+      date: String(raw.date || '').trim(),
+      progress: String(raw.progress || '').trim().slice(0, 80),
+      note: String(raw.note || '').trim().slice(0, 200),
+      createdAt: String(raw.createdAt || nowIso())
+    };
+  }
+
+  function normalizeLessonLog_(raw) {
+    if (!raw || typeof raw !== 'object') return emptyLessonLog_();
+    var out = {};
+    Object.keys(raw).forEach(function (cn) {
+      var src = raw[cn] || {};
+      var entries = Array.isArray(src.entries) ? src.entries.map(function (item) {
+        return normalizeLessonEntry_(item, cn);
+      }).filter(function (item) {
+        return item.date && item.progress;
+      }) : [];
+      entries.sort(function (a, b) {
+        return String(b.date).localeCompare(String(a.date)) || String(b.createdAt).localeCompare(String(a.createdAt));
+      });
+      if (entries.length > 200) entries = entries.slice(0, 200);
+      out[String(cn)] = {
+        current: String(src.current || '').trim().slice(0, 80),
+        updatedAt: String(src.updatedAt || ''),
+        entries: entries
+      };
+    });
+    return out;
+  }
+
+  function ensureLessonClass_(store, className) {
+    store.lessonLog = normalizeLessonLog_(store.lessonLog);
+    if (!store.lessonLog[className]) {
+      store.lessonLog[className] = { current: '', updatedAt: '', entries: [] };
+    }
+    return store.lessonLog[className];
   }
 
   function normalizeMockExam_(raw) {
@@ -347,6 +397,7 @@
     if (!memStore.history) memStore.history = [];
     if (!memStore.grades) memStore.grades = {};
     if (!memStore.mockExam) memStore.mockExam = emptyMockExam_();
+    if (!memStore.lessonLog) memStore.lessonLog = emptyLessonLog_();
     if (hydrated && ensureRolledScores_(memStore)) saveStore(memStore);
     return memStore;
   }
@@ -727,7 +778,8 @@
       ok: true,
       classNames: classNames(store),
       classroom: clone(room),
-      mockExam: store.mockExam || emptyMockExam_()
+      mockExam: store.mockExam || emptyMockExam_(),
+      lessonLog: store.lessonLog || emptyLessonLog_()
     }, store);
   }
 
@@ -1452,6 +1504,57 @@
     getMockExam: function () {
       var store = loadStore();
       return wrap({ ok: true, mockExam: store.mockExam || emptyMockExam_() });
+    },
+    getLessonLog: function () {
+      var store = loadStore();
+      return wrap({
+        ok: true,
+        lessonLog: store.lessonLog || emptyLessonLog_(),
+        classNames: classNames(store)
+      });
+    },
+    saveLessonProgress: function (body) {
+      var store = loadStore();
+      var className = String((body && body.className) || '').trim();
+      if (!className) throw new Error('請先選班級');
+      var progress = String((body && body.progress) || '').trim().slice(0, 80);
+      if (!progress) throw new Error('請填目前進度，例如第 3 冊 Ch.2');
+      var date = String((body && body.date) || todayKey_()).trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) date = todayKey_();
+      var note = String((body && body.note) || '').trim().slice(0, 200);
+      var pack = ensureLessonClass_(store, className);
+      pack.current = progress;
+      pack.updatedAt = nowIso();
+      var existing = pack.entries.filter(function (item) { return item.date === date; })[0];
+      if (existing) {
+        existing.progress = progress;
+        existing.note = note;
+      } else {
+        pack.entries.unshift(normalizeLessonEntry_({
+          date: date,
+          progress: progress,
+          note: note,
+          createdAt: nowIso()
+        }, className));
+      }
+      store.lessonLog = normalizeLessonLog_(store.lessonLog);
+      saveStore(store);
+      return wrap({
+        ok: true,
+        lessonLog: store.lessonLog,
+        className: className
+      });
+    },
+    deleteLessonEntry: function (body) {
+      var store = loadStore();
+      var className = String((body && body.className) || '').trim();
+      var id = String((body && body.id) || '').trim();
+      if (!className || !id) throw new Error('缺少要刪的紀錄');
+      var pack = ensureLessonClass_(store, className);
+      pack.entries = pack.entries.filter(function (item) { return item.id !== id; });
+      store.lessonLog = normalizeLessonLog_(store.lessonLog);
+      saveStore(store);
+      return wrap({ ok: true, lessonLog: store.lessonLog, className: className });
     },
     exportJSON: function () {
       return JSON.stringify(loadStore());

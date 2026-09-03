@@ -36,7 +36,8 @@
     hwRows: [],
     hwPickedSeat: '',
     hwStudentUrl: '',
-    mockExam: null
+    mockExam: null,
+    lessonLog: {}
   };
 
   const GROUP_COLORS = [
@@ -353,6 +354,7 @@
         loadHomeworkTab();
       }
       if (App.teacherTab === 'exam') renderMockExamTable();
+      if (App.teacherTab === 'journal') renderLessonJournal();
     });
   }
   if (els.dbDateFilter) {
@@ -537,6 +539,12 @@
   if (clearMock) {
     clearMock.addEventListener('click', function () {
       requireTeacher(clearMockExamTags);
+    });
+  }
+  var journalSave = document.getElementById('btnJournalSave');
+  if (journalSave) {
+    journalSave.addEventListener('click', function () {
+      requireTeacher(saveLessonJournal);
     });
   }
   var cloudBtn = document.getElementById('btnCloudConnect');
@@ -939,6 +947,7 @@
       App.selectedSeatNo = null;
     }
     if (data.mockExam) App.mockExam = data.mockExam;
+    if (data.lessonLog) App.lessonLog = data.lessonLog;
     renderAll();
   }
 
@@ -983,6 +992,7 @@
     renderMode();
     renderDelta();
     if (App.appView === 'teacher' && App.teacherTab === 'exam') renderMockExamTable();
+    if (App.appView === 'teacher' && App.teacherTab === 'journal') renderLessonJournal();
   }
 
   function renderClassSelect() {
@@ -2279,6 +2289,7 @@
     var stats = document.getElementById('tabStats');
     var homework = document.getElementById('tabHomework');
     var exam = document.getElementById('tabExam');
+    var journal = document.getElementById('tabJournal');
     var settings = document.getElementById('tabSettings');
     if (roster) roster.hidden = App.teacherTab !== 'roster';
     if (timetable) timetable.hidden = App.teacherTab !== 'timetable';
@@ -2286,6 +2297,7 @@
     if (summary) summary.hidden = App.teacherTab !== 'summary';
     if (stats) stats.hidden = App.teacherTab !== 'stats';
     if (exam) exam.hidden = App.teacherTab !== 'exam';
+    if (journal) journal.hidden = App.teacherTab !== 'journal';
     if (homework) homework.hidden = App.teacherTab !== 'homework';
     if (settings) settings.hidden = App.teacherTab !== 'settings';
     document.querySelectorAll('.teacher-tab-only').forEach(function (btn) {
@@ -2299,11 +2311,12 @@
       els.dbClassFilter.parentElement.hidden = App.teacherTab === 'settings' || App.teacherTab === 'timetable';
     }
     document.querySelectorAll('.teacher-date-only').forEach(function (el) {
-      el.hidden = App.teacherTab === 'settings' || App.teacherTab === 'stats' || App.teacherTab === 'summary' || App.teacherTab === 'timetable' || App.teacherTab === 'homework' || App.teacherTab === 'exam';
+      el.hidden = App.teacherTab === 'settings' || App.teacherTab === 'stats' || App.teacherTab === 'summary' || App.teacherTab === 'timetable' || App.teacherTab === 'homework' || App.teacherTab === 'exam' || App.teacherTab === 'journal';
     });
     updateScoreDayLabel();
     if (App.teacherTab === 'settings' && changed) openSettings();
     if (App.teacherTab === 'exam') renderMockExamTable();
+    if (App.teacherTab === 'journal') renderLessonJournal();
     if (App.teacherTab === 'homework') loadHomeworkTab();
     if (App.teacherTab === 'timetable') {
       App.ttFocusKey = '';
@@ -2313,7 +2326,129 @@
       stopTimetableClock();
     }
     if (App.teacherTab === 'stats' && App.statsView === 'school') ensureSchoolStats();
-    if (App.teacherTab !== 'roster' && App.teacherTab !== 'settings' && App.teacherTab !== 'timetable' && App.teacherTab !== 'homework' && App.teacherTab !== 'exam') refreshTeacherExtras();
+    if (App.teacherTab !== 'roster' && App.teacherTab !== 'settings' && App.teacherTab !== 'timetable' && App.teacherTab !== 'homework' && App.teacherTab !== 'exam' && App.teacherTab !== 'journal') refreshTeacherExtras();
+  }
+
+  function lessonLogClassNames() {
+    var names = (App.classNames || []).filter(function (name) {
+      return name && name !== '範例班';
+    });
+    return names.length ? names : (App.classNames || []).slice();
+  }
+
+  function lessonPackFor(className) {
+    var log = App.lessonLog || {};
+    return log[className] || { current: '', updatedAt: '', entries: [] };
+  }
+
+  function fillJournalForm(className) {
+    var progress = document.getElementById('journalProgress');
+    var dateEl = document.getElementById('journalDate');
+    var note = document.getElementById('journalNote');
+    var title = document.getElementById('journalFormTitle');
+    var pack = lessonPackFor(className);
+    if (progress && document.activeElement !== progress) progress.value = pack.current || '';
+    if (dateEl && !dateEl.value) dateEl.value = formatDateKey(new Date());
+    if (note && document.activeElement !== note) note.value = '';
+    if (title) title.textContent = className ? className + ' 目前進度' : '本班進度';
+  }
+
+  function renderLessonJournal() {
+    var overview = document.getElementById('journalOverview');
+    var body = document.getElementById('journalBody');
+    var names = lessonLogClassNames();
+    var filter = els.dbClassFilter ? els.dbClassFilter.value : '__all__';
+    var target = filter !== '__all__' ? filter : teacherTargetClass();
+    if (overview) {
+      if (!names.length) {
+        overview.innerHTML = '<p class="hint">還沒有班級。請先到設定與上傳匯入名單。</p>';
+      } else {
+        overview.innerHTML = names.map(function (cn) {
+          var pack = lessonPackFor(cn);
+          var current = pack.current || '尚未登記';
+          var when = pack.updatedAt ? formatTime(pack.updatedAt) : '';
+          var on = cn === target ? ' tab-on' : '';
+          return '<button type="button" class="journal-card' + on + '" data-journal-class="' + escapeHtml(cn) + '">' +
+            '<span>' + escapeHtml(cn) + '</span>' +
+            '<strong>' + escapeHtml(current) + '</strong>' +
+            (when ? '<em>' + escapeHtml(when) + '</em>' : '') +
+            '</button>';
+        }).join('');
+        overview.querySelectorAll('[data-journal-class]').forEach(function (btn) {
+          btn.addEventListener('click', function () {
+            var cn = btn.getAttribute('data-journal-class');
+            if (els.dbClassFilter) {
+              els.dbClassFilter.value = cn;
+              App.dbFilter = cn;
+            }
+            renderLessonJournal();
+          });
+        });
+      }
+    }
+    fillJournalForm(target);
+    if (!body) return;
+    if (!target) {
+      body.innerHTML = '<tr><td colspan="4">請先選班級。</td></tr>';
+      return;
+    }
+    var entries = (lessonPackFor(target).entries || []).slice();
+    if (!entries.length) {
+      body.innerHTML = '<tr><td colspan="4">這班還沒有日誌。填目前進度後按「儲存進度」。</td></tr>';
+      return;
+    }
+    body.innerHTML = entries.map(function (item) {
+      return '<tr>' +
+        '<td>' + escapeHtml(formatZhDate(item.date)) + '</td>' +
+        '<td>' + escapeHtml(item.progress) + '</td>' +
+        '<td>' + escapeHtml(item.note || '—') + '</td>' +
+        '<td><button type="button" class="tool danger" data-journal-del="' + escapeHtml(item.id) + '">刪</button></td>' +
+        '</tr>';
+    }).join('');
+    body.querySelectorAll('[data-journal-del]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        requireTeacher(function () {
+          deleteLessonEntry(target, btn.getAttribute('data-journal-del'));
+        });
+      });
+    });
+  }
+
+  function saveLessonJournal() {
+    var className = (els.dbClassFilter && els.dbClassFilter.value !== '__all__')
+      ? els.dbClassFilter.value
+      : teacherTargetClass();
+    if (!className) {
+      toast('請先選班級');
+      return;
+    }
+    var progressEl = document.getElementById('journalProgress');
+    var dateEl = document.getElementById('journalDate');
+    var noteEl = document.getElementById('journalNote');
+    api('saveLessonProgress', [{
+      className: className,
+      progress: progressEl ? progressEl.value : '',
+      date: dateEl ? dateEl.value : '',
+      note: noteEl ? noteEl.value : ''
+    }]).then(function (data) {
+      App.lessonLog = data.lessonLog || App.lessonLog;
+      if (noteEl) noteEl.value = '';
+      renderLessonJournal();
+      toast(className + ' 已記下進度');
+    }).catch(function (err) {
+      toast(err && err.message ? err.message : '儲存失敗');
+    });
+  }
+
+  function deleteLessonEntry(className, id) {
+    if (!window.confirm('刪掉這筆教學日誌？目前進度文字不會自動改。')) return;
+    api('deleteLessonEntry', [{ className: className, id: id }]).then(function (data) {
+      App.lessonLog = data.lessonLog || App.lessonLog;
+      renderLessonJournal();
+      toast('已刪除這筆日誌');
+    }).catch(function (err) {
+      toast(err && err.message ? err.message : '刪除失敗');
+    });
   }
 
   function refreshTeacherExtras() {
