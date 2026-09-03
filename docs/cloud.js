@@ -73,8 +73,26 @@
     return '後端還沒允許「連線至外部服務」。請打開成績庫試算表 → 擴充功能 → Apps Script，上方選函式 authorizeScript 按執行並允許權限。完成後「部署 → 管理部署 → 編輯」選新版本（網址不要換）。';
   }
 
+  function parseAppsScriptHtmlError_(text) {
+    var raw = String(text || '');
+    var m = raw.match(/ReferenceError:\s*([^<]+?)\s*\(/i) ||
+      raw.match(/SyntaxError:\s*([^<]+?)\s*\(/i) ||
+      raw.match(/TypeError:\s*([^<]+?)\s*\(/i) ||
+      raw.match(/Error:\s*([^<]+?)\s*\(/i);
+    if (!m) {
+      if (/<title>\s*錯誤\s*<\/title>/i.test(raw) || /Google Apps Script/i.test(raw) && /errorMessage/i.test(raw)) {
+        return 'Apps Script 後端程式有錯，請把倉庫最新的 Code.gs 全部貼上並儲存，再「部署 → 管理部署 → 編輯」選新版本（/exec 網址不要換）。';
+      }
+      return '';
+    }
+    return 'Apps Script 後端程式錯誤：' + m[1].trim() +
+      '。請把倉庫最新的 Code.gs 全部貼上覆蓋（不要只貼片段），儲存後再更新同一支部署。';
+  }
+
   function parseCloudText_(text) {
     var raw = String(text || '').trim();
+    var scriptErr = parseAppsScriptHtmlError_(raw);
+    if (scriptErr) throw new Error(scriptErr);
     var ext = externalRequestError_(raw);
     if (ext) throw new Error(ext);
     if (/沒有權限|does not have permission|do not have (permission|access)|access denied/i.test(raw)) {
@@ -121,7 +139,7 @@
 
   function isFatalCloudError_(err) {
     var msg = err && err.message ? err.message : String(err || '');
-    return /沒有開放權限|打開該網址|請先用 Google|登入已過期|登入憑證|未知的操作|沒有權限|只有教師|UrlFetchApp|external_request|連線至外部/.test(msg);
+    return /沒有開放權限|打開該網址|請先用 Google|登入已過期|登入憑證|未知的操作|沒有權限|只有教師|UrlFetchApp|external_request|連線至外部|Apps Script 後端程式/.test(msg);
   }
 
   function postAction(action, body) {
