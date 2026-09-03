@@ -345,7 +345,20 @@
     });
     local.classes = local.classes || {};
     Object.keys(remote.classes || {}).forEach(function (cn) {
-      if (!local.classes[cn]) local.classes[cn] = clone(remote.classes[cn]);
+      if (!local.classes[cn]) {
+        local.classes[cn] = clone(remote.classes[cn]);
+        return;
+      }
+      var lroom = local.classes[cn];
+      var rroom = remote.classes[cn];
+      lroom.groups = preferFilledGroups_(
+        normalizeGroups(lroom.groups, lroom.students),
+        normalizeGroups(rroom.groups, lroom.students)
+      );
+      lroom.lab = preferFilledLab_(
+        normalizeLab(lroom.lab, lroom.students),
+        normalizeLab(rroom.lab, lroom.students)
+      );
     });
     if (!scoreHold_) {
       mergeLiveScoresProtect_(local, remote);
@@ -812,6 +825,7 @@
         lastPushAt = lastSyncedAt_;
         clearLegacyLocal_();
         memStore = restoreScoreHold_(memStore);
+        healGroupsFromHistoryLocal_(memStore);
         if (ensureRolledScores_(memStore)) saveStore(memStore);
         return memStore;
       }
@@ -822,6 +836,34 @@
         return memStore;
       });
     });
+  }
+
+  function healGroupsFromHistoryLocal_(store) {
+    if (!store || !store.classes) return false;
+    var changed = false;
+    Object.keys(store.classes).forEach(function (cn) {
+      var room = store.classes[cn];
+      if (!room) return;
+      room.groups = room.groups || emptyGroups(4);
+      room.groups.assign = room.groups.assign || {};
+      if (Object.keys(room.groups.assign).length) return;
+      var assign = {};
+      (store.history || []).forEach(function (item) {
+        if (!item || item.undone) return;
+        if (String(item.className || '') !== cn) return;
+        if (item.lab) return;
+        var gid = parseInt(item.groupId, 10);
+        if (!isFinite(gid) || gid < 1) return;
+        (item.seatNos || []).forEach(function (seat) {
+          var key = String(seat || '').trim();
+          if (key) assign[key] = gid;
+        });
+      });
+      if (!Object.keys(assign).length) return;
+      room.groups.assign = assign;
+      changed = true;
+    });
+    return changed;
   }
 
   function hasClasses_(store) {
@@ -885,18 +927,67 @@
     return { size: clampInt(size, 2, 12, 4), assign: {}, scores: {} };
   }
 
+  function seatAliasKeys_(seatNo) {
+    var raw = String(seatNo == null ? '' : seatNo).trim();
+    var keys = [];
+    function add(k) {
+      if (k !== '' && keys.indexOf(k) < 0) keys.push(k);
+    }
+    add(raw);
+    if (/^\d+$/.test(raw)) {
+      var n = String(Number(raw));
+      add(n);
+      add(n.length < 2 ? ('0' + n) : n);
+    }
+    return keys;
+  }
+
+  function countAssign_(assign) {
+    return Object.keys(assign || {}).length;
+  }
+
+  function preferFilledGroups_(incoming, existing) {
+    incoming = incoming || emptyGroups(4);
+    existing = existing || emptyGroups(4);
+    if (countAssign_(incoming.assign) > 0) return incoming;
+    if (countAssign_(existing.assign) > 0) {
+      return {
+        size: incoming.size || existing.size || 4,
+        assign: Object.assign({}, existing.assign),
+        scores: Object.assign({}, existing.scores || {}, incoming.scores || {})
+      };
+    }
+    return incoming;
+  }
+
+  function preferFilledLab_(incoming, existing) {
+    incoming = incoming || emptyLab();
+    existing = existing || emptyLab();
+    if (countAssign_(incoming.assign) > 0) return incoming;
+    if (countAssign_(existing.assign) > 0) {
+      return {
+        assign: Object.assign({}, existing.assign),
+        scores: Object.assign({}, existing.scores || {}, incoming.scores || {})
+      };
+    }
+    return incoming;
+  }
+
   function normalizeGroups(raw, students) {
     raw = raw || {};
     var size = clampInt(raw.size, 2, 12, 4);
-    var seats = {};
+    var seatCanon = {};
     (students || []).forEach(function (s) {
-      seats[String(s.seatNo)] = true;
+      var canon = String(s.seatNo);
+      seatAliasKeys_(canon).forEach(function (k) { seatCanon[k] = canon; });
     });
     var assign = {};
     Object.keys(raw.assign || {}).forEach(function (seat) {
-      if (!seats[seat]) return;
+      var canon = seatCanon[String(seat)];
+      if (!canon && /^\d+$/.test(String(seat))) canon = seatCanon[String(Number(seat))];
+      if (!canon) return;
       var gid = parseInt(raw.assign[seat], 10);
-      if (gid >= 1 && gid <= 40) assign[seat] = gid;
+      if (gid >= 1 && gid <= 40) assign[canon] = gid;
     });
     var used = {};
     Object.keys(assign).forEach(function (seat) {
@@ -936,15 +1027,18 @@
 
   function normalizeLab(raw, students) {
     raw = raw || {};
-    var seats = {};
+    var seatCanon = {};
     (students || []).forEach(function (s) {
-      seats[String(s.seatNo)] = true;
+      var canon = String(s.seatNo);
+      seatAliasKeys_(canon).forEach(function (k) { seatCanon[k] = canon; });
     });
     var assign = {};
     Object.keys(raw.assign || {}).forEach(function (seat) {
-      if (!seats[seat]) return;
+      var canon = seatCanon[String(seat)];
+      if (!canon && /^\d+$/.test(String(seat))) canon = seatCanon[String(Number(seat))];
+      if (!canon) return;
       var gid = parseInt(raw.assign[seat], 10);
-      if (gid >= 1 && gid <= 6) assign[seat] = gid;
+      if (gid >= 1 && gid <= 6) assign[canon] = gid;
     });
     var scores = {};
     var i;
@@ -1140,6 +1234,30 @@
         return Object.assign(payload(store, current), { cloud: cloudStatusPayload_() });
       });
     },
+    repairGroups: function (className) {
+      if (!cloudOn()) {
+        return Promise.reject(new Error('尚未連上雲端'));
+      }
+      return CloudStore.request('repairGroups', {}).then(function (data) {
+        if (data && data.store) {
+          memStore = normalizeLoadedStore_(data.store) || data.store;
+          hydrated = true;
+          lastSyncedAt_ = (memStore && memStore.updatedAt) || '';
+          lastPushAt = lastSyncedAt_;
+          healGroupsFromHistoryLocal_(memStore);
+        } else {
+          return hydrateFromCloud_().then(function () {
+            return data;
+          });
+        }
+        var names = classNames(memStore);
+        var current = className && memStore.classes[className] ? className : (names[0] || '範例班');
+        return Object.assign(payload(memStore, current), {
+          cloud: cloudStatusPayload_(),
+          repair: data
+        });
+      });
+    },
     flushCloud: function (opts) {
       opts = opts || {};
       if (!cloudOn() || !memStore || !hydrated) {
@@ -1195,7 +1313,19 @@
     },
     saveClassroomState: function (state) {
       var store = loadStore();
+      var className = String((state && state.className) || '').trim();
+      var current = className && store.classes[className] ? store.classes[className] : null;
       var classroom = normalize(state);
+      if (current) {
+        classroom.groups = preferFilledGroups_(
+          normalizeGroups(classroom.groups, classroom.students),
+          normalizeGroups(current.groups, classroom.students)
+        );
+        classroom.lab = preferFilledLab_(
+          normalizeLab(classroom.lab, classroom.students),
+          normalizeLab(current.lab, classroom.students)
+        );
+      }
       persistRoom(store, classroom, true);
       addHistory(store, { className: classroom.className, type: '存檔', detail: '一鍵存檔', undoable: false });
       saveStore(store);

@@ -868,7 +868,9 @@
               </ol>
               <div class="modal-actions">
                 <button type="button" class="tool primary" id="btnCloudConnect">連上雲端</button>
+                <button type="button" class="tool" id="btnRepairGroups">嘗試還原分組</button>
               </div>
+              <p class="hint">若分組突然空白：先按「嘗試還原分組」（會從學生表「組別」欄與操作紀錄拼回）。若還是空的，到成績資料庫試算表「檔案 → 版本紀錄」找回有組別的版本，或在 Apps Script 執行 <code>repairGroupsFromStudentSheet</code>。</p>
               <div id="cloudRelogin" class="cloud-relogin" hidden>
                 <p class="hint">請用教師帳號 <strong>chunhsinkuo@kcis.hc.edu.tw</strong> 登入。若選到其他班或學生帳號，會顯示沒有權限。</p>
                 <div id="googleSignInBtnSettings"></div>

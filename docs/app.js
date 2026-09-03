@@ -572,6 +572,12 @@
   }
   var cloudBtn = document.getElementById('btnCloudConnect');
   if (cloudBtn) cloudBtn.addEventListener('click', connectCloud);
+  var repairGroupsBtn = document.getElementById('btnRepairGroups');
+  if (repairGroupsBtn) {
+    repairGroupsBtn.addEventListener('click', function () {
+      requireTeacher(repairGroupsFromCloud);
+    });
+  }
   var cloudUrl = document.getElementById('cloudApiUrl');
   if (cloudUrl) {
     cloudUrl.addEventListener('input', function () {
@@ -951,6 +957,31 @@
       showTeacherView();
       switchTeacherTab('settings');
       toast('已連上雲端，之後平板和筆電都會用這份資料', 4000);
+    });
+  }
+
+  function repairGroupsFromCloud() {
+    if (!cloudConnected()) {
+      toast('請先連上雲端');
+      return;
+    }
+    if (typeof SeatDB === 'undefined' || !SeatDB.repairGroups) {
+      toast('請先重新整理頁面再試');
+      return;
+    }
+    toast('正在嘗試還原分組…');
+    SeatDB.repairGroups(App.classroom && App.classroom.className).then(function (data) {
+      applyPayload(data, true);
+      fillCloudSettings();
+      var msg = data && data.repair && data.repair.message
+        ? data.repair.message
+        : (data && data.repair && data.repair.ok === false
+          ? '找不到可還原的分組，請看試算表版本紀錄或重新分組'
+          : '已嘗試還原分組，請切換班級查看');
+      toast(msg, 8000);
+      renderAll();
+    }).catch(function (err) {
+      toast(err && err.message ? err.message : '還原分組失敗');
     });
   }
 

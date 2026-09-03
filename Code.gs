@@ -84,7 +84,8 @@ var WRITE_ACTIONS_ = {
   students: true,
   clearClass: true,
   lottery: true,
-  putStore: true
+  putStore: true,
+  repairGroups: true
 };
 
 function googleClientId_() {
@@ -310,6 +311,8 @@ function handleRequest_(req) {
         return getCloudStore();
       case 'putStore':
         return putCloudStore(req.store || payload);
+      case 'repairGroups':
+        return repairGroupsApi_();
       default:
         if (HW_TEACHER_ACTIONS_[action]) {
           if (!user || !user.teacher) throw new Error('只有教師可以修改資料');
@@ -697,7 +700,10 @@ function getCloudStore() {
   var json = readCloudChunks_(sheet);
   if (json) {
     try {
-      return { ok: true, empty: false, store: JSON.parse(json) };
+      var store = JSON.parse(json);
+      healStoreGroupsInPlace_(ss, store);
+      healStoreGroupsFromHistory_(store);
+      return { ok: true, empty: false, store: store };
     } catch (err) {
       throw new Error('雲端資料損壞，請從備份還原');
     }
@@ -715,14 +721,16 @@ function putCloudStore(store) {
     var sheet = ensureCloudSheet_(ss);
     var existing = null;
     try {
-      var current = getCloudStore();
-      existing = current && current.store ? current.store : null;
+      var json = readCloudChunks_(sheet);
+      existing = json ? JSON.parse(json) : null;
     } catch (readErr) {
       existing = null;
     }
     if (existing) {
       store = mergeProtectCloudStore_(store, existing);
     }
+    healStoreGroupsInPlace_(ss, store);
+    healStoreGroupsFromHistory_(store);
     store.updatedAt = new Date().toISOString();
     writeCloudChunks_(sheet, JSON.stringify(store));
     syncVisibleRoster_(ss, store);
@@ -731,6 +739,112 @@ function putCloudStore(store) {
     } catch (gradeErr) {}
     return { ok: true, updatedAt: store.updatedAt };
   });
+}
+
+/**
+ * 老師可在 Apps Script 編輯器選這個函式按「執行」，
+ * 從「學生」工作表的「組別」欄把分組寫回雲端 JSON。
+ */
+function repairGroupsFromStudentSheet() {
+  var result = repairGroupsApi_();
+  return result && result.message ? result.message : '已嘗試還原分組';
+}
+
+function repairGroupsApi_() {
+  return withLock_(function () {
+    var ss = getSs_();
+    ensureSheets_(ss);
+    var sheet = ensureCloudSheet_(ss);
+    var json = readCloudChunks_(sheet);
+    if (!json) throw new Error('雲端還沒有資料');
+    var store = JSON.parse(json);
+    var fromSheet = healStoreGroupsInPlace_(ss, store);
+    var fromHistory = healStoreGroupsFromHistory_(store);
+    if (!fromSheet && !fromHistory) {
+      return {
+        ok: false,
+        message: '學生表組別欄與操作紀錄都找不到可還原的分組。請到試算表「檔案 → 版本紀錄」找回有組別的版本，或重新分組。',
+        store: store
+      };
+    }
+    store.updatedAt = new Date().toISOString();
+    writeCloudChunks_(sheet, JSON.stringify(store));
+    syncVisibleRoster_(ss, store);
+    return {
+      ok: true,
+      message: '已還原分組（學生表：' + (fromSheet ? '有' : '無') + '，操作紀錄：' + (fromHistory ? '有' : '無') + '）。請重新整理座位表。',
+      fromSheet: fromSheet,
+      fromHistory: fromHistory,
+      updatedAt: store.updatedAt,
+      store: store
+    };
+  });
+}
+
+function countAssignMap_(assign) {
+  return Object.keys(assign || {}).length;
+}
+
+function healStoreGroupsInPlace_(ss, store) {
+  if (!store || !store.classes) return false;
+  var sheet = ss.getSheetByName(SHEETS.STUDENTS);
+  if (!sheet || sheet.getLastRow() < 2) return false;
+  var values = sheet.getRange(2, 1, sheet.getLastRow() - 1, HEADERS.STUDENTS.length).getValues();
+  var byClass = {};
+  values.forEach(function (row) {
+    var cn = String(row[0] || '').trim();
+    var seat = String(row[1] || '').trim();
+    var gid = parseInt(row[7], 10);
+    if (!cn || !seat || !isFinite(gid) || gid < 1) return;
+    if (!byClass[cn]) byClass[cn] = {};
+    byClass[cn][seat] = gid;
+  });
+  var changed = false;
+  Object.keys(byClass).forEach(function (cn) {
+    var room = store.classes[cn];
+    if (!room) return;
+    room.groups = room.groups || { size: 4, assign: {}, scores: {} };
+    room.groups.assign = room.groups.assign || {};
+    if (countAssignMap_(room.groups.assign) > 0) return;
+    var assign = byClass[cn];
+    if (!countAssignMap_(assign)) return;
+    room.groups.assign = assign;
+    room.groups.size = room.groups.size || 4;
+    room.groups.scores = room.groups.scores || {};
+    changed = true;
+  });
+  return changed;
+}
+
+function healStoreGroupsFromHistory_(store) {
+  if (!store || !store.classes) return false;
+  var changed = false;
+  Object.keys(store.classes).forEach(function (cn) {
+    var room = store.classes[cn];
+    if (!room) return;
+    room.groups = room.groups || { size: 4, assign: {}, scores: {} };
+    room.groups.assign = room.groups.assign || {};
+    if (countAssignMap_(room.groups.assign) > 0) return;
+    var assign = {};
+    (store.history || []).forEach(function (item) {
+      if (!item || item.undone) return;
+      if (String(item.className || '') !== cn) return;
+      if (item.lab) return;
+      var gid = parseInt(item.groupId, 10);
+      if (!isFinite(gid) || gid < 1) return;
+      var seats = (item.seatNos && item.seatNos.length) ? item.seatNos : [];
+      seats.forEach(function (seat) {
+        var key = String(seat || '').trim();
+        if (key) assign[key] = gid;
+      });
+    });
+    if (!countAssignMap_(assign)) return;
+    room.groups.assign = assign;
+    room.groups.size = room.groups.size || 4;
+    room.groups.scores = room.groups.scores || {};
+    changed = true;
+  });
+  return changed;
 }
 
 function countCloudScoreMap_(scores) {
@@ -862,7 +976,25 @@ function mergeProtectCloudStore_(incoming, existing) {
   });
   store.classes = store.classes || {};
   Object.keys(existing.classes || {}).forEach(function (cn) {
-    if (!store.classes[cn]) store.classes[cn] = existing.classes[cn];
+    if (!store.classes[cn]) {
+      store.classes[cn] = existing.classes[cn];
+      return;
+    }
+    var lroom = store.classes[cn];
+    var rroom = existing.classes[cn];
+    lroom.groups = lroom.groups || { size: 4, assign: {}, scores: {} };
+    rroom.groups = rroom.groups || { size: 4, assign: {}, scores: {} };
+    if (countAssignMap_(lroom.groups.assign) === 0 && countAssignMap_(rroom.groups.assign) > 0) {
+      lroom.groups.assign = rroom.groups.assign;
+      lroom.groups.size = lroom.groups.size || rroom.groups.size || 4;
+      lroom.groups.scores = Object.assign({}, rroom.groups.scores || {}, lroom.groups.scores || {});
+    }
+    lroom.lab = lroom.lab || { assign: {}, scores: {} };
+    rroom.lab = rroom.lab || { assign: {}, scores: {} };
+    if (countAssignMap_(lroom.lab.assign) === 0 && countAssignMap_(rroom.lab.assign) > 0) {
+      lroom.lab.assign = rroom.lab.assign;
+      lroom.lab.scores = Object.assign({}, rroom.lab.scores || {}, lroom.lab.scores || {});
+    }
   });
   mergeCloudLiveScores_(store, existing);
   if ((!store.mockExam || !store.mockExam.byClass || !Object.keys(store.mockExam.byClass).length) &&
