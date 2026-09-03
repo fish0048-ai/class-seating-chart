@@ -23,6 +23,7 @@
     gradebook: null,
     weekKey: '',
     statsView: 'class',
+    statsKind: 'all',
     statsSeatNo: '',
     schoolBusy: false,
     timetableSheet: 0,
@@ -93,11 +94,22 @@
     statsCards: document.getElementById('statsCards'),
     statsWatch: document.getElementById('statsWatch'),
     statsInsights: document.getElementById('statsInsights'),
+    statsPlusCards: document.getElementById('statsPlusCards'),
+    statsQuizCards: document.getElementById('statsQuizCards'),
+    statsExamCards: document.getElementById('statsExamCards'),
     statsGroupDeduct: document.getElementById('statsGroupDeduct'),
     personGroupDeduct: document.getElementById('personGroupDeduct'),
+    statsQuizAssess: document.getElementById('statsQuizAssess'),
+    statsExamAssess: document.getElementById('statsExamAssess'),
     statsAssess: document.getElementById('statsAssess'),
     chartTrend: document.getElementById('chartTrend'),
     chartAssess: document.getElementById('chartAssess'),
+    chartQuizAssess: document.getElementById('chartQuizAssess'),
+    chartQuizDist: document.getElementById('chartQuizDist'),
+    chartQuizRank: document.getElementById('chartQuizRank'),
+    chartExamAssess: document.getElementById('chartExamAssess'),
+    chartExamDist: document.getElementById('chartExamDist'),
+    chartExamRank: document.getElementById('chartExamRank'),
     chartTerm: document.getElementById('chartTerm'),
     statsBody: document.getElementById('statsBody'),
     chartDaily: document.getElementById('chartDaily'),
@@ -134,6 +146,10 @@
     chartSchoolPass: document.getElementById('chartSchoolPass'),
     chartSchoolClassRaw: document.getElementById('chartSchoolClassRaw'),
     chartSchoolHw: document.getElementById('chartSchoolHw'),
+    chartSchoolQuizAvg: document.getElementById('chartSchoolQuizAvg'),
+    chartSchoolQuizPass: document.getElementById('chartSchoolQuizPass'),
+    chartSchoolExamAvg: document.getElementById('chartSchoolExamAvg'),
+    chartSchoolExamPass: document.getElementById('chartSchoolExamPass'),
     chartSchoolTermDist: document.getElementById('chartSchoolTermDist'),
     chartSchoolKind: document.getElementById('chartSchoolKind'),
     chartSchoolTop: document.getElementById('chartSchoolTop'),
@@ -260,6 +276,11 @@
   document.querySelectorAll('[data-stats-view]').forEach(function (btn) {
     btn.addEventListener('click', function () {
       setStatsView(btn.getAttribute('data-stats-view'));
+    });
+  });
+  document.querySelectorAll('[data-stats-kind]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      setStatsKind(btn.getAttribute('data-stats-kind'));
     });
   });
   if (els.statsPersonSelect) {
@@ -4605,6 +4626,44 @@
     return (row.total != null && row.total < 60) || row.hwMissing > 0 || (row.minusSum || 0) <= -5;
   }
 
+  function kindScores(people, key) {
+    return (people || []).map(function (row) { return row[key]; }).filter(function (n) {
+      return n != null && isFinite(n);
+    });
+  }
+
+  function passRateOf(scores) {
+    var list = (scores || []).filter(function (n) { return n != null && isFinite(n); });
+    if (!list.length) return null;
+    return round1(list.filter(function (n) { return n >= 60; }).length / list.length * 100);
+  }
+
+  function scoreBands(scores) {
+    var bands = [
+      { label: '90↑', count: 0 },
+      { label: '80–89', count: 0 },
+      { label: '70–79', count: 0 },
+      { label: '60–69', count: 0 },
+      { label: '未滿60', count: 0 }
+    ];
+    var n = 0;
+    (scores || []).forEach(function (v) {
+      if (v == null || !isFinite(v)) return;
+      n += 1;
+      if (v >= 90) bands[0].count += 1;
+      else if (v >= 80) bands[1].count += 1;
+      else if (v >= 70) bands[2].count += 1;
+      else if (v >= 60) bands[3].count += 1;
+      else bands[4].count += 1;
+    });
+    return { bands: bands, n: n };
+  }
+
+  function classPlusTo100(row) {
+    if (!row || !row.hasClass) return null;
+    return usualFromRaw(row.classRaw);
+  }
+
   function summarizeClassPack(pack) {
     var book = Object.assign(emptyGradebook(), pack.gradebook || {});
     var model = buildSheetModelFrom(pack.className, pack.students || [], pack.days || []);
@@ -4630,6 +4689,8 @@
       usualAvg: meanOf(people.map(function (row) { return row.usual; })),
       quizAvg: meanOf(people.map(function (row) { return row.quiz; })),
       examAvg: meanOf(people.map(function (row) { return row.exam; })),
+      quizPass: passRateOf(people.map(function (row) { return row.quiz; })),
+      examPass: passRateOf(people.map(function (row) { return row.exam; })),
       classAvg: model.classAvg,
       plusTotal: model.plusTotal || 0,
       minusTotal: model.minusTotal || 0,
@@ -4701,13 +4762,22 @@
     if (els.statsCards) {
       els.statsCards.innerHTML =
         statCard('學生人數', people.length) +
-        statCard('紀錄天數', model.dates.length) +
         statCard('學期平均', fmtMaybe(meanOf(termScores))) +
-        statCard('及格率（60分）', termScores.length ? round1(pass60 / termScores.length * 100) + '%' : '尚無學期成績') +
-        statCard('上課平均加扣', model.classAvg) +
-        statCard('分數標準差', stdevOf(people.map(function (row) { return row.classRaw; }))) +
+        statCard('上課加扣平均', model.classAvg) +
+        statCard('平時考試平均', fmtMaybe(meanOf(quizScores))) +
+        statCard('段考平均', fmtMaybe(meanOf(examScores))) +
+        statCard('學期及格率', termScores.length ? round1(pass60 / termScores.length * 100) + '%' : '尚無學期成績') +
         statCard('有加扣紀錄', people.length - silent.length + ' / ' + people.length) +
         statCard('目前第一', topTerm ? topTerm.name + '（' + topTerm.total + '）' : (rankedClass[0] ? rankedClass[0].name + '（' + rankedClass[0].classRaw + '）' : '—'));
+    }
+    if (els.statsPlusCards) {
+      els.statsPlusCards.innerHTML =
+        statCard('上課平均加扣', model.classAvg) +
+        statCard('加分總和', '+' + (model.plusTotal || 0)) +
+        statCard('扣分總和', String(model.minusTotal || 0)) +
+        statCard('有加扣紀錄', people.length - silent.length + ' / ' + people.length) +
+        statCard('加扣標準差', stdevOf(people.map(function (row) { return row.classRaw; }))) +
+        statCard('紀錄天數', model.dates.length);
     }
 
     if (els.statsWatch) {
@@ -4744,13 +4814,14 @@
       if (dayWorst && (!dayBest || dayWorst.date !== dayBest.date)) {
         items.push(insightItem('全班最低的一天', formatZhDate(dayWorst.date) + '　平均 ' + dayWorst.avg));
       }
-      if (usualScores.length) items.push(insightItem('平時平均', meanOf(usualScores)));
       if (quizScores.length) items.push(insightItem('平時考試平均', meanOf(quizScores)));
       if (examScores.length) items.push(insightItem('段考平均', meanOf(examScores)));
       items.push(insightItem('學期中位數', fmtMaybe(termScores.length ? medianOf(termScores) : null)));
       els.statsInsights.innerHTML = items.join('');
     }
 
+    renderQuizStats(people);
+    renderExamStats(people);
     renderAssessStats(people);
     if (els.statsBody) {
       if (!people.length) {
@@ -4782,6 +4853,7 @@
     fillPersonSelect(people);
     renderPersonStats();
     applyStatsView();
+    applyStatsKind();
     renderGroupDeductStats();
     if (App.statsView === 'school') ensureSchoolStats();
   }
@@ -4912,9 +4984,38 @@
       hint.textContent = mode === 'person'
         ? '看單一學生的走勢、與全班比較，以及每一次考卷／作業。可用上一位／下一位切換。'
         : (mode === 'school'
-          ? '把 801～804 放在一起比學期平均、及格率、上課加扣與作業未繳，方便看出哪一班要加強。'
-          : '把上課加扣、考卷、作業、段考放在一起看，方便立刻看出亮點與需要關心的學生。');
+          ? '各班的上課加扣、平時考試、段考分開比。上面可切類型。'
+          : '上課加扣、平時考試（黃卷／早自習）、段考分開統計。上面可切類型，不會混在一起。');
     }
+    applyStatsKind();
+    var kindSwitch = document.querySelector('.stats-kind-switch');
+    if (kindSwitch) kindSwitch.hidden = mode === 'person';
+  }
+
+  function applyStatsKind() {
+    var kind = App.statsKind === 'plusminus' || App.statsKind === 'quiz' || App.statsKind === 'exam'
+      ? App.statsKind
+      : 'all';
+    App.statsKind = kind;
+    document.querySelectorAll('[data-stats-kind]').forEach(function (btn) {
+      btn.classList.toggle('tab-on', btn.getAttribute('data-stats-kind') === kind);
+    });
+    var roots = [
+      document.getElementById('statsClassView'),
+      document.getElementById('statsSchoolView')
+    ];
+    roots.forEach(function (root) {
+      if (!root) return;
+      root.querySelectorAll('[data-stats-kind-block]').forEach(function (el) {
+        var want = el.getAttribute('data-stats-kind-block');
+        el.hidden = kind !== 'all' && want !== kind;
+      });
+    });
+  }
+
+  function setStatsKind(kind) {
+    App.statsKind = kind === 'plusminus' || kind === 'quiz' || kind === 'exam' ? kind : 'all';
+    applyStatsKind();
   }
 
   function setStatsView(mode) {
@@ -5005,6 +5106,8 @@
           statCard('全校學期平均', fmtMaybe(meanOf(termScores))) +
           statCard('全校及格率', termScores.length ? round1(pass60 / termScores.length * 100) + '%' : '尚無學期成績') +
           statCard('上課平均加扣', fmtMaybe(meanOf(packs.map(function (pack) { return pack.classAvg; })))) +
+          statCard('平時考試平均', fmtMaybe(meanOf(people.map(function (row) { return row.quiz; })))) +
+          statCard('段考平均', fmtMaybe(meanOf(people.map(function (row) { return row.exam; })))) +
           statCard('作業未繳人數', people.filter(function (row) { return row.hwMissing > 0; }).length) +
           statCard('需要關心', needHelp.length) +
           statCard('學期第一', rankedTerm[0] ? rankedTerm[0].className + ' ' + rankedTerm[0].name + '（' + rankedTerm[0].total + '）' : '—');
@@ -5075,6 +5178,32 @@
         })
         : chartEmpty('登記作業並標未繳後，這裡會比較各班未繳人數');
     }
+    if (els.chartSchoolQuizAvg) {
+      els.chartSchoolQuizAvg.innerHTML = packs.some(function (pack) { return pack.quizAvg != null; })
+        ? svgBars(names, packs.map(function (pack) { return pack.quizAvg == null ? 0 : pack.quizAvg; }), { zeroLine: false })
+        : chartEmpty('輸入黃卷或早自習後，這裡會比較各班平時考試平均');
+    }
+    if (els.chartSchoolQuizPass) {
+      els.chartSchoolQuizPass.innerHTML = packs.some(function (pack) { return pack.quizPass != null; })
+        ? svgBars(names, packs.map(function (pack) { return pack.quizPass == null ? 0 : pack.quizPass; }), {
+          zeroLine: false,
+          barColors: names.map(function () { return '#2f6f8f'; })
+        })
+        : chartEmpty('有平時考試成績後，這裡會比較各班及格率');
+    }
+    if (els.chartSchoolExamAvg) {
+      els.chartSchoolExamAvg.innerHTML = packs.some(function (pack) { return pack.examAvg != null; })
+        ? svgBars(names, packs.map(function (pack) { return pack.examAvg == null ? 0 : pack.examAvg; }), { zeroLine: false })
+        : chartEmpty('輸入段考後，這裡會比較各班段考平均');
+    }
+    if (els.chartSchoolExamPass) {
+      els.chartSchoolExamPass.innerHTML = packs.some(function (pack) { return pack.examPass != null; })
+        ? svgBars(names, packs.map(function (pack) { return pack.examPass == null ? 0 : pack.examPass; }), {
+          zeroLine: false,
+          barColors: names.map(function () { return '#2f6f8f'; })
+        })
+        : chartEmpty('有段考成績後，這裡會比較各班及格率');
+    }
     var dist = schoolTermBands(people);
     if (els.chartSchoolTermDist) {
       els.chartSchoolTermDist.innerHTML = dist.hasTerm
@@ -5085,9 +5214,9 @@
         : chartEmpty('有學期總分之後，這裡會顯示全校 90／80／70／60 分段人數');
     }
     if (els.chartSchoolKind) {
-      var kindLabels = ['平時', '平時考試', '段考'];
+      var kindLabels = ['上課加扣', '平時考試', '段考'];
       var kindValues = [
-        meanOf(people.map(function (row) { return row.usual; })),
+        meanOf(people.map(classPlusTo100)),
         meanOf(people.map(function (row) { return row.quiz; })),
         meanOf(people.map(function (row) { return row.exam; }))
       ];
@@ -5113,7 +5242,7 @@
             '<td class="col-total">' + fmtMaybe(pack.termAvg) + '</td>' +
             '<td>' + fmtMaybe(pack.termMedian) + '</td>' +
             '<td>' + (pack.passRate == null ? '—' : pack.passRate + '%') + '</td>' +
-            '<td>' + fmtMaybe(pack.usualAvg) + '</td>' +
+            '<td>' + fmtMaybe(pack.quizAvg) + '</td>' +
             '<td>' + fmtMaybe(pack.examAvg) + '</td>' +
             '<td class="' + scoreCellClass(pack.classAvg) + '">' + scoreCellText(pack.classAvg) + '</td>' +
             '<td class="day-plus">+' + pack.plusTotal + '</td>' +
@@ -5133,7 +5262,7 @@
             '<td>' + escapeHtml(row.seatNo) + '</td>' +
             '<td>' + escapeHtml(row.name) + '</td>' +
             '<td class="col-total">' + fmtMaybe(row.total) + '</td>' +
-            '<td>' + fmtMaybe(row.usual) + '</td>' +
+            '<td>' + fmtMaybe(row.quiz) + '</td>' +
             '<td>' + fmtMaybe(row.exam) + '</td>' +
             '<td class="' + scoreCellClass(row.classRaw) + '">' + scoreCellText(row.classRaw) + '</td>' +
             '</tr>';
@@ -5154,6 +5283,7 @@
         }).join('')
         : '<tr><td colspan="6">目前沒有需要關心的學生</td></tr>';
     }
+    applyStatsKind();
   }
 
   function fillPersonSelect(people) {
@@ -5381,9 +5511,6 @@
     var block = document.getElementById('statsGradeBlock');
     var book = App.gradebook || emptyGradebook();
     var groups = [
-      { label: '黃卷', cols: book.yellow || [], homework: false },
-      { label: '早自習', cols: book.morning || [], homework: false },
-      { label: '段考', cols: book.exams || [], homework: false },
       { label: '實作評量', cols: book.labs || [], homework: false },
       { label: '實作成績', cols: book.practicals || [], homework: false },
       { label: '作業', cols: book.homeworks || [], homework: true }
@@ -5421,13 +5548,122 @@
       wrap.innerHTML = rows.length
         ? '<table class="assess-table"><thead><tr><th>類型</th><th>名稱</th><th>日期</th><th>全班平均</th><th>繳交／及格</th><th>提醒</th></tr></thead><tbody>' +
           rows.join('') + '</tbody></table>'
-        : '<p class="chart-empty">成績統計表還沒有考卷或作業時，這裡會顯示每一次的全班平均、請假與未繳。</p>';
+        : '<p class="chart-empty">成績統計表還沒有實作或作業時，這裡會顯示每一次的全班平均與未繳。</p>';
     }
     if (els.chartAssess) {
       els.chartAssess.innerHTML = chartLabels.length
         ? svgBars(chartLabels, chartValues, { zeroLine: false })
-        : chartEmpty('輸入考卷或作業成績後，這裡會比較每一次的全班平均');
+        : chartEmpty('輸入實作或作業成績後，這裡會比較每一次的全班平均');
     }
+  }
+
+  function paintKindAssessTable(wrap, groups, people) {
+    var rows = [];
+    var chartLabels = [];
+    var chartValues = [];
+    (groups || []).forEach(function (group) {
+      (group.cols || []).forEach(function (col) {
+        var info = analyzeScoreColumn(col, people);
+        rows.push('<tr><td>' + escapeHtml(group.label) + '</td><td>' + escapeHtml(info.title) + '</td><td>' +
+          escapeHtml(shortDate(info.date)) + '</td><td>' + fmtMaybe(info.avg) + '</td><td>' +
+          fmtMaybe(info.passRate, '%') + '</td><td>請假 ' + info.leave + '　未填 ' + info.missing +
+          '　低於60分 ' + info.below + '</td></tr>');
+        if (info.avg != null) {
+          chartLabels.push(info.title);
+          chartValues.push(info.avg);
+        }
+      });
+    });
+    if (wrap) {
+      wrap.innerHTML = rows.length
+        ? '<table class="assess-table"><thead><tr><th>類型</th><th>名稱</th><th>日期</th><th>全班平均</th><th>及格率</th><th>提醒</th></tr></thead><tbody>' +
+          rows.join('') + '</tbody></table>'
+        : '<p class="chart-empty">還沒有這類成績。請到成績統計表新增欄位。</p>';
+    }
+    return { labels: chartLabels, values: chartValues };
+  }
+
+  function renderKindScoreStats(opts) {
+    var people = opts.people || [];
+    var scores = kindScores(people, opts.scoreKey);
+    var dist = scoreBands(scores);
+    var ranked = people.filter(function (row) {
+      return row[opts.scoreKey] != null;
+    }).slice().sort(function (a, b) {
+      return b[opts.scoreKey] - a[opts.scoreKey];
+    });
+    var below = scores.filter(function (n) { return n < 60; }).length;
+    if (opts.cardsEl) {
+      opts.cardsEl.innerHTML = scores.length
+        ? statCard(opts.avgLabel, fmtMaybe(meanOf(scores))) +
+          statCard('及格率', fmtMaybe(passRateOf(scores), '%')) +
+          statCard('中位數', fmtMaybe(medianOf(scores))) +
+          statCard('有成績', scores.length + ' / ' + people.length) +
+          statCard('未滿 60', below) +
+          statCard('目前第一', ranked[0] ? ranked[0].name + '（' + ranked[0][opts.scoreKey] + '）' : '—')
+        : statCard(opts.avgLabel, '尚無資料');
+    }
+    var chart = paintKindAssessTable(opts.tableEl, opts.groups, people);
+    if (opts.avgChart) {
+      opts.avgChart.innerHTML = chart.labels.length
+        ? svgBars(chart.labels, chart.values, { zeroLine: false })
+        : chartEmpty(opts.emptyAvg);
+    }
+    if (opts.distChart) {
+      opts.distChart.innerHTML = dist.n
+        ? svgBars(dist.bands.map(function (b) { return b.label; }), dist.bands.map(function (b) { return b.count; }), {
+          zeroLine: false,
+          barColors: ['#2c7a4b', '#5aa576', '#d9a441', '#d9852b', '#b4413c']
+        })
+        : chartEmpty(opts.emptyDist);
+    }
+    if (opts.rankChart) {
+      var top10 = ranked.slice(0, 10);
+      opts.rankChart.innerHTML = top10.length
+        ? svgHBars(top10.map(function (row) { return row.seatNo + ' ' + row.name; }), top10.map(function (row) { return row[opts.scoreKey]; }))
+        : chartEmpty(opts.emptyRank);
+    }
+  }
+
+  function renderQuizStats(people) {
+    var book = App.gradebook || emptyGradebook();
+    renderKindScoreStats({
+      people: people,
+      scoreKey: 'quiz',
+      avgLabel: '平時考試平均',
+      groups: [
+        { label: '黃卷', cols: book.yellow || [] },
+        { label: '早自習', cols: book.morning || [] }
+      ],
+      cardsEl: els.statsQuizCards,
+      tableEl: els.statsQuizAssess,
+      avgChart: els.chartQuizAssess,
+      distChart: els.chartQuizDist,
+      rankChart: els.chartQuizRank,
+      emptyAvg: '輸入黃卷或早自習後，這裡會比較各次全班平均',
+      emptyDist: '有平時考試成績後，這裡會出現 90／80／70／60 分段人數',
+      emptyRank: '有平時考試成績後，這裡會出現排行'
+    });
+  }
+
+  function renderExamStats(people) {
+    var book = App.gradebook || emptyGradebook();
+    renderKindScoreStats({
+      people: people,
+      scoreKey: 'exam',
+      avgLabel: '段考平均',
+      groups: [
+        { label: '段考', cols: book.exams || [] }
+      ],
+      cardsEl: els.statsExamCards,
+      tableEl: els.statsExamAssess,
+      avgChart: els.chartExamAssess,
+      distChart: els.chartExamDist,
+      rankChart: els.chartExamRank,
+      emptyAvg: '輸入段考成績後，這裡會比較各次全班平均',
+      emptyDist: '有段考成績後，這裡會出現 90／80／70／60 分段人數',
+      emptyRank: '有段考成績後，這裡會出現排行'
+    });
   }
 
   function chartEmpty(text) {

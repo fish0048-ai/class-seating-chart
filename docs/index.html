@@ -328,21 +328,28 @@
               <button type="button" class="tool" data-stats-view="school">全校統計</button>
               <button type="button" class="tool" data-stats-view="person">個人分析</button>
             </div>
-            <p class="hint" id="statsHint">把上課加扣、考卷、作業、段考放在一起看，方便立刻看出亮點與需要關心的學生。</p>
+            <p class="hint" id="statsHint">上課加扣、平時考試、段考分開統計。上面可切類型，不會混在一起。</p>
+            <div class="stats-kind-switch" role="tablist" aria-label="成績類型">
+              <button type="button" class="tool tab-on" data-stats-kind="all">全部</button>
+              <button type="button" class="tool" data-stats-kind="plusminus">上課加扣</button>
+              <button type="button" class="tool" data-stats-kind="quiz">平時考試</button>
+              <button type="button" class="tool" data-stats-kind="exam">段考</button>
+            </div>
 
             <div id="statsClassView">
-            <div id="statsCards" class="stat-cards stats-hero"></div>
-            <div id="statsWatch" class="stats-watch"></div>
-            <div id="statsInsights" class="insight-list"></div>
+            <div id="statsCards" class="stat-cards stats-hero" data-stats-kind-block="all"></div>
+            <div id="statsWatch" class="stats-watch" data-stats-kind-block="all"></div>
+            <div id="statsInsights" class="insight-list" data-stats-kind-block="all"></div>
 
-            <section class="stats-block" id="statsGroupDeductBlock">
+            <section class="stats-block" id="statsGroupDeductBlock" data-stats-kind-block="plusminus">
               <h3>小組扣分（因誰）</h3>
               <p class="hint">上課時點某位同學扣整組，這裡會記下是哪一組、因為誰。座位表排行只顯示加分，扣分細節只在教師模式。</p>
               <div id="statsGroupDeduct"></div>
             </section>
 
-            <section class="stats-block">
-              <h3>上課加扣表現</h3>
+            <section class="stats-block" id="statsPlusBlock" data-stats-kind-block="plusminus">
+              <h3>上課加扣統計</h3>
+              <div id="statsPlusCards" class="stat-cards"></div>
               <figure class="chart-card chart-wide">
                 <figcaption>每天全班平均加扣分</figcaption>
                 <div id="chartTrend"></div>
@@ -367,22 +374,64 @@
               </div>
             </section>
 
-            <section class="stats-block" id="statsGradeBlock">
-              <h3>考卷、實作與作業</h3>
+            <section class="stats-block" id="statsQuizBlock" data-stats-kind-block="quiz">
+              <h3>平時考試統計</h3>
+              <p class="hint">黃卷與早自習，不含上課加扣、也不含段考。</p>
+              <div id="statsQuizCards" class="stat-cards"></div>
+              <div id="statsQuizAssess" class="assess-wrap"></div>
+              <div class="chart-grid">
+                <figure class="chart-card">
+                  <figcaption>各次平時考試全班平均</figcaption>
+                  <div id="chartQuizAssess"></div>
+                </figure>
+                <figure class="chart-card">
+                  <figcaption>平時考試分數分布</figcaption>
+                  <div id="chartQuizDist"></div>
+                </figure>
+                <figure class="chart-card chart-wide">
+                  <figcaption>平時考試排行（前 10 名）</figcaption>
+                  <div id="chartQuizRank"></div>
+                </figure>
+              </div>
+            </section>
+
+            <section class="stats-block" id="statsExamBlock" data-stats-kind-block="exam">
+              <h3>段考統計</h3>
+              <p class="hint">只看段考，不含黃卷、早自習與上課加扣。</p>
+              <div id="statsExamCards" class="stat-cards"></div>
+              <div id="statsExamAssess" class="assess-wrap"></div>
+              <div class="chart-grid">
+                <figure class="chart-card">
+                  <figcaption>各次段考全班平均</figcaption>
+                  <div id="chartExamAssess"></div>
+                </figure>
+                <figure class="chart-card">
+                  <figcaption>段考分數分布</figcaption>
+                  <div id="chartExamDist"></div>
+                </figure>
+                <figure class="chart-card chart-wide">
+                  <figcaption>段考排行（前 10 名）</figcaption>
+                  <div id="chartExamRank"></div>
+                </figure>
+              </div>
+            </section>
+
+            <section class="stats-block" id="statsGradeBlock" data-stats-kind-block="all">
+              <h3>實作與作業</h3>
               <div id="statsAssess" class="assess-wrap"></div>
               <div class="chart-grid">
                 <figure class="chart-card">
-                  <figcaption>各次成績全班平均（百分制）</figcaption>
+                  <figcaption>實作／作業全班平均</figcaption>
                   <div id="chartAssess"></div>
                 </figure>
                 <figure class="chart-card">
-                  <figcaption>學期總分分布</figcaption>
+                  <figcaption>學期總分分布（加權後）</figcaption>
                   <div id="chartTerm"></div>
                 </figure>
               </div>
             </section>
 
-            <section class="stats-block">
+            <section class="stats-block" data-stats-kind-block="all">
               <h3>進階分析</h3>
               <p class="hint">成績一項項打進去，圖就會自己長出來。空著的格子會寫「缺什麼才會出現」，方便對照。</p>
               <h4 class="chart-sub">全班一眼看</h4>
@@ -436,8 +485,9 @@
               </figure>
             </section>
 
+            <section class="stats-block" data-stats-kind-block="all">
             <h3 class="subhead">學生總覽（加扣＋成績簿）</h3>
-            <p class="hint">點姓名可改看這位學生的個人分析圖表。</p>
+            <p class="hint">點姓名可改看這位學生的個人分析圖表。平時、平時考試、段考分欄，互不混算。</p>
             <div class="db-table-wrap stats-table-wrap">
               <table class="db-table stats-wide">
                 <thead>
@@ -460,14 +510,59 @@
                 <tbody id="statsBody"></tbody>
               </table>
             </div>
+            </section>
             </div>
 
             <div id="statsSchoolView" hidden>
-              <div id="schoolCards" class="stat-cards stats-hero"></div>
-              <div id="schoolWatch" class="stats-watch"></div>
-              <div id="schoolInsights" class="insight-list"></div>
+              <div id="schoolCards" class="stat-cards stats-hero" data-stats-kind-block="all"></div>
+              <div id="schoolWatch" class="stats-watch" data-stats-kind-block="all"></div>
+              <div id="schoolInsights" class="insight-list" data-stats-kind-block="all"></div>
 
-              <section class="stats-block">
+              <section class="stats-block" data-stats-kind-block="plusminus">
+                <h3>各班上課加扣</h3>
+                <div class="chart-grid">
+                  <figure class="chart-card">
+                    <figcaption>各班上課加扣平均</figcaption>
+                    <div id="chartSchoolClassRaw"></div>
+                  </figure>
+                  <figure class="chart-card">
+                    <figcaption>各班作業未繳人數</figcaption>
+                    <div id="chartSchoolHw"></div>
+                  </figure>
+                </div>
+              </section>
+
+              <section class="stats-block" data-stats-kind-block="quiz">
+                <h3>各班平時考試</h3>
+                <p class="hint">黃卷與早自習平均，不含段考。</p>
+                <div class="chart-grid">
+                  <figure class="chart-card">
+                    <figcaption>各班平時考試平均</figcaption>
+                    <div id="chartSchoolQuizAvg"></div>
+                  </figure>
+                  <figure class="chart-card">
+                    <figcaption>各班平時考試及格率</figcaption>
+                    <div id="chartSchoolQuizPass"></div>
+                  </figure>
+                </div>
+              </section>
+
+              <section class="stats-block" data-stats-kind-block="exam">
+                <h3>各班段考</h3>
+                <p class="hint">只看段考，不含黃卷與早自習。</p>
+                <div class="chart-grid">
+                  <figure class="chart-card">
+                    <figcaption>各班段考平均</figcaption>
+                    <div id="chartSchoolExamAvg"></div>
+                  </figure>
+                  <figure class="chart-card">
+                    <figcaption>各班段考及格率</figcaption>
+                    <div id="chartSchoolExamPass"></div>
+                  </figure>
+                </div>
+              </section>
+
+              <section class="stats-block" data-stats-kind-block="all">
                 <h3>各班比較</h3>
                 <p class="hint">點某一班可改看該班的班級分析。這裡彙整你教的每一班，不含範例班。</p>
                 <div class="chart-grid">
@@ -480,21 +575,11 @@
                     <div id="chartSchoolPass"></div>
                   </figure>
                   <figure class="chart-card">
-                    <figcaption>各班上課加扣平均</figcaption>
-                    <div id="chartSchoolClassRaw"></div>
-                  </figure>
-                  <figure class="chart-card">
-                    <figcaption>各班作業未繳人數</figcaption>
-                    <div id="chartSchoolHw"></div>
-                  </figure>
-                </div>
-                <div class="chart-grid">
-                  <figure class="chart-card">
                     <figcaption>全校學期總分分布</figcaption>
                     <div id="chartSchoolTermDist"></div>
                   </figure>
                   <figure class="chart-card">
-                    <figcaption>全校各類型平均（平時／平時考試／段考）</figcaption>
+                    <figcaption>全校：上課加扣／平時考試／段考平均</figcaption>
                     <div id="chartSchoolKind"></div>
                   </figure>
                 </div>
@@ -507,7 +592,7 @@
                         <th>學期平均</th>
                         <th>中位數</th>
                         <th>及格率</th>
-                        <th>平時</th>
+                        <th>平時考試</th>
                         <th>段考</th>
                         <th>上課加扣平均</th>
                         <th>加分合計</th>
@@ -521,7 +606,7 @@
                 </div>
               </section>
 
-              <section class="stats-block">
+              <section class="stats-block" data-stats-kind-block="all">
                 <h3>全校學生</h3>
                 <p class="hint">點姓名會改看該班的個人分析。</p>
                 <div class="chart-grid">
@@ -540,7 +625,7 @@
                         <th>座號</th>
                         <th>姓名</th>
                         <th>學期總分</th>
-                        <th>平時</th>
+                        <th>平時考試</th>
                         <th>段考</th>
                         <th>上課加扣</th>
                       </tr>
@@ -584,7 +669,7 @@
                 <h3>能力比較</h3>
                 <div class="chart-grid">
                   <figure class="chart-card">
-                    <figcaption>平時／考試／段考（藍：自己，灰：全班平均）</figcaption>
+                    <figcaption>平時考試／段考／上課加扣（藍：自己，灰：全班平均）</figcaption>
                     <div id="chartPersonRadar"></div>
                   </figure>
                   <figure class="chart-card">

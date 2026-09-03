@@ -1331,6 +1331,13 @@
     flex-shrink: 0;
   }
 
+  .stats-kind-switch {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+
   .stats-wide tbody tr[data-seat],
   .stats-wide tbody tr[data-class] {
     cursor: pointer;
