@@ -1001,11 +1001,74 @@ function mergeProtectCloudStore_(incoming, existing) {
       existing.mockExam && existing.mockExam.byClass && Object.keys(existing.mockExam.byClass).length) {
     store.mockExam = existing.mockExam;
   }
-  if ((!store.lessonLog || !Object.keys(store.lessonLog).length) &&
-      existing.lessonLog && Object.keys(existing.lessonLog).length) {
-    store.lessonLog = existing.lessonLog;
-  }
+  store.lessonLog = mergeCloudLessonLog_(store.lessonLog, existing.lessonLog);
   return store;
+}
+
+function countCloudLessonEntries_(log) {
+  var n = 0;
+  Object.keys(log || {}).forEach(function (cn) {
+    var pack = log[cn] || {};
+    if (pack.current) n += 1;
+    n += (pack.entries || []).length;
+  });
+  return n;
+}
+
+function mergeCloudLessonPack_(localPack, remotePack) {
+  localPack = localPack || { current: '', updatedAt: '', entries: [] };
+  remotePack = remotePack || { current: '', updatedAt: '', entries: [] };
+  var byId = {};
+  var byDate = {};
+  function take(entry) {
+    if (!entry || !entry.date || !entry.progress) return;
+    var id = String(entry.id || '');
+    var date = String(entry.date);
+    if (id) {
+      var prev = byId[id];
+      if (!prev || String(entry.createdAt || '') >= String(prev.createdAt || '')) byId[id] = entry;
+    }
+    var prevDate = byDate[date];
+    if (!prevDate || String(entry.createdAt || '') >= String(prevDate.createdAt || '')) {
+      byDate[date] = entry;
+    }
+  }
+  (remotePack.entries || []).forEach(take);
+  (localPack.entries || []).forEach(take);
+  var merged = {};
+  Object.keys(byId).forEach(function (id) { merged[id] = byId[id]; });
+  Object.keys(byDate).forEach(function (date) {
+    var entry = byDate[date];
+    var id = String(entry.id || '');
+    if (!id) merged['date:' + date] = entry;
+    else if (!merged[id]) merged[id] = entry;
+  });
+  var entries = Object.keys(merged).map(function (k) { return merged[k]; });
+  entries.sort(function (a, b) {
+    return String(b.date).localeCompare(String(a.date)) || String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+  });
+  if (entries.length > 200) entries = entries.slice(0, 200);
+  var current = String(localPack.current || '').trim() || String(remotePack.current || '').trim();
+  var updatedAt = localPack.updatedAt || '';
+  if ((remotePack.updatedAt || '') > updatedAt) updatedAt = remotePack.updatedAt;
+  return {
+    current: current.slice(0, 80),
+    updatedAt: updatedAt,
+    entries: entries
+  };
+}
+
+function mergeCloudLessonLog_(localLog, remoteLog) {
+  localLog = localLog && typeof localLog === 'object' ? localLog : {};
+  remoteLog = remoteLog && typeof remoteLog === 'object' ? remoteLog : {};
+  var out = {};
+  var names = {};
+  Object.keys(localLog).forEach(function (cn) { names[cn] = true; });
+  Object.keys(remoteLog).forEach(function (cn) { names[cn] = true; });
+  Object.keys(names).forEach(function (cn) {
+    out[cn] = mergeCloudLessonPack_(localLog[cn], remoteLog[cn]);
+  });
+  return out;
 }
 
 function classCloudAbsSum_(room) {

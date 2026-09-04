@@ -324,6 +324,74 @@
     return Object.keys(byDate).sort().map(function (d) { return byDate[d]; });
   }
 
+  function countLessonEntries_(log) {
+    var n = 0;
+    Object.keys(log || {}).forEach(function (cn) {
+      var pack = log[cn] || {};
+      if (pack.current) n += 1;
+      n += (pack.entries || []).length;
+    });
+    return n;
+  }
+
+  function mergeLessonPackProtect_(localPack, remotePack) {
+    localPack = localPack || { current: '', updatedAt: '', entries: [] };
+    remotePack = remotePack || { current: '', updatedAt: '', entries: [] };
+    var byId = {};
+    var byDate = {};
+    function take(entry) {
+      if (!entry || !entry.date || !entry.progress) return;
+      var id = String(entry.id || '');
+      var date = String(entry.date);
+      if (id) {
+        var prev = byId[id];
+        if (!prev || String(entry.createdAt || '') >= String(prev.createdAt || '')) byId[id] = entry;
+      }
+      var prevDate = byDate[date];
+      if (!prevDate || String(entry.createdAt || '') >= String(prevDate.createdAt || '')) {
+        byDate[date] = entry;
+      }
+    }
+    (remotePack.entries || []).forEach(take);
+    (localPack.entries || []).forEach(take);
+    var merged = {};
+    Object.keys(byId).forEach(function (id) {
+      merged[id] = byId[id];
+    });
+    Object.keys(byDate).forEach(function (date) {
+      var entry = byDate[date];
+      var id = String(entry.id || '');
+      if (!id) {
+        merged['date:' + date] = entry;
+        return;
+      }
+      if (!merged[id]) merged[id] = entry;
+    });
+    var entries = Object.keys(merged).map(function (k) { return merged[k]; });
+    entries.sort(function (a, b) {
+      return String(b.date).localeCompare(String(a.date)) || String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+    });
+    if (entries.length > 200) entries = entries.slice(0, 200);
+    var current = String(localPack.current || '').trim() || String(remotePack.current || '').trim();
+    var updatedAt = localPack.updatedAt || '';
+    if ((remotePack.updatedAt || '') > updatedAt) updatedAt = remotePack.updatedAt;
+    if (!updatedAt) updatedAt = nowIso();
+    return { current: current.slice(0, 80), updatedAt: updatedAt, entries: entries };
+  }
+
+  function mergeLessonLogProtect_(localLog, remoteLog) {
+    localLog = localLog && typeof localLog === 'object' ? localLog : {};
+    remoteLog = remoteLog && typeof remoteLog === 'object' ? remoteLog : {};
+    var out = {};
+    var names = {};
+    Object.keys(localLog).forEach(function (cn) { names[cn] = true; });
+    Object.keys(remoteLog).forEach(function (cn) { names[cn] = true; });
+    Object.keys(names).forEach(function (cn) {
+      out[cn] = mergeLessonPackProtect_(localLog[cn], remoteLog[cn]);
+    });
+    return out;
+  }
+
   /** 上傳前保護：避免本機空成績／空每日紀錄把雲端舊資料蓋掉。 */
   function mergeProtectStore_(local, remote) {
     if (!local || !remote) return local || remote;
@@ -367,10 +435,7 @@
         remote.mockExam && remote.mockExam.byClass && Object.keys(remote.mockExam.byClass).length) {
       local.mockExam = clone(remote.mockExam);
     }
-    if ((!local.lessonLog || !Object.keys(local.lessonLog).length) &&
-        remote.lessonLog && Object.keys(remote.lessonLog).length) {
-      local.lessonLog = clone(remote.lessonLog);
-    }
+    local.lessonLog = mergeLessonLogProtect_(local.lessonLog, remote.lessonLog);
     return local;
   }
 
@@ -770,15 +835,19 @@
       var remote = data && data.store ? normalizeLoadedStore_(data.store) : null;
       var remoteAt = (remote && remote.updatedAt) || '';
       if (remoteAt && lastSyncedAt_ && remoteAt > lastSyncedAt_) {
-        cloudSaving = false;
-        cloudError = '另一台已有較新資料，這台沒有覆蓋雲端。請重新載入後再加扣。';
-        notifyCloud_('conflict');
-        return Promise.reject(new Error(cloudError));
-      }
-      if (remote) {
+        if (remote) {
+          mergeProtectStore_(store, remote);
+          lastSyncedAt_ = remoteAt;
+        } else {
+          cloudSaving = false;
+          cloudError = '另一台已有較新資料，這台沒有覆蓋雲端。請重新載入後再加扣。';
+          notifyCloud_('conflict');
+          return Promise.reject(new Error(cloudError));
+        }
+      } else if (remote) {
         mergeProtectStore_(store, remote);
       }
-      lastPushAt = store.updatedAt || nowIso();
+      lastPushAt = nowIso();
       store.updatedAt = lastPushAt;
       return CloudStore.putStore(store);
     }).then(function (data) {
@@ -1934,10 +2003,22 @@
       }
       store.lessonLog = normalizeLessonLog_(store.lessonLog);
       saveStore(store);
-      return wrap({
+      var result = {
         ok: true,
         lessonLog: store.lessonLog,
         className: className
+      };
+      if (!cloudOn() || !hydrated) return wrap(result);
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      return pushCloud_(memStore).then(function () {
+        result.lessonLog = memStore.lessonLog || result.lessonLog;
+        result.synced = true;
+        return result;
+      }).catch(function (err) {
+        result.synced = false;
+        result.cloudError = err && err.message ? err.message : '雲端同步失敗';
+        return result;
       });
     },
     deleteLessonEntry: function (body) {
@@ -1949,7 +2030,19 @@
       pack.entries = pack.entries.filter(function (item) { return item.id !== id; });
       store.lessonLog = normalizeLessonLog_(store.lessonLog);
       saveStore(store);
-      return wrap({ ok: true, lessonLog: store.lessonLog, className: className });
+      var result = { ok: true, lessonLog: store.lessonLog, className: className };
+      if (!cloudOn() || !hydrated) return wrap(result);
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      return pushCloud_(memStore).then(function () {
+        result.lessonLog = memStore.lessonLog || result.lessonLog;
+        result.synced = true;
+        return result;
+      }).catch(function (err) {
+        result.synced = false;
+        result.cloudError = err && err.message ? err.message : '雲端同步失敗';
+        return result;
+      });
     },
     exportJSON: function () {
       return JSON.stringify(loadStore());

@@ -377,7 +377,16 @@
         loadHomeworkTab();
       }
       if (App.teacherTab === 'exam') renderMockExamTable();
-      if (App.teacherTab === 'journal') renderLessonJournal();
+      if (App.teacherTab === 'journal') {
+        api('getLessonLog', []).then(function (data) {
+          if (data && data.lessonLog) {
+            App.lessonLog = mergeLessonLogClient_(App.lessonLog, data.lessonLog);
+          }
+          renderLessonJournal();
+        }).catch(function () {
+          renderLessonJournal();
+        });
+      }
     });
   }
   if (els.dbDateFilter) {
@@ -1001,8 +1010,69 @@
       App.selectedSeatNo = null;
     }
     if (data.mockExam) App.mockExam = data.mockExam;
-    if (data.lessonLog) App.lessonLog = data.lessonLog;
+    if (data.lessonLog) {
+      App.lessonLog = mergeLessonLogClient_(App.lessonLog, data.lessonLog);
+    }
     renderAll();
+  }
+
+  function countLessonLogClient_(log) {
+    var n = 0;
+    Object.keys(log || {}).forEach(function (cn) {
+      var pack = log[cn] || {};
+      if (pack.current) n += 1;
+      n += (pack.entries || []).length;
+    });
+    return n;
+  }
+
+  function mergeLessonLogClient_(localLog, remoteLog) {
+    localLog = localLog && typeof localLog === 'object' ? localLog : {};
+    remoteLog = remoteLog && typeof remoteLog === 'object' ? remoteLog : {};
+    var out = {};
+    var names = {};
+    Object.keys(localLog).forEach(function (cn) { names[cn] = true; });
+    Object.keys(remoteLog).forEach(function (cn) { names[cn] = true; });
+    Object.keys(names).forEach(function (cn) {
+      var localPack = localLog[cn] || { current: '', updatedAt: '', entries: [] };
+      var remotePack = remoteLog[cn] || { current: '', updatedAt: '', entries: [] };
+      var byId = {};
+      var byDate = {};
+      function take(entry) {
+        if (!entry || !entry.date || !entry.progress) return;
+        var id = String(entry.id || '');
+        var date = String(entry.date);
+        if (id) {
+          var prev = byId[id];
+          if (!prev || String(entry.createdAt || '') >= String(prev.createdAt || '')) byId[id] = entry;
+        }
+        var prevDate = byDate[date];
+        if (!prevDate || String(entry.createdAt || '') >= String(prevDate.createdAt || '')) byDate[date] = entry;
+      }
+      (remotePack.entries || []).forEach(take);
+      (localPack.entries || []).forEach(take);
+      var merged = {};
+      Object.keys(byId).forEach(function (id) { merged[id] = byId[id]; });
+      Object.keys(byDate).forEach(function (date) {
+        var entry = byDate[date];
+        var id = String(entry.id || '');
+        if (!id) merged['date:' + date] = entry;
+        else if (!merged[id]) merged[id] = entry;
+      });
+      var entries = Object.keys(merged).map(function (k) { return merged[k]; });
+      entries.sort(function (a, b) {
+        return String(b.date).localeCompare(String(a.date)) || String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+      });
+      out[cn] = {
+        current: String(localPack.current || remotePack.current || '').trim().slice(0, 80),
+        updatedAt: (localPack.updatedAt || '') > (remotePack.updatedAt || '') ? localPack.updatedAt : (remotePack.updatedAt || localPack.updatedAt || ''),
+        entries: entries
+      };
+    });
+    if (!Object.keys(out).length && countLessonLogClient_(remoteLog) >= countLessonLogClient_(localLog)) {
+      return remoteLog;
+    }
+    return out;
   }
 
   function noteScoreRoll(data) {
@@ -2370,7 +2440,16 @@
     updateScoreDayLabel();
     if (App.teacherTab === 'settings' && changed) openSettings();
     if (App.teacherTab === 'exam') renderMockExamTable();
-    if (App.teacherTab === 'journal') renderLessonJournal();
+    if (App.teacherTab === 'journal') {
+      api('getLessonLog', []).then(function (data) {
+        if (data && data.lessonLog) {
+          App.lessonLog = mergeLessonLogClient_(App.lessonLog, data.lessonLog);
+        }
+        renderLessonJournal();
+      }).catch(function () {
+        renderLessonJournal();
+      });
+    }
     if (App.teacherTab === 'homework') loadHomeworkTab();
     if (App.teacherTab === 'timetable') {
       App.ttFocusKey = '';
@@ -2485,10 +2564,14 @@
       date: dateEl ? dateEl.value : '',
       note: noteEl ? noteEl.value : ''
     }]).then(function (data) {
-      App.lessonLog = data.lessonLog || App.lessonLog;
+      App.lessonLog = mergeLessonLogClient_(App.lessonLog, data.lessonLog || {});
       if (noteEl) noteEl.value = '';
       renderLessonJournal();
-      toast(className + ' 已記下進度');
+      if (data && data.synced === false) {
+        toast((data.cloudError || '進度已暫存，但還沒同步到雲端') + '。請按「立即同步」', 7000);
+      } else {
+        toast(className + ' 已記下進度並同步雲端');
+      }
     }).catch(function (err) {
       toast(err && err.message ? err.message : '儲存失敗');
     });
@@ -2499,7 +2582,11 @@
     api('deleteLessonEntry', [{ className: className, id: id }]).then(function (data) {
       App.lessonLog = data.lessonLog || App.lessonLog;
       renderLessonJournal();
-      toast('已刪除這筆日誌');
+      if (data && data.synced === false) {
+        toast((data.cloudError || '已刪除，但還沒同步到雲端') + '。請按「立即同步」', 7000);
+      } else {
+        toast('已刪除這筆日誌');
+      }
     }).catch(function (err) {
       toast(err && err.message ? err.message : '刪除失敗');
     });
