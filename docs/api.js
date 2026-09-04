@@ -1891,24 +1891,43 @@
       var type = String((body && body.type) || 'yellow');
       if (!GRADE_LISTS_[type]) type = 'yellow';
       if (!className) throw new Error('缺少班級名稱');
-      var book = ensureGrades_(store, className);
       var meta = GRADE_LISTS_[type];
-      var item = {
-        id: 'g' + Date.now() + Math.floor(Math.random() * 1000),
-        title: String((body && body.title) || meta.title).trim() || meta.title,
-        date: String((body && body.date) || todayKey_()),
-        max: clampInt((body && body.max) || 100, 1, 200, 100)
-      };
-      if (type === 'homework') {
-        item.dueDate = String((body && body.dueDate) || item.date);
-        item.records = {};
-        book.homeworks.push(item);
-      } else {
-        item.scores = {};
-        book[meta.key].push(item);
-      }
+      var title = String((body && body.title) || meta.title).trim() || meta.title;
+      var date = String((body && body.date) || todayKey_());
+      var max = clampInt((body && body.max) || 100, 1, 200, 100);
+      var dueDate = String((body && body.dueDate) || date);
+      var sharedId = 'g' + Date.now() + Math.floor(Math.random() * 1000);
+      var targets = classNames(store).filter(function (cn) {
+        return cn && cn.indexOf('範例') < 0;
+      });
+      if (targets.indexOf(className) < 0) targets.push(className);
+      targets.forEach(function (cn) {
+        var book = ensureGrades_(store, cn);
+        var list = type === 'homework' ? book.homeworks : book[meta.key];
+        var exists = (list || []).some(function (col) { return col && col.id === sharedId; });
+        if (exists) return;
+        var item = {
+          id: sharedId,
+          title: title,
+          date: date,
+          max: max
+        };
+        if (type === 'homework') {
+          item.dueDate = dueDate;
+          item.records = {};
+          book.homeworks.push(item);
+        } else {
+          item.scores = {};
+          book[meta.key].push(item);
+        }
+      });
       saveStore(store);
-      return gradebookResult_(className, book);
+      return gradebookResult_(className, ensureGrades_(store, className)).then(function (data) {
+        data.sharedId = sharedId;
+        data.sharedClasses = targets;
+        data.sharedCount = targets.length;
+        return data;
+      });
     },
     deleteGradeColumn: function (body) {
       var store = loadStore();
@@ -1916,11 +1935,24 @@
       var type = String((body && body.type) || 'yellow');
       if (!GRADE_LISTS_[type]) type = 'yellow';
       var id = String((body && body.id) || '');
-      var book = ensureGrades_(store, className);
+      if (!id) throw new Error('缺少欄位');
       var key = GRADE_LISTS_[type].key;
-      book[key] = (book[key] || []).filter(function (item) { return item.id !== id; });
+      var targets = classNames(store).filter(function (cn) {
+        return cn && cn.indexOf('範例') < 0;
+      });
+      if (className && targets.indexOf(className) < 0) targets.push(className);
+      var removed = 0;
+      targets.forEach(function (cn) {
+        var book = ensureGrades_(store, cn);
+        var before = (book[key] || []).length;
+        book[key] = (book[key] || []).filter(function (item) { return item.id !== id; });
+        if ((book[key] || []).length < before) removed += 1;
+      });
       saveStore(store);
-      return gradebookResult_(className, book);
+      return gradebookResult_(className || targets[0] || '', ensureGrades_(store, className || targets[0] || '範例班')).then(function (data) {
+        data.sharedCount = removed;
+        return data;
+      });
     },
     saveGradebook: function (body) {
       var store = loadStore();

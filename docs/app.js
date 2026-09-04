@@ -4682,18 +4682,22 @@
       var term = document.getElementById('gradeTermView');
       if (term) term.open = true;
       renderGradebook();
-      toast('已新增' + (GRADE_TYPE_LABEL[type] || '成績') + '欄');
+      var n = data && data.sharedCount ? data.sharedCount : 1;
+      toast('已在全校 ' + n + ' 個班新增「' + (title || GRADE_TYPE_LABEL[type] || '成績') + '」欄，可一起統計');
+      App.schoolPacks = null;
     }).catch(function (error) {
       toast(error && error.message ? error.message : '新增失敗');
     });
   }
 
   function deleteGradeColumn(kind, id) {
-    if (!window.confirm('要刪掉這一欄成績嗎？分數也會一起刪除。')) return;
+    if (!window.confirm('要刪掉這一欄嗎？會從全校各班一起刪除，分數也會一起刪掉。')) return;
     api('deleteGradeColumn', [{ className: teacherTargetClass(), type: kind, id: id }]).then(function (data) {
       applyGradebook(data);
       renderGradebook();
-      toast('已刪除');
+      var n = data && data.sharedCount ? data.sharedCount : 1;
+      toast('已從 ' + n + ' 個班刪除這一欄');
+      App.schoolPacks = null;
     }).catch(function () {
       toast('刪除失敗');
     });
@@ -5295,6 +5299,69 @@
     toast('改看 ' + className + ' ' + seatNo);
   }
 
+  function colAverageForStudents(col, students) {
+    var vals = [];
+    (students || []).forEach(function (s) {
+      var v = columnScore100(col, s.seatNo);
+      if (v != null) vals.push(v);
+    });
+    return meanOf(vals);
+  }
+
+  function renderSchoolSharedColumns(rawClasses, packs) {
+    var box = document.getElementById('schoolSharedCols');
+    if (!box) return;
+    var classNamesList = (packs || []).map(function (pack) { return pack.className; });
+    var kinds = [
+      { key: 'yellow', label: '黃卷' },
+      { key: 'morning', label: '早自習' },
+      { key: 'exams', label: '段考' },
+      { key: 'labs', label: '實作評量' },
+      { key: 'practicals', label: '實作成績' }
+    ];
+    var byId = {};
+    (rawClasses || []).forEach(function (pack) {
+      var book = pack.gradebook || {};
+      var students = pack.students || [];
+      kinds.forEach(function (kind) {
+        (book[kind.key] || []).forEach(function (col) {
+          if (!col || !col.id) return;
+          if (!byId[col.id]) {
+            byId[col.id] = {
+              id: col.id,
+              title: col.title || '未命名',
+              label: kind.label,
+              date: col.date || '',
+              avgs: {}
+            };
+          }
+          var avg = colAverageForStudents(col, students);
+          if (avg != null) byId[col.id].avgs[pack.className] = avg;
+        });
+      });
+    });
+    var shared = Object.keys(byId).map(function (id) { return byId[id]; }).filter(function (item) {
+      return Object.keys(item.avgs).length >= 2;
+    }).sort(function (a, b) {
+      return String(b.date).localeCompare(String(a.date)) || String(a.title).localeCompare(String(b.title));
+    });
+    if (!shared.length) {
+      box.innerHTML = '<p class="hint">在成績表「新增這一欄」後，全校各班會出現同一欄；至少兩個班有分數時，這裡會比較各班平均。</p>';
+      return;
+    }
+    box.innerHTML = shared.map(function (item) {
+      var values = classNamesList.map(function (cn) {
+        return item.avgs[cn] == null ? 0 : item.avgs[cn];
+      });
+      var hasAny = classNamesList.some(function (cn) { return item.avgs[cn] != null; });
+      return '<figure class="chart-card">' +
+        '<figcaption>' + escapeHtml(item.label + '｜' + item.title) +
+        (item.date ? '（' + escapeHtml(shortDate(item.date)) + '）' : '') + '</figcaption>' +
+        (hasAny ? svgBars(classNamesList, values, { zeroLine: false }) : chartEmpty('還沒有分數')) +
+        '</figure>';
+    }).join('');
+  }
+
   function ensureSchoolStats() {
     if (App.schoolBusy) return;
     App.schoolBusy = true;
@@ -5468,6 +5535,9 @@
         ? svgBars(kindLabels, kindValues.map(function (n) { return n == null ? 0 : n; }), { zeroLine: false })
         : chartEmpty('打進平時或段考後，這裡會出現全校各類型平均');
     }
+    renderSchoolSharedColumns(((data && data.classes) || []).filter(function (pack) {
+      return isSchoolClassName(pack.className);
+    }), packs);
     if (els.chartSchoolTop) {
       var top10 = rankedTerm.slice(0, 10);
       els.chartSchoolTop.innerHTML = top10.length

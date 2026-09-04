@@ -260,7 +260,7 @@
                 <button type="button" class="tool" id="btnGradeExcelIn">從 Excel 匯入</button>
                 <button type="button" class="tool" id="btnSaveGrades">立即存成績</button>
               </div>
-              <p class="hint">分數打完會自動存到雲端，不必再按儲存。</p>
+              <p class="hint">分數打完會自動存到雲端。按「新增這一欄」會同步到<strong>所有班級</strong>（同一欄、同一個編號），方便全校一起統計；刪欄也會全校一起刪。</p>
               <div id="gradeTermWrap" class="grade-boards"></div>
             </details>
 
@@ -560,6 +560,12 @@
                     <div id="chartSchoolExamPass"></div>
                   </figure>
                 </div>
+              </section>
+
+              <section class="stats-block" data-stats-kind-block="all">
+                <h3>同一次成績欄（全校）</h3>
+                <p class="hint">在任一班新增的欄位會同步到所有班。這裡依「同一欄」比較各班平均（至少兩個班有分數才顯示）。</p>
+                <div id="schoolSharedCols" class="chart-grid"></div>
               </section>
 
               <section class="stats-block" data-stats-kind-block="all">
