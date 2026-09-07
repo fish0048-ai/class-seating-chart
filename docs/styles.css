@@ -683,9 +683,20 @@
     font-size: 12px;
   }
 
+  .journal-card small {
+    color: #5b7380;
+    font-size: 12px;
+    line-height: 1.35;
+  }
+
   .journal-card.tab-on {
     border-color: var(--primary);
     box-shadow: inset 0 0 0 1px var(--primary);
+  }
+
+  .journal-latest-row td {
+    background: #f3f8fb;
+    font-weight: 600;
   }
 
   .journal-form {

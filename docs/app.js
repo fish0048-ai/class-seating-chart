@@ -2474,16 +2474,38 @@
     return log[className] || { current: '', updatedAt: '', entries: [] };
   }
 
+  function latestLessonEntry(pack) {
+    var entries = ((pack && pack.entries) || []).slice().sort(function (a, b) {
+      return String(b.date || '').localeCompare(String(a.date || '')) ||
+        String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+    });
+    return entries[0] || null;
+  }
+
   function fillJournalForm(className) {
     var progress = document.getElementById('journalProgress');
     var dateEl = document.getElementById('journalDate');
     var note = document.getElementById('journalNote');
     var title = document.getElementById('journalFormTitle');
+    var latestHint = document.getElementById('journalLatestHint');
     var pack = lessonPackFor(className);
-    if (progress && document.activeElement !== progress) progress.value = pack.current || '';
-    if (dateEl && !dateEl.value) dateEl.value = formatDateKey(new Date());
-    if (note && document.activeElement !== note) note.value = '';
-    if (title) title.textContent = className ? className + ' 目前進度' : '本班進度';
+    var latest = latestLessonEntry(pack);
+    var progressText = (latest && latest.progress) || pack.current || '';
+    var dateText = (latest && latest.date) || formatDateKey(new Date());
+    var noteText = (latest && latest.note) || '';
+    if (progress && document.activeElement !== progress) progress.value = progressText;
+    if (dateEl && document.activeElement !== dateEl) dateEl.value = dateText;
+    if (note && document.activeElement !== note) note.value = noteText;
+    if (title) title.textContent = className ? className + ' 最近進度' : '本班進度';
+    if (latestHint) {
+      if (latest) {
+        latestHint.textContent = '目前顯示最近一筆：' + formatZhDate(latest.date) +
+          (latest.note ? '　備註：' + latest.note : '') +
+          '。若要記新的一天，請改日期後再按儲存。';
+      } else {
+        latestHint.textContent = '這班還沒有日誌。填進度後按「儲存進度」。';
+      }
+    }
   }
 
   function renderLessonJournal() {
@@ -2498,13 +2520,18 @@
       } else {
         overview.innerHTML = names.map(function (cn) {
           var pack = lessonPackFor(cn);
-          var current = pack.current || '尚未登記';
-          var when = pack.updatedAt ? formatTime(pack.updatedAt) : '';
+          var latest = latestLessonEntry(pack);
+          var current = (latest && latest.progress) || pack.current || '尚未登記';
+          var when = latest && latest.date
+            ? formatZhDate(latest.date)
+            : (pack.updatedAt ? formatTime(pack.updatedAt) : '');
+          var noteBit = latest && latest.note ? latest.note : '';
           var on = cn === target ? ' tab-on' : '';
           return '<button type="button" class="journal-card' + on + '" data-journal-class="' + escapeHtml(cn) + '">' +
             '<span>' + escapeHtml(cn) + '</span>' +
             '<strong>' + escapeHtml(current) + '</strong>' +
             (when ? '<em>' + escapeHtml(when) + '</em>' : '') +
+            (noteBit ? '<small>' + escapeHtml(noteBit) + '</small>' : '') +
             '</button>';
         }).join('');
         overview.querySelectorAll('[data-journal-class]').forEach(function (btn) {
@@ -2525,14 +2552,18 @@
       body.innerHTML = '<tr><td colspan="4">請先選班級。</td></tr>';
       return;
     }
-    var entries = (lessonPackFor(target).entries || []).slice();
+    var entries = (lessonPackFor(target).entries || []).slice().sort(function (a, b) {
+      return String(b.date || '').localeCompare(String(a.date || '')) ||
+        String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
+    });
     if (!entries.length) {
       body.innerHTML = '<tr><td colspan="4">這班還沒有日誌。填目前進度後按「儲存進度」。</td></tr>';
       return;
     }
-    body.innerHTML = entries.map(function (item) {
-      return '<tr>' +
-        '<td>' + escapeHtml(formatZhDate(item.date)) + '</td>' +
+    body.innerHTML = entries.map(function (item, index) {
+      var latestMark = index === 0 ? ' class="journal-latest-row"' : '';
+      return '<tr' + latestMark + '>' +
+        '<td>' + escapeHtml(formatZhDate(item.date)) + (index === 0 ? '（最近）' : '') + '</td>' +
         '<td>' + escapeHtml(item.progress) + '</td>' +
         '<td>' + escapeHtml(item.note || '—') + '</td>' +
         '<td><button type="button" class="tool danger" data-journal-del="' + escapeHtml(item.id) + '">刪</button></td>' +
