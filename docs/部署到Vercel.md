@@ -6,17 +6,14 @@
 
 1. 用教師 Google／GitHub 帳號打開 [vercel.com](https://vercel.com) 並登入
 2. **Add New… → Project** → 選 `fish0048-ai/class-seating-chart`（若看不到，先按 Authorize GitHub）
-3. 設定：
-   - **Framework Preset**：Other
-   - **Root Directory**：留空（根目錄已有 `vercel.json`，會只發布 `docs/`）
-   - Install / Build：留空即可
+3. 設定（二選一，推薦 A）：
+   - **A（推薦）**：**Root Directory** 設成 `docs`；Framework 選 Other；Build 留空  
+   - **B**：Root Directory 留空（用倉庫根目錄 `vercel.json` 轉到 `docs/`）
 4. 按 **Deploy**
 5. 部署完成後複製網址，例如：  
    `https://class-seating-chart-xxxx.vercel.app`
 
 之後每次把程式 `push` 到 GitHub `master`，Vercel 會自動更新。
-
-若 Output Directory 沒自動帶入，在 Project → Settings → General 設成 `docs`。
 
 ## 2. 必做：Google 登入來源
 
