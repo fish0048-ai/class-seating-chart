@@ -2,54 +2,54 @@
 
 正式畫面在 `docs/`。GitHub 仍是程式倉庫；**學校打開的網址改用 Vercel**。
 
-## 1. 在 Vercel 匯入專案（約 3 分鐘）
+## 正式接法：接 GitHub 後自動更新（請用這個）
 
-1. 用教師 Google／GitHub 帳號打開 [vercel.com](https://vercel.com) 並登入
-2. **Add New… → Project** → 選 `fish0048-ai/class-seating-chart`（若看不到，先按 Authorize GitHub）
-3. 設定（二選一，推薦 A）：
-   - **A（推薦）**：**Root Directory** 設成 `docs`；Framework 選 Other；Build 留空  
-   - **B**：Root Directory 留空（用倉庫根目錄 `vercel.json` 轉到 `docs/`）
-4. 按 **Deploy**
-5. 部署完成後複製網址，例如：  
-   `https://class-seating-chart-xxxx.vercel.app`
+`temporary-….vercel.app` 那種「認領臨時站」**不會**跟著 GitHub 更新。要自動更新請重新 Import 一次：
 
-之後每次把程式 `push` 到 GitHub `master`，**只有「已連 GitHub 的正式 Vercel 專案」**才會自動更新。
+1. 用教師帳號打開 [vercel.com/new](https://vercel.com/new) 並登入（可用 GitHub 登入）
+2. 若還沒授權，按 **Authorize GitHub**／Import 倉庫
+3. 選 **`fish0048-ai/class-seating-chart`**
+4. 按下 **Root Directory** 的 Edit，設成 **`docs`**（很重要）
+5. **Framework Preset**：Other  
+   **Build Command / Output Directory**：留空
+6. 按 **Deploy**
+7. 完成後會得到固定網址，例如：  
+   `https://class-seating-chart.vercel.app`  
+   或 `https://class-seating-chart-xxxxx.vercel.app`
 
-若你用的是「認領臨時網址」（例如 `temporary-….vercel.app`），**不會**跟 GitHub 自動同步；每次改程式要重新部署，或改成下面正式接法。
+之後只要把程式 `push` 到 GitHub 的 **`master`**，Vercel 就會自動重新部署。學校請改開這個**正式網址**，不要再開 `temporary-…`。
 
-### 正式接法（推薦，改完會自動更新）
+### 檢查是否真的會自動更新
 
-1. 打開 [vercel.com/new](https://vercel.com/new) → Import `fish0048-ai/class-seating-chart`
-2. **Root Directory** 設成 `docs`
-3. Framework：Other；Build 留空 → Deploy
-4. 之後用這個正式網址上課，並加進 Google OAuth 來源
+Vercel → 你的專案 → **Settings → Git**  
+應看得到連到 `fish0048-ai/class-seating-chart`，Production Branch 是 `master`。
 
-## 2. 必做：Google 登入來源
+Vercel → **Deployments**：每次 push 後應出現新的 Deployment。
 
-否則在 Vercel 網址會無法 Google 登入。
+## Google 登入來源（必做）
 
 1. 打開 [Google Cloud 憑證](https://console.cloud.google.com/apis/credentials)
-2. 編輯現有的「網頁應用程式」OAuth 用戶端  
-   （用戶端 ID 與 `docs/config.js` 的 `googleClientId` 相同）
-3. **授權的 JavaScript 來源**加上你的 Vercel 網址（完整，含 `https://`）：
-   - `https://你的專案.vercel.app`
-   - 若有 Production 固定網域也要加（Google **不支援** `*.vercel.app` 萬用字元）
-4. 儲存（有時要等幾分鐘才生效）
+2. 編輯 OAuth「網頁應用程式」用戶端  
+   （用戶端 ID 須與 `docs/config.js` 的 `googleClientId` 相同）
+3. **授權的 JavaScript 來源**加上正式 Vercel 網址（不要結尾 `/`）：  
+   `https://你的專案.vercel.app`
+4. 儲存後用正式網址登入測試
 
-可同時保留 `https://fish0048-ai.github.io`，不影響。
+可同時保留舊的 GitHub Pages、臨時網址來源，不影響。
 
-## 3. 老師怎麼用
+## 老師怎麼用
 
-- 學校／平板請開 **Vercel 網址**
-- 雲端資料庫仍是同一份 Google 試算表與 Apps Script `/exec`，不必重設
-- 用教師帳號 `chunhsinkuo@kcis.hc.edu.tw` 登入
+- 學校／平板請開 **正式 Vercel 網址**
+- 資料仍是同一份試算表與 Apps Script，不必重設
+- 教師帳號：`chunhsinkuo@kcis.hc.edu.tw`
 
-## 4. 自訂網域（可選）
+## 自訂網域（可選）
 
-Vercel → Project → Settings → Domains。加上後記得把該網域也加進 Google OAuth「授權的 JavaScript 來源」。
+Vercel → Project → Settings → Domains。加上後也要把該網域加進 Google OAuth 來源。
 
-## 5. 若打開是空白或 404
+## 若打開是 404 或舊畫面
 
-- 確認部署的是 `master` 最新 commit
-- 確認倉庫有 `docs/index.html` 與根目錄 `vercel.json`
-- Framework 請選 **Other**；Output Directory 為 `docs`
+- Root Directory 是否為 `docs`
+- Deployments 是否部署最新 `master` commit
+- 瀏覽器強制重新整理（Ctrl+F5）
+- 確認開的不是舊的 `temporary-….vercel.app`
