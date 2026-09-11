@@ -3111,6 +3111,12 @@
   function loadTimetable() {
     App.timetableData = fallbackTimetable();
     renderTimetable();
+    api('getLessonLog', []).then(function (data) {
+      if (data && data.lessonLog) {
+        App.lessonLog = mergeLessonLogClient_(App.lessonLog, data.lessonLog);
+        if (App.teacherTab === 'timetable') renderTimetable();
+      }
+    }).catch(function () {});
   }
 
   function startTimetableClock() {
@@ -3129,7 +3135,7 @@
 
   function setTimetableStatus() {
     if (!els.timetableStatus) return;
-    els.timetableStatus.textContent = '這份是上課課表，不是成績資料庫。點班級可去上課。';
+    els.timetableStatus.textContent = '這份是上課課表，不是成績資料庫。上方會顯示該班最近教學日誌；點班級可去上課。';
   }
 
   function weekdayIndex(now) {
@@ -3381,6 +3387,21 @@
       '" style="background:' + classTone(cls) + '">' + escapeHtml(text) + '</button>';
   }
 
+  function ttJournalSnippet(className) {
+    var cls = matchClassName(className) || String(className || '').trim();
+    if (!cls) return '';
+    var latest = latestLessonEntry(lessonPackFor(cls));
+    if (!latest || !latest.progress) {
+      return '<p class="tt-journal-empty">尚未登記教學日誌</p>';
+    }
+    var note = latest.note ? '　' + latest.note : '';
+    return '<p class="tt-journal">' +
+      '<span class="tt-journal-date">' + escapeHtml(formatZhDate(latest.date)) + '</span>' +
+      '<span class="tt-journal-progress">' + escapeHtml(latest.progress) + '</span>' +
+      (note ? '<span class="tt-journal-note">' + escapeHtml(note) + '</span>' : '') +
+      '</p>';
+  }
+
   function slotText(row, today) {
     if (!row || today < 0) return '';
     return String(row.cells[today] || '').trim();
@@ -3401,11 +3422,13 @@
     var body = text
       ? (cls ? ttClassButton(text) : '<span class="tt-focus-item">' + escapeHtml(text) + '</span>')
       : '<span class="tt-focus-empty">' + (kind === 'now' ? '這一節沒有排課' : '沒有下一節') + '</span>';
+    var journal = cls ? ttJournalSnippet(cls) : '';
     return '<article class="tt-focus-card tt-focus-' + kind + '">' +
       '<p class="tt-kicker">' + (kind === 'now' ? '現在' : '接下來') + '</p>' +
       '<p class="tt-period">' + escapeHtml(title) + '</p>' +
       '<p class="tt-time">' + escapeHtml(time || '　') + '</p>' +
       '<div class="tt-focus-body">' + body + '</div>' +
+      (journal ? '<div class="tt-focus-journal">' + journal + '</div>' : '') +
       '<p class="tt-remain">' + escapeHtml(remain || '　') + '</p>' +
       '<div class="tt-focus-action">' + go + '</div>' +
       '</article>';

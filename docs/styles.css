@@ -1143,6 +1143,39 @@
     align-items: center;
   }
 
+  .tt-focus-journal {
+    margin-top: 2px;
+  }
+
+  .tt-journal {
+    margin: 0;
+    display: grid;
+    gap: 2px;
+    line-height: 1.35;
+  }
+
+  .tt-journal-date {
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .tt-journal-progress {
+    font-size: 15px;
+    font-weight: 700;
+    color: var(--ink);
+  }
+
+  .tt-journal-note {
+    font-size: 13px;
+    color: #5b7380;
+  }
+
+  .tt-journal-empty {
+    margin: 0;
+    font-size: 13px;
+    color: var(--muted);
+  }
+
   .tt-focus-item,
   .tt-focus-body .tt-class {
     font-size: 28px;
