@@ -13,7 +13,16 @@
 5. 部署完成後複製網址，例如：  
    `https://class-seating-chart-xxxx.vercel.app`
 
-之後每次把程式 `push` 到 GitHub `master`，Vercel 會自動更新。
+之後每次把程式 `push` 到 GitHub `master`，**只有「已連 GitHub 的正式 Vercel 專案」**才會自動更新。
+
+若你用的是「認領臨時網址」（例如 `temporary-….vercel.app`），**不會**跟 GitHub 自動同步；每次改程式要重新部署，或改成下面正式接法。
+
+### 正式接法（推薦，改完會自動更新）
+
+1. 打開 [vercel.com/new](https://vercel.com/new) → Import `fish0048-ai/class-seating-chart`
+2. **Root Directory** 設成 `docs`
+3. Framework：Other；Build 留空 → Deploy
+4. 之後用這個正式網址上課，並加進 Google OAuth 來源
 
 ## 2. 必做：Google 登入來源
 
