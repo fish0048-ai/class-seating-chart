@@ -859,7 +859,7 @@
       }
       markSynced_(store);
       notifyCloud_('ok');
-      return data;
+    return data;
     }).catch(function (err) {
       var msg = err && err.message ? err.message : '雲端存檔失敗';
       if (/另一台已有較新/.test(msg)) {
@@ -1197,6 +1197,26 @@
     return classroom;
   }
 
+  function plusHitsForClass_(store, className) {
+    var active = store.scoreDate || scoreDateFromNow_();
+    var hits = {};
+    (store.history || []).forEach(function (item) {
+      if (!item || item.undone) return;
+      if (String(item.className || '') !== String(className || '')) return;
+      if (item.type !== '加分' && item.type !== '小組加分') return;
+      if ((Number(item.delta) || 0) <= 0) return;
+      var day = String(item.time || '').slice(0, 10);
+      if (day !== active) return;
+      var seats = (item.seatNos && item.seatNos.length) ? item.seatNos : [item.seatNo];
+      seats.forEach(function (sn) {
+        sn = String(sn || '');
+        if (!sn) return;
+        hits[sn] = (Number(hits[sn]) || 0) + 1;
+      });
+    });
+    return hits;
+  }
+
   function payload(store, className) {
     var room = ensureClass(store, className);
     autoPlace(room);
@@ -1207,7 +1227,8 @@
       classNames: classNames(store),
       classroom: clone(room),
       mockExam: store.mockExam || emptyMockExam_(),
-      lessonLog: store.lessonLog || emptyLessonLog_()
+      lessonLog: store.lessonLog || emptyLessonLog_(),
+      plusHits: plusHitsForClass_(store, className)
     }, store);
   }
 
@@ -1485,9 +1506,11 @@
         name: gid ? groupLabel : student.name,
         delta: delta,
         newScore: gid ? (Number(pack.scores[String(gid)]) || 0) : student.score,
-        detail: gid
-          ? (members.map(function (s) { return s.name; }).join('、') + ' 各 ' + (delta > 0 ? '+' : '') + delta)
-          : ((delta > 0 ? '+' : '') + delta),
+        detail: body.detail
+          ? String(body.detail)
+          : (gid
+            ? (members.map(function (s) { return s.name; }).join('、') + ' 各 ' + (delta > 0 ? '+' : '') + delta)
+            : ((delta > 0 ? '+' : '') + delta)),
         undoable: true,
         groupId: gid || '',
         seatNos: seatNos,

@@ -1950,6 +1950,51 @@
     font-size: 12px;
     color: var(--muted);
   }
+  .lottery-modes {
+    margin: 10px 0 6px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: rgba(22, 48, 60, 0.06);
+    text-align: left;
+  }
+  .lottery-mode-checks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+  }
+  .lottery-fate {
+    margin: 12px 0 4px;
+    padding: 12px;
+    border-radius: 12px;
+    background: linear-gradient(180deg, rgba(243, 200, 75, 0.18), rgba(22, 48, 60, 0.06));
+    text-align: center;
+  }
+  .lottery-fate[hidden] { display: none !important; }
+  .lottery-fate-label {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 800;
+    color: #8a5a00;
+  }
+  .lottery-fate-hint {
+    margin: 6px 0 10px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .lottery-fate-actions {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .seat-card.peer-helper {
+    box-shadow: 0 0 0 3px #2f6f8f, 0 8px 18px rgba(47, 111, 143, 0.35);
+  }
+  .tool.active-peer {
+    background: #2f6f8f;
+    color: #fff;
+    border-color: #2f6f8f;
+  }
   .lottery-reel {
     margin: 8px 0;
     padding: 22px 8px 16px;

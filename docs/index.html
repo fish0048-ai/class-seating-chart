@@ -72,6 +72,7 @@
           <button type="button" class="chip" data-delta="2">2</button>
           <button type="button" class="chip" data-delta="5">5</button>
         </div>
+        <button type="button" class="tool" id="btnPeerTeach" aria-pressed="false">互教</button>
         <button type="button" class="tool" id="btnUndo">復原</button>
         <button type="button" class="tool accent" id="btnLottery">抽籤</button>
         <button type="button" class="tool" id="btnGroup">分組</button>
@@ -949,6 +950,23 @@
           <div id="lotteryName" class="lottery-name">？</div>
         </div>
         <p id="lotteryMeta" class="lottery-meta">準備抽出一位同學</p>
+        <div class="lottery-modes" role="group" aria-label="抽籤對象">
+          <p class="lottery-tiers-label">抽籤對象</p>
+          <div class="lottery-mode-checks">
+            <label class="check lottery-tier">
+              <input type="radio" name="lotteryMode" id="lotteryModePerson" value="person" checked />
+              個人
+            </label>
+            <label class="check lottery-tier">
+              <input type="radio" name="lotteryMode" id="lotteryModeGroup" value="group" />
+              整組
+            </label>
+            <label class="check lottery-tier">
+              <input type="radio" name="lotteryMode" id="lotteryModeInGroup" value="inGroup" />
+              組內一人
+            </label>
+          </div>
+        </div>
         <div class="lottery-tiers" role="group" aria-label="成績區間">
           <p class="lottery-tiers-label">異質分組（依本班平時成績相對高低，可複選）</p>
           <div class="lottery-tier-checks">
@@ -969,8 +987,16 @@
         </div>
         <label class="check">
           <input type="checkbox" id="lotteryUnique" checked />
-          本堂不重複抽過的人
+          本堂不重複抽過的人／組
         </label>
+        <div id="lotteryFateWrap" class="lottery-fate" hidden>
+          <p id="lotteryFateLabel" class="lottery-fate-label">命運加分 +？</p>
+          <p class="lottery-fate-hint">機率：+1 50%　+2 25%　+3 15%　+5 8%　+8 2%</p>
+          <div class="lottery-fate-actions">
+            <button type="button" class="tool primary" id="btnLotteryApplyFate">套用加分</button>
+            <button type="button" class="tool" id="btnLotterySkipFate">略過</button>
+          </div>
+        </div>
         <div class="modal-actions">
           <button type="button" class="tool" id="btnLotteryReset">重置名單</button>
           <button type="button" class="tool" id="btnLotteryClose">關閉</button>
