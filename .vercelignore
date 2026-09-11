@@ -1,0 +1,8 @@
+Code.gs
+*.gs
+.env
+.env.*
+.git
+node_modules
+agent-transcripts
+.cursor

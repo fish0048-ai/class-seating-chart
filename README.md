@@ -15,7 +15,9 @@
 - 教師課表（對照現在第幾節，點班級可直接去上課）
 - 紙本作業檢核（教師建作業、複製連結貼到 Classroom；學生用 Apps Script 連結回報錯題與抽查題號）
 
-線上網址：<https://fish0048-ai.github.io/class-seating-chart/>
+線上網址（GitHub Pages，部分校園網路可能擋）：<https://fish0048-ai.github.io/class-seating-chart/>
+
+若學校網路打不開 GitHub，請改部署到 **Vercel**，步驟見 [docs/部署到Vercel.md](docs/部署到Vercel.md)。部署後用 Vercel 網址上課；資料仍存在同一份 Google 試算表。
 
 已完成功能、資料怎麼存、登入權限、以及**改程式時不能碰壞的地方**，寫在 [docs/專案現況.md](docs/專案現況.md)。之後若要改功能，請先看那一份，避免整站卡住或分組被存檔清掉。
 
@@ -30,7 +32,10 @@
 
 1. 打開 [Google Cloud 憑證](https://console.cloud.google.com/apis/credentials)
 2. 建立「OAuth 用戶端 ID」，類型選「網頁應用程式」
-3. 授權的 JavaScript 來源加上 `https://fish0048-ai.github.io`
+3. 授權的 JavaScript 來源加上實際會打開的網址：
+   - Vercel：`https://你的專案.vercel.app`
+   - （可選）GitHub Pages：`https://fish0048-ai.github.io`
+   - 本機：`http://127.0.0.1:8767`
 4. 把用戶端 ID 貼進登入畫面（或 `docs/config.js` 的 `googleClientId`）
 5. 把最新的 `Code.gs` 貼進 Apps Script，並把 `HwStudent.html` 一併新增／更新後再**新增部署**（後端會檢查登入，只有教師能寫入）
 

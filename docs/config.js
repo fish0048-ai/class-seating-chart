@@ -8,7 +8,8 @@ window.SEAT_CONFIG = {
   timetableUrl: 'https://docs.google.com/spreadsheets/d/13VrWBx6hoKpUON_JNxIrynH_gyRV8HnhUt0MMscjkWg/edit',
   timetableId: '13VrWBx6hoKpUON_JNxIrynH_gyRV8HnhUt0MMscjkWg',
   // Google Cloud「網頁應用程式」OAuth 用戶端 ID。授權的 JavaScript 來源請加：
-  // https://fish0048-ai.github.io
+  // Vercel 網址（學校用）、可選 https://fish0048-ai.github.io、本機 http://127.0.0.1:8767
+  // 詳見 docs/部署到Vercel.md
   googleClientId: '556988999591-tc3b8orn6ov3guinfiq5p0c9u6g0n802.apps.googleusercontent.com',
   // 這些帳號登入後才是教師（可改資料、進教師模式）。其餘帳號只能看。
   teacherEmails: ['chunhsinkuo@kcis.hc.edu.tw']
