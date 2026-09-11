@@ -33,7 +33,7 @@ Vercel → **Deployments**：每次 push 後應出現新的 Deployment。
    （用戶端 ID 須與 `docs/config.js` 的 `googleClientId` 相同）
 3. **授權的 JavaScript 來源**加上正式 Vercel 網址（不要結尾 `/`）：  
    `https://你的專案.vercel.app`  
-   必須加在 **與 `docs/config.js` 同一組**的 OAuth 用戶端上（目前是 `346582257660-…` 開頭那一筆）。加錯舊用戶端會出現 `origin_mismatch`。
+   必須加在 **與 `docs/config.js` 同一組**的 OAuth 用戶端上（目前是 `556988999591-…` 開頭那一筆）。加錯其他用戶端會出現 `origin_mismatch`。
 4. 儲存後用正式網址登入測試
 
 另外：`Code.gs` 裡的 `GOOGLE_CLIENT_ID` 必須與前端相同。改過後請貼上 Apps Script 並**更新同一支部署**，否則登入後端會判定憑證不符。
