@@ -576,8 +576,11 @@
     background: rgba(22, 48, 60, 0.42);
     display: grid;
     place-items: center;
-    padding: 16px;
+    align-content: center;
+    padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
     z-index: 40;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .modal[hidden], .toast[hidden], [hidden] {
@@ -589,6 +592,18 @@
     padding: 20px;
     display: grid;
     gap: 12px;
+    max-height: none;
+  }
+
+  .modal-card.lottery-card {
+    width: min(440px, 100%);
+    max-height: min(92dvh, 920px);
+    overflow-x: hidden;
+    overflow-y: auto;
+    gap: 8px;
+    padding: 14px 14px 12px;
+    align-self: center;
+    margin: auto;
   }
 
   body:not(.teacher-on) .teacher-only {
@@ -1923,62 +1938,52 @@
     color: var(--muted);
   }
 
-  .lottery-card { text-align: center; overflow: visible; }
-  .lottery-tiers {
-    margin: 10px 0 6px;
-    padding: 10px 12px;
-    border-radius: 12px;
+  .lottery-card { text-align: center; }
+  .lottery-tiers,
+  .lottery-modes {
+    margin: 0;
+    padding: 8px 10px;
+    border-radius: 10px;
     background: rgba(22, 48, 60, 0.06);
     text-align: left;
   }
   .lottery-tiers-label {
-    margin: 0 0 8px;
-    font-size: 13px;
-    color: var(--muted);
-  }
-  .lottery-tier-checks {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px 14px;
-  }
-  .lottery-tier {
-    margin: 0;
-    font-size: 14px;
-  }
-  .lottery-tier-hint {
-    margin: 8px 0 0;
+    margin: 0 0 6px;
     font-size: 12px;
     color: var(--muted);
   }
-  .lottery-modes {
-    margin: 10px 0 6px;
-    padding: 10px 12px;
-    border-radius: 12px;
-    background: rgba(22, 48, 60, 0.06);
-    text-align: left;
-  }
+  .lottery-tier-checks,
   .lottery-mode-checks {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px 14px;
+    gap: 6px 12px;
+  }
+  .lottery-tier {
+    margin: 0;
+    font-size: 13px;
+  }
+  .lottery-tier-hint {
+    margin: 6px 0 0;
+    font-size: 11px;
+    color: var(--muted);
   }
   .lottery-fate {
-    margin: 12px 0 4px;
-    padding: 12px;
-    border-radius: 12px;
+    margin: 0;
+    padding: 10px;
+    border-radius: 10px;
     background: linear-gradient(180deg, rgba(243, 200, 75, 0.18), rgba(22, 48, 60, 0.06));
     text-align: center;
   }
   .lottery-fate[hidden] { display: none !important; }
   .lottery-fate-label {
     margin: 0;
-    font-size: 22px;
+    font-size: 18px;
     font-weight: 800;
     color: #8a5a00;
   }
   .lottery-fate-hint {
-    margin: 6px 0 10px;
-    font-size: 11px;
+    margin: 4px 0 8px;
+    font-size: 10px;
     color: var(--muted);
   }
   .lottery-fate-actions {
@@ -1996,26 +2001,26 @@
     border-color: #2f6f8f;
   }
   .lottery-reel {
-    margin: 8px 0;
-    padding: 22px 8px 16px;
-    border-radius: 18px;
+    margin: 0;
+    padding: 14px 8px 10px;
+    border-radius: 14px;
     background: radial-gradient(circle at 50% 30%, #2a5368, #16303c 62%);
     box-shadow: inset 0 0 0 3px rgba(126, 182, 214, 0.35);
     position: relative;
   }
   .lottery-stamp {
     position: absolute;
-    top: 10px;
-    right: 14px;
-    width: 48px;
-    height: 48px;
+    top: 8px;
+    right: 10px;
+    width: 40px;
+    height: 40px;
     border: 3px solid #ff5b5b;
     color: #ff5b5b;
     border-radius: 50%;
     display: grid;
     place-items: center;
     font-weight: 900;
-    font-size: 20px;
+    font-size: 16px;
     transform: rotate(18deg);
     background: rgba(255, 255, 255, 0.12);
   }
@@ -2024,11 +2029,28 @@
     animation: stamp-in 0.28s cubic-bezier(0.2, 1.4, 0.3, 1);
   }
   .lottery-name {
-    font-size: 42px;
+    font-size: clamp(28px, 6vw, 36px);
     font-weight: 800;
-    min-height: 56px;
+    min-height: 42px;
     color: #fff8e8;
     text-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  }
+  .lottery-card .modal-kicker {
+    margin: 0;
+  }
+  .lottery-card .lottery-meta {
+    margin: 0;
+    font-size: 12px;
+  }
+  .lottery-card .modal-actions {
+    position: sticky;
+    bottom: 0;
+    padding-top: 8px;
+    background: linear-gradient(180deg, rgba(255, 253, 248, 0), #fffdf8 28%);
+    justify-content: center;
+  }
+  .lottery-card .check {
+    font-size: 13px;
   }
   .lottery-card.rolling .lottery-name {
     animation: name-flicker 0.08s linear infinite;
