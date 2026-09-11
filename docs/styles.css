@@ -1924,6 +1924,32 @@
   }
 
   .lottery-card { text-align: center; overflow: visible; }
+  .lottery-tiers {
+    margin: 10px 0 6px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: rgba(22, 48, 60, 0.06);
+    text-align: left;
+  }
+  .lottery-tiers-label {
+    margin: 0 0 8px;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .lottery-tier-checks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 14px;
+  }
+  .lottery-tier {
+    margin: 0;
+    font-size: 14px;
+  }
+  .lottery-tier-hint {
+    margin: 8px 0 0;
+    font-size: 12px;
+    color: var(--muted);
+  }
   .lottery-reel {
     margin: 8px 0;
     padding: 22px 8px 16px;

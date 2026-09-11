@@ -949,6 +949,24 @@
           <div id="lotteryName" class="lottery-name">？</div>
         </div>
         <p id="lotteryMeta" class="lottery-meta">準備抽出一位同學</p>
+        <div class="lottery-tiers" role="group" aria-label="成績區間">
+          <p class="lottery-tiers-label">異質分組（依本班平時成績相對高低，可複選）</p>
+          <div class="lottery-tier-checks">
+            <label class="check lottery-tier">
+              <input type="checkbox" id="lotteryTierHigh" checked data-lottery-tier="high" />
+              高分組
+            </label>
+            <label class="check lottery-tier">
+              <input type="checkbox" id="lotteryTierMid" checked data-lottery-tier="mid" />
+              中分組
+            </label>
+            <label class="check lottery-tier">
+              <input type="checkbox" id="lotteryTierLow" checked data-lottery-tier="low" />
+              低分組
+            </label>
+          </div>
+          <p id="lotteryTierHint" class="lottery-tier-hint">可抽區間：高／中／低</p>
+        </div>
         <label class="check">
           <input type="checkbox" id="lotteryUnique" checked />
           本堂不重複抽過的人

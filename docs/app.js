@@ -72,6 +72,10 @@
     lotteryStamp: document.getElementById('lotteryStamp'),
     lotteryMeta: document.getElementById('lotteryMeta'),
     lotteryUnique: document.getElementById('lotteryUnique'),
+    lotteryTierHigh: document.getElementById('lotteryTierHigh'),
+    lotteryTierMid: document.getElementById('lotteryTierMid'),
+    lotteryTierLow: document.getElementById('lotteryTierLow'),
+    lotteryTierHint: document.getElementById('lotteryTierHint'),
     settingClassName: document.getElementById('settingClassName'),
     settingRows: document.getElementById('settingRows'),
     settingCols: document.getElementById('settingCols'),
@@ -258,6 +262,16 @@
     if (els.lotteryStamp) els.lotteryStamp.hidden = true;
   });
   document.getElementById('btnLotteryReset').addEventListener('click', resetDrawn);
+  ['lotteryTierHigh', 'lotteryTierMid', 'lotteryTierLow'].forEach(function (id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('change', function () {
+      if (!App.classroom) return;
+      prepareDrawData(function () {
+        updateLotteryTierHint(buildLotteryPool(false).pool);
+      });
+    });
+  });
   document.getElementById('btnSave').addEventListener('click', saveAll);
   var settingsSave = document.getElementById('btnSettingsSave');
   if (settingsSave) settingsSave.addEventListener('click', saveSettings);
@@ -7370,6 +7384,74 @@
     return bundle.usual == null ? 60 : bundle.usual;
   }
 
+  function selectedLotteryTiers() {
+    var out = [];
+    if (els.lotteryTierHigh && els.lotteryTierHigh.checked) out.push('high');
+    if (els.lotteryTierMid && els.lotteryTierMid.checked) out.push('mid');
+    if (els.lotteryTierLow && els.lotteryTierLow.checked) out.push('low');
+    return out;
+  }
+
+  function lotteryTierOfIndex(i, n) {
+    if (n <= 0) return 'mid';
+    if (n === 1) return 'mid';
+    if (n === 2) return i === 0 ? 'high' : 'low';
+    var hiEnd = Math.ceil(n / 3);
+    var midEnd = Math.ceil((2 * n) / 3);
+    if (i < hiEnd) return 'high';
+    if (i < midEnd) return 'mid';
+    return 'low';
+  }
+
+  function assignLotteryTiers(students) {
+    var rows = (students || []).map(function (s) {
+      return {
+        student: s,
+        seatNo: String(s.seatNo),
+        score: Number(usualScoreForDraw(s))
+      };
+    });
+    rows.sort(function (a, b) {
+      if (b.score !== a.score) return b.score - a.score;
+      return String(a.seatNo).localeCompare(String(b.seatNo), 'zh-Hant', { numeric: true });
+    });
+    var map = {};
+    var counts = { high: 0, mid: 0, low: 0 };
+    rows.forEach(function (row, i) {
+      var tier = lotteryTierOfIndex(i, rows.length);
+      map[row.seatNo] = tier;
+      counts[tier] += 1;
+    });
+    return { map: map, counts: counts, n: rows.length };
+  }
+
+  function buildLotteryPool(applyUnique) {
+    var students = (App.classroom && App.classroom.students) || [];
+    var tiers = assignLotteryTiers(students);
+    var selected = selectedLotteryTiers();
+    var drawn = (App.classroom && App.drawn[App.classroom.className]) || [];
+    var unique = applyUnique !== false && els.lotteryUnique && els.lotteryUnique.checked;
+    var pool = students.filter(function (s) {
+      var tier = tiers.map[String(s.seatNo)];
+      if (selected.indexOf(tier) === -1) return false;
+      if (unique && drawn.indexOf(s.seatNo) !== -1) return false;
+      return true;
+    });
+    return { pool: pool, tiers: tiers, selected: selected, unique: unique, drawn: drawn };
+  }
+
+  function updateLotteryTierHint(pool) {
+    if (!els.lotteryTierHint || !App.classroom) return;
+    var info = assignLotteryTiers(App.classroom.students || []);
+    var selected = selectedLotteryTiers();
+    var labels = { high: '高', mid: '中', low: '低' };
+    var picked = selected.map(function (t) { return labels[t]; }).join('／') || '（未選）';
+    var n = (pool || []).length;
+    els.lotteryTierHint.textContent =
+      '本班分成 高' + info.counts.high + '／中' + info.counts.mid + '／低' + info.counts.low +
+      '；目前可抽「' + picked + '」共 ' + n + ' 人';
+  }
+
   function pickFromPool(pool) {
     var sum = 0;
     var weights = [];
@@ -7424,16 +7506,8 @@
       return;
     }
     if (App.lotteryBusy) return;
-    const unique = els.lotteryUnique.checked;
-    const drawn = App.drawn[App.classroom.className] || [];
-    let pool = App.classroom.students.slice();
-    if (unique) {
-      pool = pool.filter(function (s) {
-        return drawn.indexOf(s.seatNo) === -1;
-      });
-    }
-    if (!pool.length) {
-      toast('可抽名單已空，請先重置');
+    if (!selectedLotteryTiers().length) {
+      toast('請至少勾選一個成績區間（高／中／低）');
       els.lotteryModal.hidden = false;
       return;
     }
@@ -7445,29 +7519,42 @@
       els.lotteryCard.classList.add('rolling');
     }
     prepareDrawData(function () {
-      const winner = pickFromPool(pool);
-      animateLottery(pool, winner, function () {
-      App.drawn[App.classroom.className] = drawn.concat([winner.seatNo]);
-      App.selectedSeatNo = winner.seatNo;
-      els.lotteryName.textContent = winner.name;
-      els.lotteryMeta.textContent = '就是你！座號 ' + winner.seatNo + ' · 目前 ' + winner.score + ' 分';
-      if (els.lotteryStamp) els.lotteryStamp.hidden = false;
-      if (els.lotteryCard) {
-        els.lotteryCard.classList.remove('rolling');
-        els.lotteryCard.classList.add('revealed');
+      var built = buildLotteryPool(true);
+      updateLotteryTierHint(built.pool);
+      if (!built.pool.length) {
+        App.lotteryBusy = false;
+        if (els.lotteryCard) els.lotteryCard.classList.remove('rolling');
+        toast(built.unique
+          ? '可抽名單已空，請改區間或重置'
+          : '這個成績區間目前沒有人可抽');
+        return;
       }
-      renderAll();
-      flashSeat(winner.seatNo, 'winner');
-      spawnSparkBurst(els.lotteryCard, 28);
-      spawnSparkBurst(els.board.querySelector('.seat-card[data-seat="' + cssEscape(winner.seatNo) + '"]'), 16);
-      App.lotteryBusy = false;
-      run('logLottery', [{
-        className: App.classroom.className,
-        seatNo: winner.seatNo,
-        name: winner.name,
-        detail: fromButton ? '抽籤' : '再抽一次'
-      }], function () {}, true);
-    });
+      var winner = pickFromPool(built.pool);
+      animateLottery(built.pool, winner, function () {
+        App.drawn[App.classroom.className] = built.drawn.concat([winner.seatNo]);
+        App.selectedSeatNo = winner.seatNo;
+        var tier = built.tiers.map[String(winner.seatNo)];
+        var tierLabel = tier === 'high' ? '高' : (tier === 'low' ? '低' : '中');
+        els.lotteryName.textContent = winner.name;
+        els.lotteryMeta.textContent = '就是你！座號 ' + winner.seatNo + ' · ' + tierLabel + '分組 · 目前 ' + winner.score + ' 分';
+        if (els.lotteryStamp) els.lotteryStamp.hidden = false;
+        if (els.lotteryCard) {
+          els.lotteryCard.classList.remove('rolling');
+          els.lotteryCard.classList.add('revealed');
+        }
+        updateLotteryTierHint(buildLotteryPool(true).pool);
+        renderAll();
+        flashSeat(winner.seatNo, 'winner');
+        spawnSparkBurst(els.lotteryCard, 28);
+        spawnSparkBurst(els.board.querySelector('.seat-card[data-seat="' + cssEscape(winner.seatNo) + '"]'), 16);
+        App.lotteryBusy = false;
+        run('logLottery', [{
+          className: App.classroom.className,
+          seatNo: winner.seatNo,
+          name: winner.name,
+          detail: fromButton ? '抽籤' : '再抽一次'
+        }], function () {}, true);
+      });
     });
   }
 
@@ -7495,6 +7582,11 @@
     els.lotteryMeta.textContent = '已重置，可再抽全部學生';
     if (els.lotteryStamp) els.lotteryStamp.hidden = true;
     if (els.lotteryCard) els.lotteryCard.classList.remove('rolling', 'revealed');
+    if (App.classroom) {
+      prepareDrawData(function () {
+        updateLotteryTierHint(buildLotteryPool(true).pool);
+      });
+    }
     toast('抽籤名單已重置');
   }
 
