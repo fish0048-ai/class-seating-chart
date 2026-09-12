@@ -8224,8 +8224,13 @@
   }
 
   function rollFatePoints() {
-    // 最多 +2：約六成 +1、四成 +2
-    return Math.random() < 0.6 ? 1 : 2;
+    // 三種結果均分：不加分 / +1 / +2
+    return Math.floor(Math.random() * 3);
+  }
+
+  function fateRevealText(points) {
+    if (points === 0) return '揭曉：不加分';
+    return '揭曉：+' + points;
   }
 
   function renderFateOfferUi(revealedPoints) {
@@ -8244,7 +8249,7 @@
     }
     if (els.fatePanelLabel) {
       els.fatePanelLabel.textContent = revealedPoints != null
-        ? ('揭曉：+' + revealedPoints)
+        ? fateRevealText(revealedPoints)
         : '命運加分待揭曉';
     }
     if (els.btnFateApply) els.btnFateApply.disabled = !pending || revealedPoints != null;
@@ -8253,7 +8258,7 @@
     }
     if (els.lotteryFateLabel) {
       els.lotteryFateLabel.textContent = revealedPoints != null
-        ? ('揭曉：+' + revealedPoints)
+        ? fateRevealText(revealedPoints)
         : '命運加分待揭曉';
     }
     if (els.btnLotteryApplyFate) {
