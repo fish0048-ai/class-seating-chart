@@ -1486,10 +1486,8 @@
           return;
         }
         if (App.mode === 'plus') {
-          beginManualFate(student);
-          return;
-        }
-        if (App.mode === 'minus') {
+          changeScore(student, App.delta, false, '', { includeFate: true });
+        } else if (App.mode === 'minus') {
           changeScore(student, -App.delta);
         } else {
           renderAll();
@@ -2134,10 +2132,8 @@
       return;
     }
     if (App.mode === 'plus') {
-      beginManualFate(student);
-      return;
-    }
-    if (App.mode === 'minus') {
+      changeScore(student, App.delta, false, '', { includeFate: true });
+    } else if (App.mode === 'minus') {
       changeScore(student, -App.delta);
     } else {
       renderAll();
@@ -2283,7 +2279,7 @@
     }
     renderMode();
     renderGroupBar();
-    toast(mode === 'plus' ? '加分模式：點學生後揭曉命運分數（只加一次）' : mode === 'minus' ? '扣分模式：點學生即可扣分' : '已回到選取模式');
+    toast(mode === 'plus' ? '加分模式：點學生即可加分' : mode === 'minus' ? '扣分模式：點學生即可扣分' : '已回到選取模式');
   }
 
   function renderMode() {
@@ -2542,7 +2538,7 @@
       var actor = selected || members[0];
       App.selectedSeatNo = actor.seatNo;
       if (App.mode === 'plus') {
-        beginManualFate(actor, { forceGroup: true, groupId: gid });
+        changeScore(actor, App.delta, true, selected ? selected.seatNo : '', { includeFate: true });
         return;
       }
       changeScore(actor, sign * App.delta, true, selected ? selected.seatNo : '');
@@ -2664,7 +2660,7 @@
             toast('請先點座位上那位同學，再點小組扣分，成績統計才會記下是因為誰');
           }
           if (App.mode === 'plus') {
-            if (actor) beginManualFate(actor, { forceGroup: true, groupId: gid });
+            if (actor) changeScore(actor, App.delta, true, selected ? selected.seatNo : '', { includeFate: true });
             return;
           }
           if (actor) changeScore(actor, sign * App.delta, true, selected ? selected.seatNo : '');
@@ -2894,12 +2890,19 @@
     var skipDiminish = opts.skipDiminish === true;
     var forceNoGroup = opts.forceNoGroup === true;
     var detailExtra = opts.detail || '';
+    var includeFate = opts.includeFate === true && delta > 0;
+    var fateBonus = includeFate ? rollFatePoints() : 0;
     var applyDelta = delta;
     if (delta > 0 && !skipDiminish) {
       var eff = effectivePlusDelta(student, delta);
       applyDelta = eff.delta;
     }
-    if (!applyDelta) return;
+    applyDelta = applyDelta + fateBonus;
+    if (!applyDelta) {
+      toast((student && student.name ? student.name + ' ' : '') + '不加分');
+      if (typeof opts.onDone === 'function') opts.onDone(null);
+      return;
+    }
     var applyGroup = !forceNoGroup && (isLabView() || forceGroup === true || !!(els.groupApplyScore && els.groupApplyScore.checked));
     var body = {
       className: App.classroom.className,
