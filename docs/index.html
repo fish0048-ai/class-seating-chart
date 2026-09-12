@@ -81,7 +81,13 @@
 
       <main class="stage">
         <section class="board-wrap">
-          <div class="blackboard" id="blackboard">講台／黑板</div>
+          <div class="board-toolbar">
+            <div class="layout-switch" role="group" aria-label="顯示方式">
+              <button type="button" class="tool tab-on" id="btnLayoutSeatNo" data-layout="seatNo">依座號</button>
+              <button type="button" class="tool" id="btnLayoutGroup" data-layout="group">依分組</button>
+            </div>
+            <p class="hint" id="boardHint">點學生即可加扣分；預設依座號排列。</p>
+          </div>
           <div id="groupBar" class="group-bar" hidden>
             <div class="group-bar-row">
               <label class="group-size-label">每組人數
@@ -108,17 +114,19 @@
             </div>
             <p class="hint">實驗室固定 6 組、座位分成六個區塊。把學生拖到別的區塊即可換組。加扣分會套用整組。</p>
           </div>
-          <div id="board" class="board" aria-label="座位表"></div>
+          <div id="board" class="board board-list" aria-label="學生名單"></div>
         </section>
-        <aside class="side">
+        <aside class="side rank-panel">
           <div id="groupRankWrap" class="group-rank-wrap" hidden>
             <h2 id="groupRankTitle">小組分數</h2>
             <p class="hint">點小組可一次加扣整組。小組分會加進每位組員的上課加扣，列入平時成績。</p>
             <ol id="groupRoster" class="roster rank-list"></ol>
           </div>
-          <h2>分數排行</h2>
-          <p class="hint">只顯示有加分的同學，分數高的在上面。扣分不會出現在這裡，以鼓勵為主。</p>
-          <ol id="roster" class="roster rank-list"></ol>
+          <div class="rank-hero">
+            <h2>分數排行</h2>
+            <p class="hint">今天＝本堂加扣；總計＝累積每日＋今天。↑↓＝今天名次相對總排名。</p>
+          </div>
+          <ol id="roster" class="roster rank-list rank-list-rich"></ol>
           <p id="rankEmpty" class="rank-empty" hidden>還沒有人加分。點「加分」再點學生，就會出現在這裡。</p>
         </aside>
       </main>
@@ -944,51 +952,56 @@
 
     <div id="lotteryModal" class="modal" hidden>
       <div class="modal-card lottery-card" id="lotteryCard">
-        <p class="modal-kicker">隨機抽籤</p>
+        <div class="lottery-head">
+          <p class="modal-kicker">隨機抽籤</p>
+          <p class="lottery-sub">點名加油 · 命運加分</p>
+        </div>
         <div class="lottery-reel">
           <div id="lotteryStamp" class="lottery-stamp" hidden>中</div>
           <div id="lotteryName" class="lottery-name">？</div>
         </div>
         <p id="lotteryMeta" class="lottery-meta">準備抽出一位同學</p>
-        <div class="lottery-modes" role="group" aria-label="抽籤對象">
-          <p class="lottery-tiers-label">抽籤對象</p>
-          <div class="lottery-mode-checks">
-            <label class="check lottery-tier">
-              <input type="radio" name="lotteryMode" id="lotteryModePerson" value="person" checked />
-              個人
-            </label>
-            <label class="check lottery-tier">
-              <input type="radio" name="lotteryMode" id="lotteryModeGroup" value="group" />
-              整組
-            </label>
-            <label class="check lottery-tier">
-              <input type="radio" name="lotteryMode" id="lotteryModeInGroup" value="inGroup" />
-              組內一人
-            </label>
+        <div class="lottery-options">
+          <div class="lottery-modes" role="group" aria-label="抽籤對象">
+            <p class="lottery-tiers-label">對象</p>
+            <div class="lottery-mode-checks lottery-pills">
+              <label class="lottery-pill">
+                <input type="radio" name="lotteryMode" id="lotteryModePerson" value="person" checked />
+                <span>個人</span>
+              </label>
+              <label class="lottery-pill">
+                <input type="radio" name="lotteryMode" id="lotteryModeGroup" value="group" />
+                <span>整組</span>
+              </label>
+              <label class="lottery-pill">
+                <input type="radio" name="lotteryMode" id="lotteryModeInGroup" value="inGroup" />
+                <span>組內一人</span>
+              </label>
+            </div>
           </div>
-        </div>
-        <div class="lottery-tiers" role="group" aria-label="成績區間">
-          <p class="lottery-tiers-label">異質分組（高／中／低可複選）</p>
-          <div class="lottery-tier-checks">
-            <label class="check lottery-tier">
-              <input type="checkbox" id="lotteryTierHigh" checked data-lottery-tier="high" />
-              高分組
-            </label>
-            <label class="check lottery-tier">
-              <input type="checkbox" id="lotteryTierMid" checked data-lottery-tier="mid" />
-              中分組
-            </label>
-            <label class="check lottery-tier">
-              <input type="checkbox" id="lotteryTierLow" checked data-lottery-tier="low" />
-              低分組
-            </label>
+          <div class="lottery-tiers" role="group" aria-label="成績區間">
+            <p class="lottery-tiers-label">區間（可複選）</p>
+            <div class="lottery-tier-checks lottery-pills">
+              <label class="lottery-pill">
+                <input type="checkbox" id="lotteryTierHigh" checked data-lottery-tier="high" />
+                <span>高</span>
+              </label>
+              <label class="lottery-pill">
+                <input type="checkbox" id="lotteryTierMid" checked data-lottery-tier="mid" />
+                <span>中</span>
+              </label>
+              <label class="lottery-pill">
+                <input type="checkbox" id="lotteryTierLow" checked data-lottery-tier="low" />
+                <span>低</span>
+              </label>
+            </div>
+            <p id="lotteryTierHint" class="lottery-tier-hint">可抽區間：高／中／低</p>
           </div>
-          <p id="lotteryTierHint" class="lottery-tier-hint">可抽區間：高／中／低</p>
+          <label class="check lottery-unique">
+            <input type="checkbox" id="lotteryUnique" checked />
+            本堂不重複
+          </label>
         </div>
-        <label class="check">
-          <input type="checkbox" id="lotteryUnique" checked />
-          本堂不重複抽過的人／組
-        </label>
         <div id="lotteryFateWrap" class="lottery-fate" hidden>
           <p id="lotteryFateLabel" class="lottery-fate-label">命運加分 +？</p>
           <p class="lottery-fate-hint">+1 50% · +2 25% · +3 15% · +5 8% · +8 2%</p>
@@ -998,7 +1011,7 @@
           </div>
         </div>
         <div class="modal-actions">
-          <button type="button" class="tool" id="btnLotteryReset">重置名單</button>
+          <button type="button" class="tool" id="btnLotteryReset">重置</button>
           <button type="button" class="tool" id="btnLotteryClose">關閉</button>
           <button type="button" class="tool primary" id="btnLotteryAgain">再抽一次</button>
         </div>

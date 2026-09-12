@@ -38,6 +38,7 @@
     groupPanel: false,
     groupAssign: false,
     groupPick: 1,
+    layoutMode: 'seatNo',
     groupDeductions: [],
     appView: 'class',
     hwAssignmentId: '',
@@ -70,6 +71,9 @@
     groupRoster: document.getElementById('groupRoster'),
     labBar: document.getElementById('labBar'),
     blackboard: document.getElementById('blackboard'),
+    boardHint: document.getElementById('boardHint'),
+    btnLayoutSeatNo: document.getElementById('btnLayoutSeatNo'),
+    btnLayoutGroup: document.getElementById('btnLayoutGroup'),
     classModeTitle: document.getElementById('classModeTitle'),
     groupRankTitle: document.getElementById('groupRankTitle'),
     toast: document.getElementById('toast'),
@@ -234,9 +238,16 @@
     btnGroup.addEventListener('click', function () {
       App.groupPanel = !App.groupPanel;
       if (!App.groupPanel) App.groupAssign = false;
+      if (App.groupPanel && App.layoutMode !== 'group') setLayoutMode('group', true);
       renderAll();
       toast(App.groupPanel ? '分組面板已打開' : '分組面板已收合');
     });
+  }
+  if (els.btnLayoutSeatNo) {
+    els.btnLayoutSeatNo.addEventListener('click', function () { setLayoutMode('seatNo'); });
+  }
+  if (els.btnLayoutGroup) {
+    els.btnLayoutGroup.addEventListener('click', function () { setLayoutMode('group'); });
   }
   var btnGroupRandom = document.getElementById('btnGroupRandom');
   if (btnGroupRandom) btnGroupRandom.addEventListener('click', randomGroups);
@@ -660,6 +671,7 @@
   });
 
   applyTeacherUi();
+  restoreLayoutMode();
   if (window.GoogleAuth) {
     GoogleAuth.start({
       onSignedIn: function (account, alreadyBooted) {
@@ -1048,6 +1060,101 @@
     run('loadClassroom', [className], function (data) {
       App.drawn[className] = App.drawn[className] || [];
       applyPayload(data, true);
+      api('listDaily', [className]).then(function (daily) {
+        if (daily && daily.days) {
+          App.dailyDays = daily.days;
+          renderRoster();
+        }
+      }).catch(function () {});
+    });
+  }
+
+  function totalActivityScore(student) {
+    var live = Number(student && student.score) || 0;
+    var seat = String(student && student.seatNo || '');
+    var past = 0;
+    (App.dailyDays || []).forEach(function (day) {
+      (day.students || []).forEach(function (s) {
+        if (String(s.seatNo) === seat) past += Number(s.score) || 0;
+      });
+    });
+    return past + live;
+  }
+
+  function buildRankIndex(list, scoreFn) {
+    var ranked = (list || []).slice().sort(function (a, b) {
+      var diff = Number(scoreFn(b)) - Number(scoreFn(a));
+      if (diff) return diff;
+      return String(a.seatNo).localeCompare(String(b.seatNo), 'zh-Hant', { numeric: true });
+    });
+    var map = {};
+    ranked.forEach(function (s, i) {
+      map[String(s.seatNo)] = i + 1;
+    });
+    return { ranked: ranked, map: map };
+  }
+
+  function renderRoster() {
+    if (!els.roster || !App.classroom) return;
+    var students = App.classroom.students || [];
+    var todayIndex = buildRankIndex(students, function (s) { return Number(s.score) || 0; });
+    var totalIndex = buildRankIndex(students, totalActivityScore);
+    var ranked = students.filter(function (student) {
+      return Number(student.score) > 0 || totalActivityScore(student) > 0;
+    }).sort(function (a, b) {
+      var diff = Number(b.score) - Number(a.score);
+      if (diff) return diff;
+      var tdiff = totalActivityScore(b) - totalActivityScore(a);
+      if (tdiff) return tdiff;
+      return String(a.seatNo).localeCompare(String(b.seatNo), 'zh-Hant', { numeric: true });
+    });
+    if (els.rankEmpty) els.rankEmpty.hidden = ranked.length > 0;
+    if (!ranked.length) {
+      els.roster.innerHTML = '';
+      return;
+    }
+    els.roster.innerHTML = ranked.map(function (student) {
+      var todayRank = todayIndex.map[String(student.seatNo)] || '—';
+      var totalRank = totalIndex.map[String(student.seatNo)] || '—';
+      var deltaHtml = '';
+      if (Number(student.score) > 0 && isFinite(todayRank) && isFinite(totalRank)) {
+        var d = totalRank - todayRank;
+        if (d > 0) deltaHtml = '<span class="rank-delta up">↑' + d + '</span>';
+        else if (d < 0) deltaHtml = '<span class="rank-delta down">↓' + Math.abs(d) + '</span>';
+        else deltaHtml = '<span class="rank-delta same">＝</span>';
+      }
+      var selected = student.seatNo === App.selectedSeatNo ? ' selected' : '';
+      var medal = todayRank === 1 ? ' gold' : todayRank === 2 ? ' silver' : todayRank === 3 ? ' bronze' : '';
+      var bump = student.seatNo === App.rankBumpSeat ? ' rank-up' : '';
+      var todayScore = Number(student.score) || 0;
+      var totalScore = totalActivityScore(student);
+      var signed = (todayScore > 0 ? '+' : '') + todayScore;
+      return '<li><button type="button" class="' + selected + medal + bump + '" data-seat="' + escapeHtml(student.seatNo) + '">' +
+        '<span class="rank-no">' + (Number(student.score) > 0 ? todayRank : '·') + '</span>' +
+        '<span class="rank-main"><span class="rank-name">' + escapeHtml(student.name) + deltaHtml + '</span>' +
+        '<span class="rank-meta">' +
+          '<span class="rank-chip">座 ' + escapeHtml(student.seatNo) + '</span>' +
+          '<span class="rank-chip">今 #' + todayRank + '</span>' +
+          '<span class="rank-chip">總 #' + totalRank + '（' + totalScore + '）</span>' +
+        '</span></span>' +
+        '<strong class="' + scoreClass(todayScore) + '">' + signed + '</strong></button></li>';
+    }).join('');
+    els.roster.querySelectorAll('button').forEach(function (button) {
+      button.addEventListener('click', function () {
+        const student = findStudent(button.getAttribute('data-seat'));
+        if (!student) return;
+        App.selectedSeatNo = student.seatNo;
+        if (App.peerTeach && App.mode !== 'minus') {
+          handlePeerTeachClick(student);
+          return;
+        }
+        if (App.mode === 'plus' || App.mode === 'minus') {
+          const sign = App.mode === 'plus' ? 1 : -1;
+          changeScore(student, sign * App.delta);
+        } else {
+          renderAll();
+        }
+      });
     });
   }
 
@@ -1208,7 +1315,8 @@
       return;
     }
     els.board.classList.remove('lab-board');
-    els.board.style.gridTemplateColumns = 'repeat(' + room.cols + ', minmax(0, 1fr))';
+    els.board.classList.add('board-list');
+    els.board.style.gridTemplateColumns = '';
     if (!room.students.length) {
       els.board.innerHTML = '<div class="empty-state">' +
         '<div>「' + escapeHtml(room.className) + '」目前沒有學生</div>' +
@@ -1224,14 +1332,92 @@
       }
       return;
     }
-    const cells = [];
-    for (let r = 0; r < room.rows; r++) {
-      for (let c = 0; c < room.cols; c++) {
-        cells.push(seatCell(r, c));
-      }
-    }
-    els.board.innerHTML = cells.join('');
+    if (App.layoutMode === 'group') renderGroupListBoard();
+    else renderSeatNoBoard();
     bindSeatEvents();
+    updateLayoutChrome();
+  }
+
+  function studentCardHtml(student) {
+    if (!student) return '';
+    const selected = student.seatNo === App.selectedSeatNo ? ' selected' : '';
+    const helper = App.peerHelperSeatNo && String(student.seatNo) === String(App.peerHelperSeatNo) ? ' peer-helper' : '';
+    const gid = studentGroupId(student.seatNo);
+    const groupCls = gid ? ' has-group' : '';
+    const pickedCls = (App.groupAssign && gid === App.groupPick) ? ' group-picked' : '';
+    const groupStyle = gid ? ' style="--group-color:' + groupColor(gid) + '"' : '';
+    const groupBadge = gid ? '<span class="seat-group">第' + gid + '組</span>' : '';
+    return '<div class="seat">' +
+      '<article class="seat-card' + selected + helper + groupCls + pickedCls + '" data-seat="' + escapeHtml(student.seatNo) + '"' + groupStyle + '>' +
+        groupBadge +
+        '<span class="seat-no">' + escapeHtml(student.seatNo) + '</span>' +
+        '<span class="seat-name">' + escapeHtml(student.name) + '</span>' +
+        '<span class="seat-score ' + scoreClass(student.score) + '">' + student.score + '</span>' +
+      '</article></div>';
+  }
+
+  function renderSeatNoBoard() {
+    var list = (App.classroom.students || []).slice().sort(seatOrder);
+    els.board.innerHTML = list.map(studentCardHtml).join('');
+  }
+
+  function renderGroupListBoard() {
+    var assign = (classGroups().assign) || {};
+    var buckets = {};
+    var ungrouped = [];
+    (App.classroom.students || []).slice().sort(seatOrder).forEach(function (s) {
+      var gid = parseInt(assign[String(s.seatNo)], 10) || 0;
+      if (!gid) {
+        ungrouped.push(s);
+        return;
+      }
+      if (!buckets[gid]) buckets[gid] = [];
+      buckets[gid].push(s);
+    });
+    var ids = Object.keys(buckets).map(Number).sort(function (a, b) { return a - b; });
+    if (!ids.length && !ungrouped.length) {
+      els.board.innerHTML = '';
+      return;
+    }
+    var html = ids.map(function (gid) {
+      return '<section class="board-group-block" style="--group-color:' + groupColor(gid) + '">' +
+        '<div class="board-group-head"><span><span class="dot"></span>第' + gid + '組</span>' +
+        '<span class="hint">' + buckets[gid].length + ' 人</span></div>' +
+        '<div class="board-group-grid">' + buckets[gid].map(studentCardHtml).join('') + '</div></section>';
+    }).join('');
+    if (ungrouped.length) {
+      html += '<section class="board-group-block">' +
+        '<div class="board-group-head"><span>未分組</span><span class="hint">' + ungrouped.length + ' 人</span></div>' +
+        '<div class="board-group-grid">' + ungrouped.map(studentCardHtml).join('') + '</div></section>';
+    }
+    if (!ids.length) {
+      html = '<p class="hint" style="grid-column:1/-1;margin:0 0 8px">尚未分組，可先按「分組」再切回依分組檢視。</p>' + html;
+    }
+    els.board.innerHTML = html;
+  }
+
+  function setLayoutMode(mode, quiet) {
+    App.layoutMode = mode === 'group' ? 'group' : 'seatNo';
+    try { localStorage.setItem('class-layout-mode', App.layoutMode); } catch (err) {}
+    updateLayoutChrome();
+    if (!quiet) renderAll();
+  }
+
+  function updateLayoutChrome() {
+    if (els.btnLayoutSeatNo) els.btnLayoutSeatNo.classList.toggle('tab-on', App.layoutMode !== 'group');
+    if (els.btnLayoutGroup) els.btnLayoutGroup.classList.toggle('tab-on', App.layoutMode === 'group');
+    if (els.boardHint) {
+      els.boardHint.textContent = App.layoutMode === 'group'
+        ? '依分組顯示。未分組的同學會列在最下方。'
+        : '依座號排列。需要時可切到「依分組」。';
+    }
+  }
+
+  function restoreLayoutMode() {
+    try {
+      var saved = localStorage.getItem('class-layout-mode');
+      if (saved === 'group' || saved === 'seatNo') App.layoutMode = saved;
+    } catch (err) {}
   }
 
   function headerCellText(value) {
@@ -1573,8 +1759,8 @@
 
   function bindSeatEvents() {
     els.board.querySelectorAll('.seat-card').forEach(function (card) {
-      card.addEventListener('pointerdown', onPointerDown);
       card.addEventListener('click', onSeatClick);
+      if (isLabView()) card.addEventListener('pointerdown', onPointerDown);
     });
   }
 
@@ -1734,46 +1920,6 @@
     }, true);
   }
 
-  function renderRoster() {
-    if (!els.roster || !App.classroom) return;
-    const ranked = App.classroom.students.filter(function (student) {
-      return Number(student.score) > 0;
-    }).sort(function (a, b) {
-      const diff = Number(b.score) - Number(a.score);
-      if (diff) return diff;
-      return String(a.seatNo).localeCompare(String(b.seatNo), 'zh-Hant', { numeric: true });
-    });
-    if (els.rankEmpty) els.rankEmpty.hidden = ranked.length > 0;
-    if (!ranked.length) {
-      els.roster.innerHTML = '';
-      return;
-    }
-    els.roster.innerHTML = ranked.map(function (student, index) {
-      const selected = student.seatNo === App.selectedSeatNo ? ' selected' : '';
-      const medal = index === 0 ? ' gold' : index === 1 ? ' silver' : index === 2 ? ' bronze' : '';
-      const bump = student.seatNo === App.rankBumpSeat ? ' rank-up' : '';
-      const signed = (student.score > 0 ? '+' : '') + student.score;
-      return '<li><button type="button" class="' + selected + medal + bump + '" data-seat="' + escapeHtml(student.seatNo) + '">' +
-        '<span class="rank-no">' + (index + 1) + '</span>' +
-        '<span class="rank-main"><span class="rank-name">' + escapeHtml(student.name) + '</span>' +
-        '<span class="rank-meta">座號 ' + escapeHtml(student.seatNo) + '</span></span>' +
-        '<strong class="' + scoreClass(student.score) + '">' + signed + '</strong></button></li>';
-    }).join('');
-    els.roster.querySelectorAll('button').forEach(function (button) {
-      button.addEventListener('click', function () {
-        const student = findStudent(button.getAttribute('data-seat'));
-        if (!student) return;
-        App.selectedSeatNo = student.seatNo;
-        if (App.mode === 'plus' || App.mode === 'minus') {
-          const sign = App.mode === 'plus' ? 1 : -1;
-          changeScore(student, sign * App.delta);
-        } else {
-          renderAll();
-        }
-      });
-    });
-  }
-
   function setMode(mode) {
     if (!canEdit() && (mode === 'plus' || mode === 'minus')) {
       toast('檢視模式不能加扣分');
@@ -1849,6 +1995,10 @@
     if (els.classModeTitle) els.classModeTitle.textContent = isLabView() ? '實驗室模式' : '上課模式';
     if (els.blackboard) els.blackboard.textContent = isLabView() ? '講台／實驗桌' : '講台／黑板';
     if (els.groupRankTitle) els.groupRankTitle.textContent = isLabView() ? '實驗小組' : '小組分數';
+    if (els.btnLayoutSeatNo) els.btnLayoutSeatNo.hidden = !!isLabView();
+    if (els.btnLayoutGroup) els.btnLayoutGroup.hidden = !!isLabView();
+    if (els.boardHint) els.boardHint.hidden = !!isLabView();
+    updateLayoutChrome();
   }
 
   var labSaveSeq = 0;
@@ -1978,6 +2128,7 @@
   function renderLabBoard() {
     var room = App.classroom;
     if (!room) return;
+    els.board.classList.remove('board-list');
     els.board.classList.add('lab-board');
     els.board.style.gridTemplateColumns = '';
     if (!(room.students || []).length) {
