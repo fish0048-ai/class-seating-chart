@@ -833,20 +833,41 @@
       playTimerDoneSound.ctx = ctx;
       if (ctx.state === 'suspended') ctx.resume();
       var now = ctx.currentTime;
-      [0, 0.18, 0.36].forEach(function (offset) {
+      var master = ctx.createGain();
+      master.gain.setValueAtTime(0.55, now);
+      master.connect(ctx.destination);
+
+      function beep(offset, freq, dur, type) {
         var osc = ctx.createOscillator();
         var gain = ctx.createGain();
-        osc.type = 'sine';
-        osc.frequency.value = 880;
+        osc.type = type || 'square';
+        osc.frequency.setValueAtTime(freq, now + offset);
         gain.gain.setValueAtTime(0.0001, now + offset);
-        gain.gain.exponentialRampToValueAtTime(0.12, now + offset + 0.02);
-        gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.15);
+        gain.gain.exponentialRampToValueAtTime(0.9, now + offset + 0.015);
+        gain.gain.setValueAtTime(0.9, now + offset + Math.max(0.04, dur - 0.05));
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + dur);
         osc.connect(gain);
-        gain.connect(ctx.destination);
+        gain.connect(master);
         osc.start(now + offset);
-        osc.stop(now + offset + 0.16);
+        osc.stop(now + offset + dur + 0.02);
+      }
+
+      // 雙音警報：高／低交替，連響多段，教室裡較容易聽到
+      var pattern = [
+        [0.00, 988, 0.22], [0.24, 740, 0.22],
+        [0.55, 988, 0.22], [0.79, 740, 0.22],
+        [1.10, 988, 0.22], [1.34, 740, 0.22],
+        [1.65, 1175, 0.28], [1.95, 880, 0.32],
+        [2.35, 1175, 0.35]
+      ];
+      pattern.forEach(function (item) {
+        beep(item[0], item[1], item[2], 'square');
+        beep(item[0], item[1] * 2, item[2] * 0.85, 'triangle');
       });
     } catch (err) {}
+    try {
+      if (navigator.vibrate) navigator.vibrate([220, 100, 220, 100, 360, 120, 480]);
+    } catch (err2) {}
   }
 
   function onTimerFinished() {
