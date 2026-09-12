@@ -8225,13 +8225,12 @@
     return Math.floor(Math.random() * 3);
   }
 
-  function fateRevealText(points) {
-    if (points < 0) return '揭曉：命運 ' + points;
-    if (points === 0) return '揭曉：命運 +0';
-    return '揭曉：命運 +' + points;
+  function fateTotalText(total) {
+    if (!total) return '合計不加分';
+    return '合計 ' + (total > 0 ? '+' : '') + total;
   }
 
-  function renderFateOfferUi(revealedPoints) {
+  function renderFateOfferUi(revealedTotal) {
     var offer = App.fateOffer;
     var pending = !!(offer && offer.pending);
     var who = offer
@@ -8243,28 +8242,24 @@
       els.fatePanel.hidden = !(pending && offer && offer.source === 'manual');
     }
     if (els.fatePanelWho) {
-      if (who && offer && offer.source === 'manual' && offer.fixedDelta) {
-        els.fatePanelWho.textContent = who + '　固定 +' + offer.fixedDelta + '，再抽命運';
-      } else {
-        els.fatePanelWho.textContent = who ? ('給 ' + who) : '';
-      }
+      els.fatePanelWho.textContent = who ? ('給 ' + who) : '';
     }
     if (els.fatePanelLabel) {
-      els.fatePanelLabel.textContent = revealedPoints != null
-        ? fateRevealText(revealedPoints)
+      els.fatePanelLabel.textContent = revealedTotal != null
+        ? fateTotalText(revealedTotal)
         : '命運加分待揭曉';
     }
-    if (els.btnFateApply) els.btnFateApply.disabled = !pending || revealedPoints != null;
+    if (els.btnFateApply) els.btnFateApply.disabled = !pending || revealedTotal != null;
     if (els.lotteryFateWrap) {
       els.lotteryFateWrap.hidden = !(pending && offer && offer.source === 'lottery');
     }
     if (els.lotteryFateLabel) {
-      els.lotteryFateLabel.textContent = revealedPoints != null
-        ? fateRevealText(revealedPoints)
+      els.lotteryFateLabel.textContent = revealedTotal != null
+        ? fateTotalText(revealedTotal)
         : '命運加分待揭曉';
     }
     if (els.btnLotteryApplyFate) {
-      els.btnLotteryApplyFate.disabled = !pending || revealedPoints != null;
+      els.btnLotteryApplyFate.disabled = !pending || revealedTotal != null;
     }
   }
 
@@ -8361,7 +8356,6 @@
     App.lotteryFate = fate;
     offer.pending = false;
     App.lotteryFatePending = false;
-    renderFateOfferUi(fate);
 
     var isManual = offer.source === 'manual';
     var fixed = isManual ? Math.max(1, Number(offer.fixedDelta) || Number(App.delta) || 1) : 0;
@@ -8393,8 +8387,10 @@
       total = base + fate;
     }
 
+    // 寫入畫面只顯示合計，不拆開固定分／命運分
+    renderFateOfferUi(total);
+
     if (!total) {
-      toast((actor.name || '') + ' 合計不加分', 3500);
       setTimeout(hideFateOffer, 1000);
       return;
     }
