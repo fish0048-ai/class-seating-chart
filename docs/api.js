@@ -1857,25 +1857,44 @@
       var days = ((store.daily || {})[className] || []).slice().sort(function (a, b) {
         return String(a.date).localeCompare(String(b.date));
       });
+
+      function seatKey_(seatNo) {
+        var raw = String(seatNo == null ? '' : seatNo).trim();
+        var digits = raw.replace(/\D/g, '');
+        if (digits) return String(parseInt(digits, 10));
+        return raw;
+      }
+
       var totals = {};
+      function ensureTotal_(seatNo, name) {
+        var key = seatKey_(seatNo);
+        if (!key) return null;
+        if (!totals[key]) {
+          totals[key] = {
+            seatNo: seatNo,
+            name: name || '',
+            settledTotal: 0,
+            todayScore: 0,
+            daysScored: 0
+          };
+        } else if (name) {
+          totals[key].name = name;
+          totals[key].seatNo = seatNo || totals[key].seatNo;
+        }
+        return totals[key];
+      }
+
       room.students.forEach(function (s) {
-        totals[String(s.seatNo)] = {
-          seatNo: s.seatNo,
-          name: s.name,
-          settledTotal: 0,
-          todayScore: Number(s.score) || 0,
-          daysScored: 0
-        };
+        var item = ensureTotal_(s.seatNo, s.name);
+        if (item) item.todayScore = Number(s.score) || 0;
       });
       days.forEach(function (day) {
+        if (!day || String(day.date) === String(active)) return;
         (day.students || []).forEach(function (s) {
-          var key = String(s.seatNo);
-          if (!totals[key]) {
-            totals[key] = { seatNo: s.seatNo, name: s.name, settledTotal: 0, todayScore: 0, daysScored: 0 };
-          }
-          totals[key].name = s.name || totals[key].name;
-          totals[key].settledTotal += Number(s.score) || 0;
-          if (Number(s.score)) totals[key].daysScored += 1;
+          var item = ensureTotal_(s.seatNo, s.name);
+          if (!item) return;
+          item.settledTotal += Number(s.score) || 0;
+          if (Number(s.score)) item.daysScored += 1;
         });
       });
       var students = Object.keys(totals).map(function (key) {
@@ -1887,14 +1906,21 @@
       });
       var today = summarizeStudents_(room.students);
       today.date = active;
-      var settledTotal = days.reduce(function (sum, day) { return sum + (Number(day.total) || 0); }, 0);
-      var recentDays = days.slice(-7).reverse();
+      var settledTotal = days.reduce(function (sum, day) {
+        if (!day || String(day.date) === String(active)) return sum;
+        return sum + (Number(day.total) || 0);
+      }, 0);
+      var recentDays = days.filter(function (day) {
+        return day && String(day.date) !== String(active);
+      }).slice(-7).reverse();
       return wrap(withRoll_({
         ok: true,
         className: className,
         activeDate: active,
         today: today,
-        settledDays: days.length,
+        settledDays: days.filter(function (day) {
+          return day && String(day.date) !== String(active);
+        }).length,
         settledTotal: settledTotal,
         grandTotal: settledTotal + today.total,
         studentCount: room.students.length,

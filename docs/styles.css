@@ -550,6 +550,24 @@
     background: #e8eef2;
   }
 
+  .seat-totals {
+    align-self: flex-end;
+    display: grid;
+    justify-items: end;
+    gap: 2px;
+  }
+
+  .seat-totals .seat-score {
+    align-self: end;
+  }
+
+  .seat-total {
+    font-size: 11px;
+    font-weight: 700;
+    color: #1b3a4b;
+    line-height: 1.1;
+  }
+
   .score-neg { background: #f8d4d2; color: var(--minus); }
   .score-mid { background: #d7efe2; color: var(--plus); }
   .score-high { background: #ffe3b8; color: #8a4b12; }
@@ -652,6 +670,9 @@
     flex-wrap: wrap;
     gap: 4px 8px;
     align-items: center;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: unset;
   }
 
   .rank-chip {
@@ -661,6 +682,32 @@
     background: #eef3f6;
     color: var(--muted);
     font-size: 11px;
+  }
+
+  .rank-chip.total {
+    background: #e7f0f6;
+    color: #1b3a4b;
+    font-weight: 700;
+  }
+
+  .rank-list-rich .rank-scores {
+    display: grid;
+    justify-items: end;
+    gap: 2px;
+    flex: 0 0 auto;
+    min-width: 52px;
+  }
+
+  .rank-list-rich .rank-scores .today-score {
+    font-size: 16px;
+    line-height: 1.1;
+  }
+
+  .rank-list-rich .rank-scores .total-score {
+    font-size: 12px;
+    font-weight: 700;
+    color: #1b3a4b;
+    line-height: 1.1;
   }
 
   .rank-list-rich strong {

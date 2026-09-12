@@ -1079,7 +1079,7 @@
       if (done) done();
       return;
     }
-    api('getClassStats', [className]).then(function (data) {
+    var chain = api('getClassStats', [className]).then(function (data) {
       App.statsBySeat = {};
       (data && data.students ? data.students : []).forEach(function (row) {
         if (!row) return;
@@ -1089,9 +1089,19 @@
         });
       });
       if (data && data.activeDate) App.activeDate = data.activeDate;
+    });
+    chain = chain.then(function () {
+      return api('listDaily', [className]).then(function (data) {
+        if (data && data.days) App.dailyDays = data.days;
+        if (data && data.activeDate) App.activeDate = data.activeDate;
+      }).catch(function () {});
+    });
+    chain.then(function () {
       renderRoster();
+      renderBoard();
       if (done) done();
     }).catch(function () {
+      renderRoster();
       if (done) done();
     });
   }
@@ -1112,6 +1122,7 @@
     var seat = seatLookupKey(student && student.seatNo);
     var past = 0;
     (App.dailyDays || []).forEach(function (day) {
+      if (!day) return;
       if (App.activeDate && day.date === App.activeDate) return;
       (day.students || []).forEach(function (s) {
         if (seatLookupKey(s.seatNo) === seat) past += Number(s.score) || 0;
@@ -1173,9 +1184,12 @@
         '<span class="rank-meta">' +
           '<span class="rank-chip">座 ' + escapeHtml(student.seatNo) + '</span>' +
           '<span class="rank-chip">今 #' + todayRank + '（' + todayScore + '）</span>' +
-          '<span class="rank-chip">總 #' + totalRank + '（' + totalScore + '）</span>' +
+          '<span class="rank-chip total">總 #' + totalRank + '（' + totalScore + '）</span>' +
         '</span></span>' +
-        '<strong class="' + scoreClass(todayScore) + '">' + signed + '</strong></button></li>';
+        '<span class="rank-scores">' +
+          '<strong class="today-score ' + scoreClass(todayScore) + '">' + signed + '</strong>' +
+          '<span class="total-score">總 ' + totalScore + '</span>' +
+        '</span></button></li>';
     }).join('');
     els.roster.querySelectorAll('button').forEach(function (button) {
       button.addEventListener('click', function () {
@@ -1214,6 +1228,7 @@
       App.lessonLog = mergeLessonLogClient_(App.lessonLog, data.lessonLog);
     }
     renderAll();
+    if (App.classroom) refreshClassStats();
   }
 
   function countLessonLogClient_(log) {
@@ -1376,6 +1391,15 @@
     updateLayoutChrome();
   }
 
+  function seatScoreBlockHtml(student) {
+    var todayScore = Number(student && student.score) || 0;
+    var totalScore = totalActivityScore(student);
+    return '<span class="seat-totals">' +
+      '<span class="seat-score ' + scoreClass(todayScore) + '">' + todayScore + '</span>' +
+      '<span class="seat-total">總 ' + totalScore + '</span>' +
+      '</span>';
+  }
+
   function studentCardHtml(student) {
     if (!student) return '';
     const selected = student.seatNo === App.selectedSeatNo ? ' selected' : '';
@@ -1390,7 +1414,7 @@
         groupBadge +
         '<span class="seat-no">' + escapeHtml(student.seatNo) + '</span>' +
         '<span class="seat-name">' + escapeHtml(student.name) + '</span>' +
-        '<span class="seat-score ' + scoreClass(student.score) + '">' + student.score + '</span>' +
+        seatScoreBlockHtml(student) +
       '</article></div>';
   }
 
@@ -1790,7 +1814,7 @@
         groupBadge +
         '<span class="seat-no">' + escapeHtml(student.seatNo) + '</span>' +
         '<span class="seat-name">' + escapeHtml(student.name) + '</span>' +
-        '<span class="seat-score ' + scoreClass(student.score) + '">' + student.score + '</span>' +
+        seatScoreBlockHtml(student) +
       '</article>'
     ) : '';
     return '<div class="seat" data-row="' + row + '" data-col="' + col + '">' + card + '</div>';
@@ -2210,7 +2234,7 @@
     return '<article class="seat-card has-group' + selected + helper + '" data-seat="' + escapeHtml(student.seatNo) + '" style="--group-color:' + groupColor(gid) + '">' +
       '<span class="seat-no">' + escapeHtml(student.seatNo) + '</span>' +
       '<span class="seat-name">' + escapeHtml(student.name) + '</span>' +
-      '<span class="seat-score ' + scoreClass(student.score) + '">' + student.score + '</span>' +
+      seatScoreBlockHtml(student) +
       '</article>';
   }
 
