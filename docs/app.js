@@ -15,6 +15,7 @@
     peerHelperSeatNo: null,
     plusHits: {},
     lotteryFate: null,
+    lotteryFatePending: false,
     lotteryLastWinner: null,
     lotteryLastGroupId: 0,
     rankBumpSeat: null,
@@ -1099,11 +1100,10 @@
     var students = App.classroom.students || [];
     var todayIndex = buildRankIndex(students, function (s) { return Number(s.score) || 0; });
     var totalIndex = buildRankIndex(students, totalActivityScore);
-    var ranked = students.filter(function (student) {
-      return Number(student.score) > 0 || totalActivityScore(student) > 0;
-    }).sort(function (a, b) {
-      var diff = Number(b.score) - Number(a.score);
-      if (diff) return diff;
+    var ranked = students.slice().sort(function (a, b) {
+      var as = Number(a.score) || 0;
+      var bs = Number(b.score) || 0;
+      if (bs !== as) return bs - as;
       var tdiff = totalActivityScore(b) - totalActivityScore(a);
       if (tdiff) return tdiff;
       return String(a.seatNo).localeCompare(String(b.seatNo), 'zh-Hant', { numeric: true });
@@ -1116,21 +1116,23 @@
     els.roster.innerHTML = ranked.map(function (student) {
       var todayRank = todayIndex.map[String(student.seatNo)] || '—';
       var totalRank = totalIndex.map[String(student.seatNo)] || '—';
+      var todayScore = Number(student.score) || 0;
+      var totalScore = totalActivityScore(student);
       var deltaHtml = '';
-      if (Number(student.score) > 0 && isFinite(todayRank) && isFinite(totalRank)) {
+      if (todayScore > 0 && isFinite(todayRank) && isFinite(totalRank)) {
         var d = totalRank - todayRank;
         if (d > 0) deltaHtml = '<span class="rank-delta up">↑' + d + '</span>';
         else if (d < 0) deltaHtml = '<span class="rank-delta down">↓' + Math.abs(d) + '</span>';
         else deltaHtml = '<span class="rank-delta same">＝</span>';
       }
       var selected = student.seatNo === App.selectedSeatNo ? ' selected' : '';
-      var medal = todayRank === 1 ? ' gold' : todayRank === 2 ? ' silver' : todayRank === 3 ? ' bronze' : '';
+      var medal = todayScore > 0 && todayRank === 1 ? ' gold'
+        : todayScore > 0 && todayRank === 2 ? ' silver'
+        : todayScore > 0 && todayRank === 3 ? ' bronze' : '';
       var bump = student.seatNo === App.rankBumpSeat ? ' rank-up' : '';
-      var todayScore = Number(student.score) || 0;
-      var totalScore = totalActivityScore(student);
       var signed = (todayScore > 0 ? '+' : '') + todayScore;
       return '<li><button type="button" class="' + selected + medal + bump + '" data-seat="' + escapeHtml(student.seatNo) + '">' +
-        '<span class="rank-no">' + (Number(student.score) > 0 ? todayRank : '·') + '</span>' +
+        '<span class="rank-no">' + (todayScore > 0 ? todayRank : '·') + '</span>' +
         '<span class="rank-main"><span class="rank-name">' + escapeHtml(student.name) + deltaHtml + '</span>' +
         '<span class="rank-meta">' +
           '<span class="rank-chip">座 ' + escapeHtml(student.seatNo) + '</span>' +
@@ -7866,15 +7868,19 @@
     return 8;
   }
 
-  function showLotteryFate(points) {
-    App.lotteryFate = Number(points) || 0;
+  function showLotteryFate() {
+    App.lotteryFatePending = true;
+    App.lotteryFate = null;
     if (els.lotteryFateWrap) els.lotteryFateWrap.hidden = false;
-    if (els.lotteryFateLabel) els.lotteryFateLabel.textContent = '命運加分 +' + App.lotteryFate;
+    if (els.lotteryFateLabel) els.lotteryFateLabel.textContent = '命運加分待揭曉';
+    if (els.btnLotteryApplyFate) els.btnLotteryApplyFate.disabled = false;
   }
 
   function hideLotteryFate() {
     App.lotteryFate = null;
+    App.lotteryFatePending = false;
     if (els.lotteryFateWrap) els.lotteryFateWrap.hidden = true;
+    if (els.btnLotteryApplyFate) els.btnLotteryApplyFate.disabled = false;
   }
 
   function skipLotteryFate() {
@@ -7883,43 +7889,54 @@
   }
 
   function applyLotteryFate() {
-    if (!App.lotteryFate || !App.classroom) {
+    if (!App.lotteryFatePending || !App.classroom) {
       toast('目前沒有命運加分可套用');
       return;
     }
-    var points = App.lotteryFate;
+    var points = rollFatePoints();
+    App.lotteryFate = points;
+    App.lotteryFatePending = false;
+    if (els.lotteryFateLabel) els.lotteryFateLabel.textContent = '揭曉：+' + points;
+    if (els.btnLotteryApplyFate) els.btnLotteryApplyFate.disabled = true;
     var mode = lotteryMode();
     if (mode === 'group' && App.lotteryLastGroupId) {
       var members = (App.classroom.students || []).filter(function (s) {
         return String(classGroups().assign[String(s.seatNo)]) === String(App.lotteryLastGroupId);
       });
       if (!members.length) {
+        hideLotteryFate();
         toast('找不到該組成員');
         return;
       }
       var actor = members.filter(function (s) {
         return String(s.seatNo) === String(App.selectedSeatNo);
       })[0] || members[0];
-      hideLotteryFate();
+      toast('第' + App.lotteryLastGroupId + '組命運加分 +' + points, 4500);
       changeScore(actor, points, true, actor.seatNo, {
-        detail: '命運加分·整組'
+        detail: '命運加分·整組',
+        onDone: function () { hideLotteryFate(); }
       });
       return;
     }
     var winner = App.lotteryLastWinner || findStudent(App.selectedSeatNo);
     if (!winner) {
+      hideLotteryFate();
       toast('找不到抽中的同學');
       return;
     }
-    hideLotteryFate();
+    toast(winner.name + ' 命運加分 +' + points, 4500);
     if (App.peerTeach && App.peerHelperSeatNo && String(App.peerHelperSeatNo) !== String(winner.seatNo)) {
       var helper = findStudent(App.peerHelperSeatNo);
       if (helper) {
         applyPeerTeachScores(helper, winner, points);
+        hideLotteryFate();
         return;
       }
     }
-    changeScore(winner, points, false, '', { detail: '命運加分' });
+    changeScore(winner, points, false, '', {
+      detail: '命運加分',
+      onDone: function () { hideLotteryFate(); }
+    });
   }
 
   function pickFromPool(pool) {
@@ -8034,7 +8051,7 @@
             spawnSparkBurst(els.board.querySelector('.seat-card[data-seat="' + cssEscape(m.seatNo) + '"]'), 10);
           });
           spawnSparkBurst(els.lotteryCard, 28);
-          showLotteryFate(rollFatePoints());
+          showLotteryFate();
           App.lotteryBusy = false;
           run('logLottery', [{
             className: App.classroom.className,
@@ -8065,7 +8082,7 @@
         flashSeat(winner.seatNo, 'winner');
         spawnSparkBurst(els.lotteryCard, 28);
         spawnSparkBurst(els.board.querySelector('.seat-card[data-seat="' + cssEscape(winner.seatNo) + '"]'), 16);
-        showLotteryFate(rollFatePoints());
+        showLotteryFate();
         App.lotteryBusy = false;
         run('logLottery', [{
           className: App.classroom.className,
