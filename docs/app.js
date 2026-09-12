@@ -1486,7 +1486,7 @@
           return;
         }
         if (App.mode === 'plus') {
-          changeScore(student, App.delta, false, '', { includeFate: true });
+          beginManualFate(student);
         } else if (App.mode === 'minus') {
           changeScore(student, -App.delta);
         } else {
@@ -2132,7 +2132,7 @@
       return;
     }
     if (App.mode === 'plus') {
-      changeScore(student, App.delta, false, '', { includeFate: true });
+      beginManualFate(student);
     } else if (App.mode === 'minus') {
       changeScore(student, -App.delta);
     } else {
@@ -2279,7 +2279,7 @@
     }
     renderMode();
     renderGroupBar();
-    toast(mode === 'plus' ? '加分模式：點學生即可加分' : mode === 'minus' ? '扣分模式：點學生即可扣分' : '已回到選取模式');
+    toast(mode === 'plus' ? '加分模式：點學生後會出現命運加分' : mode === 'minus' ? '扣分模式：點學生即可扣分' : '已回到選取模式');
   }
 
   function renderMode() {
@@ -2538,7 +2538,7 @@
       var actor = selected || members[0];
       App.selectedSeatNo = actor.seatNo;
       if (App.mode === 'plus') {
-        changeScore(actor, App.delta, true, selected ? selected.seatNo : '', { includeFate: true });
+        beginManualFate(actor, { forceGroup: true, groupId: gid });
         return;
       }
       changeScore(actor, sign * App.delta, true, selected ? selected.seatNo : '');
@@ -2660,7 +2660,7 @@
             toast('請先點座位上那位同學，再點小組扣分，成績統計才會記下是因為誰');
           }
           if (App.mode === 'plus') {
-            if (actor) changeScore(actor, App.delta, true, selected ? selected.seatNo : '', { includeFate: true });
+            if (actor) beginManualFate(actor, { forceGroup: true, groupId: gid });
             return;
           }
           if (actor) changeScore(actor, sign * App.delta, true, selected ? selected.seatNo : '');
@@ -2890,19 +2890,12 @@
     var skipDiminish = opts.skipDiminish === true;
     var forceNoGroup = opts.forceNoGroup === true;
     var detailExtra = opts.detail || '';
-    var includeFate = opts.includeFate === true && delta > 0;
-    var fateBonus = includeFate ? rollFatePoints() : 0;
     var applyDelta = delta;
     if (delta > 0 && !skipDiminish) {
       var eff = effectivePlusDelta(student, delta);
       applyDelta = eff.delta;
     }
-    applyDelta = applyDelta + fateBonus;
-    if (!applyDelta) {
-      toast((student && student.name ? student.name + ' ' : '') + '不加分');
-      if (typeof opts.onDone === 'function') opts.onDone(null);
-      return;
-    }
+    if (!applyDelta) return;
     var applyGroup = !forceNoGroup && (isLabView() || forceGroup === true || !!(els.groupApplyScore && els.groupApplyScore.checked));
     var body = {
       className: App.classroom.className,
@@ -8227,13 +8220,15 @@
   }
 
   function rollFatePoints() {
-    // 三種結果均分：不加分 / +1 / +2
+    // 1% 抽到 -1；其餘均分 +0 / +1 / +2
+    if (Math.random() < 0.01) return -1;
     return Math.floor(Math.random() * 3);
   }
 
   function fateRevealText(points) {
-    if (points === 0) return '揭曉：不加分';
-    return '揭曉：+' + points;
+    if (points < 0) return '揭曉：命運 ' + points;
+    if (points === 0) return '揭曉：命運 +0';
+    return '揭曉：命運 +' + points;
   }
 
   function renderFateOfferUi(revealedPoints) {
@@ -8248,7 +8243,11 @@
       els.fatePanel.hidden = !(pending && offer && offer.source === 'manual');
     }
     if (els.fatePanelWho) {
-      els.fatePanelWho.textContent = who ? ('給 ' + who) : '';
+      if (who && offer && offer.source === 'manual' && offer.fixedDelta) {
+        els.fatePanelWho.textContent = who + '　固定 +' + offer.fixedDelta + '，再抽命運';
+      } else {
+        els.fatePanelWho.textContent = who ? ('給 ' + who) : '';
+      }
     }
     if (els.fatePanelLabel) {
       els.fatePanelLabel.textContent = revealedPoints != null
@@ -8306,10 +8305,10 @@
       name: student.name,
       forceGroup: forceGroup,
       groupId: groupId || 0,
-      lab: isLabView()
+      lab: isLabView(),
+      fixedDelta: Math.max(1, Number(App.delta) || 1)
     });
     renderAll();
-    toast('命運加分：按「加分」揭曉（只加一次）');
   }
 
   function showFateOffer(opts) {
@@ -8321,7 +8320,8 @@
       name: opts.name || '',
       forceGroup: !!opts.forceGroup,
       groupId: opts.groupId || 0,
-      lab: !!opts.lab
+      lab: !!opts.lab,
+      fixedDelta: Math.max(0, Number(opts.fixedDelta) || 0)
     };
     App.lotteryFatePending = true;
     App.lotteryFate = null;
@@ -8337,7 +8337,8 @@
       name: winner ? winner.name : '',
       forceGroup: mode === 'group' && !!App.lotteryLastGroupId,
       groupId: App.lotteryLastGroupId || 0,
-      lab: false
+      lab: false,
+      fixedDelta: 0
     });
   }
 
@@ -8356,58 +8357,85 @@
       toast('目前沒有命運加分可套用');
       return;
     }
-    var points = rollFatePoints();
-    App.lotteryFate = points;
+    var fate = rollFatePoints();
+    App.lotteryFate = fate;
     offer.pending = false;
     App.lotteryFatePending = false;
-    renderFateOfferUi(points);
+    renderFateOfferUi(fate);
 
-    if (!points) {
-      toast('揭曉：不加分', 3500);
-      setTimeout(hideFateOffer, 900);
+    var isManual = offer.source === 'manual';
+    var fixed = isManual ? Math.max(1, Number(offer.fixedDelta) || Number(App.delta) || 1) : 0;
+
+    function resolveActor() {
+      if (offer.forceGroup && offer.groupId) {
+        var members = (App.classroom.students || []).filter(function (s) {
+          var gid = offer.lab ? studentLabGroupId(s.seatNo) : parseInt(classGroups().assign[String(s.seatNo)], 10);
+          return String(gid) === String(offer.groupId);
+        });
+        if (!members.length) return null;
+        return members.filter(function (s) {
+          return String(s.seatNo) === String(offer.seatNo || App.selectedSeatNo);
+        })[0] || members[0];
+      }
+      return findStudent(offer.seatNo) || App.lotteryLastWinner || findStudent(App.selectedSeatNo);
+    }
+
+    var actor = resolveActor();
+    if (!actor) {
+      hideFateOffer();
+      toast(offer.forceGroup ? '找不到該組成員' : '找不到同學');
       return;
     }
 
-    if (offer.forceGroup && offer.groupId) {
-      var members = (App.classroom.students || []).filter(function (s) {
-        var gid = offer.lab ? studentLabGroupId(s.seatNo) : parseInt(classGroups().assign[String(s.seatNo)], 10);
-        return String(gid) === String(offer.groupId);
-      });
-      if (!members.length) {
-        hideFateOffer();
-        toast('找不到該組成員');
-        return;
-      }
-      var actor = members.filter(function (s) {
-        return String(s.seatNo) === String(offer.seatNo || App.selectedSeatNo);
-      })[0] || members[0];
-      toast((offer.lab ? '實驗第' : '第') + offer.groupId + '組命運加分 +' + points, 4500);
-      changeScore(actor, points, true, actor.seatNo, {
-        detail: '命運加分·整組',
+    var total = fate;
+    if (isManual) {
+      var base = effectivePlusDelta(actor, fixed).delta;
+      total = base + fate;
+    }
+
+    if (!total) {
+      toast((actor.name || '') + ' 合計不加分', 3500);
+      setTimeout(hideFateOffer, 1000);
+      return;
+    }
+
+    if (isManual && offer.forceGroup && offer.groupId) {
+      changeScore(actor, total, true, actor.seatNo, {
+        skipDiminish: true,
         onDone: function () { hideFateOffer(); }
       });
       return;
     }
 
-    var winner = findStudent(offer.seatNo) || App.lotteryLastWinner || findStudent(App.selectedSeatNo);
-    if (!winner) {
-      hideFateOffer();
-      toast('找不到同學');
+    if (isManual) {
+      changeScore(actor, total, false, '', {
+        skipDiminish: true,
+        forceNoGroup: true,
+        onDone: function () { hideFateOffer(); }
+      });
       return;
     }
-    toast(winner.name + ' 命運加分 +' + points, 4500);
-    if (offer.source === 'lottery' && App.peerTeach && App.peerHelperSeatNo &&
-        String(App.peerHelperSeatNo) !== String(winner.seatNo)) {
+
+    // 抽籤：只有命運分
+    if (App.peerTeach && App.peerHelperSeatNo &&
+        String(App.peerHelperSeatNo) !== String(actor.seatNo) && fate > 0) {
       var helper = findStudent(App.peerHelperSeatNo);
       if (helper) {
-        applyPeerTeachScores(helper, winner, points);
+        applyPeerTeachScores(helper, actor, fate);
         hideFateOffer();
         return;
       }
     }
-    changeScore(winner, points, false, '', {
+    if (offer.forceGroup && offer.groupId) {
+      changeScore(actor, fate, true, actor.seatNo, {
+        skipDiminish: true,
+        onDone: function () { hideFateOffer(); }
+      });
+      return;
+    }
+    changeScore(actor, fate, false, '', {
+      skipDiminish: true,
       forceNoGroup: true,
-      detail: '命運加分',
       onDone: function () { hideFateOffer(); }
     });
   }
