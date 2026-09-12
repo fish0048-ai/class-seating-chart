@@ -916,6 +916,7 @@
       room.groups = room.groups || emptyGroups(4);
       room.groups.assign = room.groups.assign || {};
       if (Object.keys(room.groups.assign).length) return;
+      if (room.groups.clearedAt) return;
       var assign = {};
       (store.history || []).forEach(function (item) {
         if (!item || item.undone) return;
@@ -1018,6 +1019,15 @@
   function preferFilledGroups_(incoming, existing) {
     incoming = incoming || emptyGroups(4);
     existing = existing || emptyGroups(4);
+    // 老師明確清除分組時，允許空分組蓋過雲端舊分組
+    if (incoming.clearedAt && countAssign_(incoming.assign) === 0) {
+      return {
+        size: incoming.size || existing.size || 4,
+        assign: {},
+        scores: {},
+        clearedAt: String(incoming.clearedAt)
+      };
+    }
     if (countAssign_(incoming.assign) > 0) return incoming;
     if (countAssign_(existing.assign) > 0) {
       return {
@@ -1067,7 +1077,11 @@
       if (!used[String(gid)]) return;
       scores[String(gid)] = Number(raw.scores[gid]) || 0;
     });
-    return { size: size, assign: assign, scores: scores };
+    var out = { size: size, assign: assign, scores: scores };
+    if (raw.clearedAt && !Object.keys(assign).length) {
+      out.clearedAt = String(raw.clearedAt);
+    }
+    return out;
   }
 
   function ensureGroups(classroom) {
@@ -1445,6 +1459,13 @@
       var room = ensureClass(store, className);
       room.groups = normalizeGroups(body.groups, room.students);
       persistRoom(store, room, false);
+      addHistory(store, {
+        className: className,
+        type: Object.keys(room.groups.assign || {}).length ? '分組' : '清除分組',
+        detail: room.groups.clearedAt ? '已清除分組並可同步到雲端' : '更新分組',
+        undoable: false
+      });
+      saveStore(store);
       return wrap(payload(store, className));
     },
     saveLab: function (body) {

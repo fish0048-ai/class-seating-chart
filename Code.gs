@@ -806,6 +806,7 @@ function healStoreGroupsInPlace_(ss, store) {
     room.groups = room.groups || { size: 4, assign: {}, scores: {} };
     room.groups.assign = room.groups.assign || {};
     if (countAssignMap_(room.groups.assign) > 0) return;
+    if (room.groups.clearedAt) return;
     var assign = byClass[cn];
     if (!countAssignMap_(assign)) return;
     room.groups.assign = assign;
@@ -825,6 +826,7 @@ function healStoreGroupsFromHistory_(store) {
     room.groups = room.groups || { size: 4, assign: {}, scores: {} };
     room.groups.assign = room.groups.assign || {};
     if (countAssignMap_(room.groups.assign) > 0) return;
+    if (room.groups.clearedAt) return;
     var assign = {};
     (store.history || []).forEach(function (item) {
       if (!item || item.undone) return;
@@ -985,9 +987,14 @@ function mergeProtectCloudStore_(incoming, existing) {
     lroom.groups = lroom.groups || { size: 4, assign: {}, scores: {} };
     rroom.groups = rroom.groups || { size: 4, assign: {}, scores: {} };
     if (countAssignMap_(lroom.groups.assign) === 0 && countAssignMap_(rroom.groups.assign) > 0) {
-      lroom.groups.assign = rroom.groups.assign;
-      lroom.groups.size = lroom.groups.size || rroom.groups.size || 4;
-      lroom.groups.scores = Object.assign({}, rroom.groups.scores || {}, lroom.groups.scores || {});
+      if (lroom.groups.clearedAt) {
+        lroom.groups.assign = {};
+        lroom.groups.scores = {};
+      } else {
+        lroom.groups.assign = rroom.groups.assign;
+        lroom.groups.size = lroom.groups.size || rroom.groups.size || 4;
+        lroom.groups.scores = Object.assign({}, rroom.groups.scores || {}, lroom.groups.scores || {});
+      }
     }
     lroom.lab = lroom.lab || { assign: {}, scores: {} };
     rroom.lab = rroom.lab || { assign: {}, scores: {} };

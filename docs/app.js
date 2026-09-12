@@ -2660,6 +2660,9 @@
       assign: Object.assign({}, g.assign),
       scores: Object.assign({}, g.scores)
     };
+    if (g.clearedAt && !Object.keys(snapshot.assign).length) {
+      snapshot.clearedAt = g.clearedAt;
+    }
     run('saveGroups', [{
       className: App.classroom.className,
       groups: snapshot
@@ -2668,6 +2671,13 @@
       App.classroom = data.classroom;
       renderAll();
       if (message) toast(message);
+      if (snapshot.clearedAt && cloudConnected() && typeof SeatDB !== 'undefined' && SeatDB.flushCloud) {
+        SeatDB.flushCloud().then(function () {
+          toast('已清除分組並同步到雲端');
+        }).catch(function (err) {
+          toast((err && err.message) || '清除已存本機，請再按立即同步');
+        });
+      }
     }, true);
   }
 
@@ -2834,11 +2844,16 @@
       toast('目前沒有分組');
       return;
     }
-    if (!window.confirm('清除全班分組與小組分數？個人加扣分不會動。')) return;
+    if (!window.confirm('清除全班分組與小組分數？個人加扣分不會動。清除後按「立即同步」會把空白分組寫上雲端。')) return;
     var size = classGroups().size;
-    App.classroom.groups = { size: size, assign: {}, scores: {} };
+    App.classroom.groups = {
+      size: size,
+      assign: {},
+      scores: {},
+      clearedAt: new Date().toISOString()
+    };
     App.groupAssign = false;
-    persistGroups('已清除分組');
+    persistGroups('已清除分組，請再按「立即同步」寫上雲端');
   }
 
   function changeScore(student, delta, forceGroup, causeSeatNo, opts) {
