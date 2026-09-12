@@ -76,9 +76,43 @@
         <button type="button" class="tool" id="btnPeerTeach" aria-pressed="false">互教</button>
         <button type="button" class="tool" id="btnUndo">復原</button>
         <button type="button" class="tool accent" id="btnLottery">抽籤</button>
+        <button type="button" class="tool" id="btnTimer" aria-pressed="false">定時</button>
         <button type="button" class="tool" id="btnGroup">分組</button>
         <button type="button" class="tool primary" id="btnSave">立即同步</button>
       </nav>
+
+      <section id="timerPanel" class="timer-panel" hidden aria-label="作答定時器">
+        <div class="timer-face">
+          <p class="timer-label">作答時間</p>
+          <div id="timerDisplay" class="timer-display" aria-live="polite">03:00</div>
+          <p id="timerStatus" class="timer-status">可調整時間後按開始</p>
+        </div>
+        <div class="timer-controls">
+          <div class="timer-presets" role="group" aria-label="常用時間">
+            <button type="button" class="chip" data-timer-sec="30">30秒</button>
+            <button type="button" class="chip" data-timer-sec="60">1分</button>
+            <button type="button" class="chip" data-timer-sec="120">2分</button>
+            <button type="button" class="chip timer-preset-on" data-timer-sec="180">3分</button>
+            <button type="button" class="chip" data-timer-sec="300">5分</button>
+            <button type="button" class="chip" data-timer-sec="600">10分</button>
+          </div>
+          <div class="timer-custom">
+            <label>分
+              <input id="timerMinutes" type="number" min="0" max="99" value="3" inputmode="numeric" />
+            </label>
+            <label>秒
+              <input id="timerSeconds" type="number" min="0" max="59" value="0" inputmode="numeric" />
+            </label>
+            <button type="button" class="tool" id="btnTimerApply">套用</button>
+          </div>
+          <div class="timer-actions">
+            <button type="button" class="tool primary" id="btnTimerStart">開始</button>
+            <button type="button" class="tool" id="btnTimerPause" disabled>暫停</button>
+            <button type="button" class="tool" id="btnTimerReset">重設</button>
+            <button type="button" class="tool" id="btnTimerHide">收合</button>
+          </div>
+        </div>
+      </section>
 
       <main class="stage">
         <section class="board-wrap">

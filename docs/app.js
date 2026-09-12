@@ -42,6 +42,15 @@
     layoutMode: 'seatNo',
     statsBySeat: {},
     groupDeductions: [],
+    timerOpen: false,
+    timer: {
+      totalMs: 180000,
+      remainMs: 180000,
+      running: false,
+      endsAt: 0,
+      tickId: null,
+      done: false
+    },
     appView: 'class',
     hwAssignmentId: '',
     hwAssignments: [],
@@ -93,6 +102,12 @@
     btnLotteryApplyFate: document.getElementById('btnLotteryApplyFate'),
     btnLotterySkipFate: document.getElementById('btnLotterySkipFate'),
     btnPeerTeach: document.getElementById('btnPeerTeach'),
+    timerPanel: document.getElementById('timerPanel'),
+    timerDisplay: document.getElementById('timerDisplay'),
+    timerStatus: document.getElementById('timerStatus'),
+    timerMinutes: document.getElementById('timerMinutes'),
+    timerSeconds: document.getElementById('timerSeconds'),
+    btnTimer: document.getElementById('btnTimer'),
     settingClassName: document.getElementById('settingClassName'),
     settingRows: document.getElementById('settingRows'),
     settingCols: document.getElementById('settingCols'),
@@ -235,6 +250,30 @@
   document.getElementById('btnLottery').addEventListener('click', function () {
     openLottery(true);
   });
+  if (els.btnTimer) {
+    els.btnTimer.addEventListener('click', toggleTimerPanel);
+  }
+  var btnTimerStart = document.getElementById('btnTimerStart');
+  if (btnTimerStart) btnTimerStart.addEventListener('click', startAnswerTimer);
+  var btnTimerPause = document.getElementById('btnTimerPause');
+  if (btnTimerPause) btnTimerPause.addEventListener('click', pauseAnswerTimer);
+  var btnTimerReset = document.getElementById('btnTimerReset');
+  if (btnTimerReset) btnTimerReset.addEventListener('click', resetAnswerTimer);
+  var btnTimerHide = document.getElementById('btnTimerHide');
+  if (btnTimerHide) btnTimerHide.addEventListener('click', hideTimerPanel);
+  var btnTimerApply = document.getElementById('btnTimerApply');
+  if (btnTimerApply) btnTimerApply.addEventListener('click', applyTimerCustom);
+  document.querySelectorAll('[data-timer-sec]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      setTimerDuration(Number(btn.getAttribute('data-timer-sec')) || 0, true);
+    });
+  });
+  if (els.timerMinutes) {
+    els.timerMinutes.addEventListener('change', applyTimerCustom);
+  }
+  if (els.timerSeconds) {
+    els.timerSeconds.addEventListener('change', applyTimerCustom);
+  }
   var btnGroup = document.getElementById('btnGroup');
   if (btnGroup) {
     btnGroup.addEventListener('click', function () {
@@ -665,7 +704,7 @@
   els.classSelect.addEventListener('change', function () {
     loadClass(els.classSelect.value);
   });
-  document.querySelectorAll('.chip').forEach(function (chip) {
+  document.querySelectorAll('.delta-group .chip').forEach(function (chip) {
     chip.addEventListener('click', function () {
       App.delta = Number(chip.getAttribute('data-delta')) || 1;
       renderDelta();
@@ -674,6 +713,7 @@
 
   applyTeacherUi();
   restoreLayoutMode();
+  initAnswerTimer();
   if (window.GoogleAuth) {
     GoogleAuth.start({
       onSignedIn: function (account, alreadyBooted) {
@@ -699,6 +739,233 @@
 
   function canEdit() {
     return !!(window.GoogleAuth && GoogleAuth.isTeacher());
+  }
+
+  var TIMER_STORAGE_KEY = 'class-seating-timer-secs';
+
+  function formatTimerMs(ms) {
+    var total = Math.max(0, Math.ceil(Number(ms) / 1000));
+    var m = Math.floor(total / 60);
+    var s = total % 60;
+    return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
+
+  function readSavedTimerSecs() {
+    try {
+      var n = parseInt(localStorage.getItem(TIMER_STORAGE_KEY), 10);
+      if (isFinite(n) && n > 0 && n <= 99 * 60 + 59) return n;
+    } catch (err) {}
+    return 180;
+  }
+
+  function saveTimerSecs(secs) {
+    try {
+      localStorage.setItem(TIMER_STORAGE_KEY, String(secs));
+    } catch (err) {}
+  }
+
+  function timerRemainMs() {
+    if (App.timer.running && App.timer.endsAt) {
+      return Math.max(0, App.timer.endsAt - Date.now());
+    }
+    return Math.max(0, App.timer.remainMs);
+  }
+
+  function renderTimerUi() {
+    var remain = timerRemainMs();
+    App.timer.remainMs = remain;
+    if (els.timerDisplay) els.timerDisplay.textContent = formatTimerMs(remain);
+    if (els.timerPanel) {
+      els.timerPanel.hidden = !App.timerOpen;
+      els.timerPanel.classList.toggle('running', !!App.timer.running);
+      els.timerPanel.classList.toggle('warn', !App.timer.done && remain > 0 && remain <= 30000);
+      els.timerPanel.classList.toggle('urgent', !App.timer.done && remain > 0 && remain <= 10000);
+      els.timerPanel.classList.toggle('done', !!App.timer.done);
+    }
+    if (els.btnTimer) {
+      els.btnTimer.classList.toggle('tab-on', !!App.timerOpen);
+      els.btnTimer.setAttribute('aria-pressed', App.timerOpen ? 'true' : 'false');
+      els.btnTimer.textContent = App.timer.running
+        ? ('定時 ' + formatTimerMs(remain))
+        : '定時';
+    }
+    var pauseBtn = document.getElementById('btnTimerPause');
+    var startBtn = document.getElementById('btnTimerStart');
+    if (pauseBtn) pauseBtn.disabled = !App.timer.running;
+    if (startBtn) {
+      startBtn.textContent = App.timer.running
+        ? '計時中'
+        : (App.timer.done || remain <= 0
+          ? '再開始'
+          : (remain > 0 && remain < App.timer.totalMs ? '繼續' : '開始'));
+      startBtn.disabled = !!App.timer.running;
+    }
+    if (els.timerStatus) {
+      if (App.timer.done) els.timerStatus.textContent = '時間到！';
+      else if (App.timer.running) els.timerStatus.textContent = '作答進行中';
+      else if (remain > 0 && remain < App.timer.totalMs) els.timerStatus.textContent = '已暫停，可按繼續';
+      else els.timerStatus.textContent = '可調整時間後按開始';
+    }
+    document.querySelectorAll('[data-timer-sec]').forEach(function (btn) {
+      var sec = Number(btn.getAttribute('data-timer-sec')) || 0;
+      btn.classList.toggle('timer-preset-on', Math.round(App.timer.totalMs / 1000) === sec);
+    });
+    if (els.timerMinutes && document.activeElement !== els.timerMinutes) {
+      els.timerMinutes.value = String(Math.floor(App.timer.totalMs / 60000));
+    }
+    if (els.timerSeconds && document.activeElement !== els.timerSeconds) {
+      els.timerSeconds.value = String(Math.floor((App.timer.totalMs % 60000) / 1000));
+    }
+  }
+
+  function stopTimerTick() {
+    if (App.timer.tickId) {
+      clearInterval(App.timer.tickId);
+      App.timer.tickId = null;
+    }
+  }
+
+  function playTimerDoneSound() {
+    try {
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) return;
+      var ctx = playTimerDoneSound.ctx || new Ctx();
+      playTimerDoneSound.ctx = ctx;
+      if (ctx.state === 'suspended') ctx.resume();
+      var now = ctx.currentTime;
+      [0, 0.18, 0.36].forEach(function (offset) {
+        var osc = ctx.createOscillator();
+        var gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = 880;
+        gain.gain.setValueAtTime(0.0001, now + offset);
+        gain.gain.exponentialRampToValueAtTime(0.12, now + offset + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + offset + 0.15);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + offset);
+        osc.stop(now + offset + 0.16);
+      });
+    } catch (err) {}
+  }
+
+  function onTimerFinished() {
+    stopTimerTick();
+    App.timer.running = false;
+    App.timer.endsAt = 0;
+    App.timer.remainMs = 0;
+    App.timer.done = true;
+    App.timerOpen = true;
+    renderTimerUi();
+    playTimerDoneSound();
+    toast('時間到！', 5000);
+  }
+
+  function tickAnswerTimer() {
+    if (!App.timer.running) return;
+    var remain = timerRemainMs();
+    App.timer.remainMs = remain;
+    renderTimerUi();
+    if (remain <= 0) onTimerFinished();
+  }
+
+  function setTimerDuration(secs, resetRemain) {
+    secs = Math.max(1, Math.min(99 * 60 + 59, Math.round(Number(secs) || 0)));
+    if (App.timer.running) pauseAnswerTimer();
+    App.timer.totalMs = secs * 1000;
+    if (resetRemain !== false) {
+      App.timer.remainMs = App.timer.totalMs;
+      App.timer.done = false;
+    }
+    saveTimerSecs(secs);
+    renderTimerUi();
+  }
+
+  function applyTimerCustom() {
+    var mins = Math.max(0, Math.min(99, parseInt(els.timerMinutes && els.timerMinutes.value, 10) || 0));
+    var secs = Math.max(0, Math.min(59, parseInt(els.timerSeconds && els.timerSeconds.value, 10) || 0));
+    var total = mins * 60 + secs;
+    if (!total) {
+      toast('時間至少要 1 秒');
+      return;
+    }
+    setTimerDuration(total, true);
+    toast('已設為 ' + formatTimerMs(total * 1000));
+  }
+
+  function startAnswerTimer() {
+    if (!canEdit()) {
+      toast('檢視模式不能操作定時器');
+      return;
+    }
+    if (App.timer.running) return;
+    if (App.timer.done || App.timer.remainMs <= 0) {
+      App.timer.remainMs = App.timer.totalMs;
+      App.timer.done = false;
+    }
+    if (App.timer.remainMs <= 0) {
+      toast('請先設定時間');
+      return;
+    }
+    App.timerOpen = true;
+    App.timer.running = true;
+    App.timer.done = false;
+    App.timer.endsAt = Date.now() + App.timer.remainMs;
+    stopTimerTick();
+    App.timer.tickId = setInterval(tickAnswerTimer, 200);
+    renderTimerUi();
+    toast('定時開始：' + formatTimerMs(App.timer.remainMs));
+  }
+
+  function pauseAnswerTimer() {
+    if (!App.timer.running) {
+      renderTimerUi();
+      return;
+    }
+    App.timer.remainMs = timerRemainMs();
+    App.timer.running = false;
+    App.timer.endsAt = 0;
+    stopTimerTick();
+    renderTimerUi();
+    toast('已暫停');
+  }
+
+  function resetAnswerTimer() {
+    stopTimerTick();
+    App.timer.running = false;
+    App.timer.endsAt = 0;
+    App.timer.remainMs = App.timer.totalMs;
+    App.timer.done = false;
+    renderTimerUi();
+    toast('已重設為 ' + formatTimerMs(App.timer.totalMs));
+  }
+
+  function toggleTimerPanel() {
+    if (!canEdit()) {
+      toast('檢視模式不能操作定時器');
+      return;
+    }
+    App.timerOpen = !App.timerOpen;
+    renderTimerUi();
+  }
+
+  function hideTimerPanel() {
+    if (App.timer.running) {
+      toast('計時仍在進行，工具列會顯示剩餘時間');
+    }
+    App.timerOpen = false;
+    renderTimerUi();
+  }
+
+  function initAnswerTimer() {
+    var secs = readSavedTimerSecs();
+    App.timer.totalMs = secs * 1000;
+    App.timer.remainMs = App.timer.totalMs;
+    App.timer.running = false;
+    App.timer.endsAt = 0;
+    App.timer.done = false;
+    App.timerOpen = false;
+    renderTimerUi();
   }
 
   function teacherEmailHint() {
