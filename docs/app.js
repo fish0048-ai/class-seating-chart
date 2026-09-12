@@ -8224,12 +8224,8 @@
   }
 
   function rollFatePoints() {
-    var r = Math.random() * 100;
-    if (r < 50) return 1;
-    if (r < 75) return 2;
-    if (r < 90) return 3;
-    if (r < 98) return 5;
-    return 8;
+    // 最多 +2：約六成 +1、四成 +2
+    return Math.random() < 0.6 ? 1 : 2;
   }
 
   function renderFateOfferUi(revealedPoints) {
