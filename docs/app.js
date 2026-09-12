@@ -2891,11 +2891,9 @@
     var forceNoGroup = opts.forceNoGroup === true;
     var detailExtra = opts.detail || '';
     var applyDelta = delta;
-    var diminishNote = '';
     if (delta > 0 && !skipDiminish) {
       var eff = effectivePlusDelta(student, delta);
       applyDelta = eff.delta;
-      diminishNote = eff.note;
     }
     if (!applyDelta) return;
     var applyGroup = !forceNoGroup && (isLabView() || forceGroup === true || !!(els.groupApplyScore && els.groupApplyScore.checked));
@@ -2909,9 +2907,7 @@
     if (applyGroup) {
       body.causeSeatNo = causeSeatNo == null ? student.seatNo : causeSeatNo;
     }
-    if (detailExtra || diminishNote) {
-      body.detail = [detailExtra, diminishNote ? ('實際 +' + applyDelta) : ''].filter(Boolean).join(' · ') || undefined;
-    }
+    if (detailExtra) body.detail = detailExtra;
     run('applyScoreChange', [body], function (data) {
       App.classroom = data.classroom;
       if (data.plusHits) {
@@ -2933,8 +2929,7 @@
         ? ((data.lab ? '實驗第' : '第') + data.groupId + '組（' + seats.length + '人）')
         : student.name;
       var extra = (applyGroup && !data.groupId) ? '（尚未分組，只加個人）' : '';
-      if (diminishNote) toast(diminishNote + extra);
-      else toast(label + ' ' + (applyDelta > 0 ? '+' : '') + applyDelta + ' 分' + extra);
+      toast(label + ' ' + (applyDelta > 0 ? '+' : '') + applyDelta + ' 分' + extra);
       setTimeout(function () {
         if (App.rankBumpSeat === seats[0]) App.rankBumpSeat = null;
       }, 900);
@@ -8108,11 +8103,7 @@
     var tier = studentTierOf(student.seatNo);
     var factor = diminishFactor(tier, n);
     var actual = Math.max(1, Math.round(base * factor));
-    var note = '';
-    if (actual !== base) {
-      note = student.name + ' +' + base + ' → 實際 +' + actual + '（' + tierLabelZh(tier) + '分組邊際）';
-    }
-    return { delta: actual, base: base, factor: factor, tier: tier, note: note, hits: n };
+    return { delta: actual, base: base, factor: factor, tier: tier, note: '', hits: n };
   }
 
   function lotteryMode() {
