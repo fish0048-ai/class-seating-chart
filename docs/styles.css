@@ -2572,6 +2572,21 @@
     border: 1px dashed var(--accent);
     border-radius: 12px;
     background: #fff7ea;
+    display: grid;
+    gap: 10px;
+    justify-items: start;
+  }
+
+  #googleSignInBtnSettings,
+  #googleSignInBtn {
+    min-height: 44px;
+    position: relative;
+    z-index: 2;
+  }
+
+  #googleSignInBtnSettings iframe,
+  #googleSignInBtn iframe {
+    pointer-events: auto !important;
   }
 
   .account-chip [data-account-label] {
