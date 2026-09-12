@@ -1098,7 +1098,6 @@
     });
     chain.then(function () {
       renderRoster();
-      renderBoard();
       if (done) done();
     }).catch(function () {
       renderRoster();
@@ -1149,7 +1148,6 @@
     if (!els.roster || !App.classroom) return;
     var students = App.classroom.students || [];
     var todayIndex = buildRankIndex(students, function (s) { return Number(s.score) || 0; });
-    var totalIndex = buildRankIndex(students, totalActivityScore);
     var ranked = students.filter(function (student) {
       return Number(student.score) > 0;
     }).sort(function (a, b) {
@@ -1164,32 +1162,19 @@
     }
     els.roster.innerHTML = ranked.map(function (student) {
       var todayRank = todayIndex.map[String(student.seatNo)] || todayIndex.map[seatLookupKey(student.seatNo)] || '—';
-      var totalRank = totalIndex.map[String(student.seatNo)] || totalIndex.map[seatLookupKey(student.seatNo)] || '—';
       var todayScore = Number(student.score) || 0;
-      var totalScore = totalActivityScore(student);
-      var deltaHtml = '';
-      if (todayScore > 0 && isFinite(todayRank) && isFinite(totalRank)) {
-        var d = totalRank - todayRank;
-        if (d > 0) deltaHtml = '<span class="rank-delta up">↑' + d + '</span>';
-        else if (d < 0) deltaHtml = '<span class="rank-delta down">↓' + Math.abs(d) + '</span>';
-        else deltaHtml = '<span class="rank-delta same">＝</span>';
-      }
       var selected = student.seatNo === App.selectedSeatNo ? ' selected' : '';
       var medal = todayRank === 1 ? ' gold' : todayRank === 2 ? ' silver' : todayRank === 3 ? ' bronze' : '';
       var bump = student.seatNo === App.rankBumpSeat ? ' rank-up' : '';
       var signed = (todayScore > 0 ? '+' : '') + todayScore;
       return '<li><button type="button" class="' + selected + medal + bump + '" data-seat="' + escapeHtml(student.seatNo) + '">' +
         '<span class="rank-no">' + todayRank + '</span>' +
-        '<span class="rank-main"><span class="rank-name">' + escapeHtml(student.name) + deltaHtml + '</span>' +
+        '<span class="rank-main"><span class="rank-name">' + escapeHtml(student.name) + '</span>' +
         '<span class="rank-meta">' +
           '<span class="rank-chip">座 ' + escapeHtml(student.seatNo) + '</span>' +
-          '<span class="rank-chip">今 #' + todayRank + '（' + todayScore + '）</span>' +
-          '<span class="rank-chip total">總 #' + totalRank + '（' + totalScore + '）</span>' +
+          '<span class="rank-chip">今日 #' + todayRank + '</span>' +
         '</span></span>' +
-        '<span class="rank-scores">' +
-          '<strong class="today-score ' + scoreClass(todayScore) + '">' + signed + '</strong>' +
-          '<span class="total-score">總 ' + totalScore + '</span>' +
-        '</span></button></li>';
+        '<strong class="' + scoreClass(todayScore) + '">' + signed + '</strong></button></li>';
     }).join('');
     els.roster.querySelectorAll('button').forEach(function (button) {
       button.addEventListener('click', function () {
@@ -1393,11 +1378,7 @@
 
   function seatScoreBlockHtml(student) {
     var todayScore = Number(student && student.score) || 0;
-    var totalScore = totalActivityScore(student);
-    return '<span class="seat-totals">' +
-      '<span class="seat-score ' + scoreClass(todayScore) + '">' + todayScore + '</span>' +
-      '<span class="seat-total">總 ' + totalScore + '</span>' +
-      '</span>';
+    return '<span class="seat-score ' + scoreClass(todayScore) + '">' + todayScore + '</span>';
   }
 
   function studentCardHtml(student) {
