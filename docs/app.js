@@ -16,6 +16,7 @@
     plusHits: {},
     lotteryFate: null,
     lotteryFatePending: false,
+    fateOffer: null,
     lotteryLastWinner: null,
     lotteryLastGroupId: 0,
     rankBumpSeat: null,
@@ -101,6 +102,11 @@
     lotteryFateLabel: document.getElementById('lotteryFateLabel'),
     btnLotteryApplyFate: document.getElementById('btnLotteryApplyFate'),
     btnLotterySkipFate: document.getElementById('btnLotterySkipFate'),
+    fatePanel: document.getElementById('fatePanel'),
+    fatePanelWho: document.getElementById('fatePanelWho'),
+    fatePanelLabel: document.getElementById('fatePanelLabel'),
+    btnFateApply: document.getElementById('btnFateApply'),
+    btnFateSkip: document.getElementById('btnFateSkip'),
     btnPeerTeach: document.getElementById('btnPeerTeach'),
     timerPanel: document.getElementById('timerPanel'),
     timerDisplay: document.getElementById('timerDisplay'),
@@ -355,10 +361,16 @@
     });
   });
   if (els.btnLotteryApplyFate) {
-    els.btnLotteryApplyFate.addEventListener('click', applyLotteryFate);
+    els.btnLotteryApplyFate.addEventListener('click', applyFateOffer);
   }
   if (els.btnLotterySkipFate) {
-    els.btnLotterySkipFate.addEventListener('click', skipLotteryFate);
+    els.btnLotterySkipFate.addEventListener('click', skipFateOffer);
+  }
+  if (els.btnFateApply) {
+    els.btnFateApply.addEventListener('click', applyFateOffer);
+  }
+  if (els.btnFateSkip) {
+    els.btnFateSkip.addEventListener('click', skipFateOffer);
   }
   document.getElementById('btnSave').addEventListener('click', saveAll);
   var settingsSave = document.getElementById('btnSettingsSave');
@@ -1475,7 +1487,9 @@
         }
         if (App.mode === 'plus' || App.mode === 'minus') {
           const sign = App.mode === 'plus' ? 1 : -1;
-          changeScore(student, sign * App.delta);
+          changeScore(student, sign * App.delta, false, '', {
+            offerFate: sign > 0
+          });
         } else {
           renderAll();
         }
@@ -2120,7 +2134,9 @@
     }
     if (App.mode === 'plus' || App.mode === 'minus') {
       const sign = App.mode === 'plus' ? 1 : -1;
-      changeScore(student, sign * App.delta);
+      changeScore(student, sign * App.delta, false, '', {
+        offerFate: sign > 0
+      });
     } else {
       renderAll();
     }
@@ -2523,7 +2539,9 @@
       }
       var actor = selected || members[0];
       App.selectedSeatNo = actor.seatNo;
-      changeScore(actor, sign * App.delta, true, selected ? selected.seatNo : '');
+      changeScore(actor, sign * App.delta, true, selected ? selected.seatNo : '', {
+        offerFate: sign > 0
+      });
     } else {
       App.selectedSeatNo = (selected || members[0]).seatNo;
       renderAll();
@@ -2641,7 +2659,11 @@
           if (App.mode === 'minus' && !selected) {
             toast('請先點座位上那位同學，再點小組扣分，成績統計才會記下是因為誰');
           }
-          if (actor) changeScore(actor, sign * App.delta, true, selected ? selected.seatNo : '');
+          if (actor) {
+            changeScore(actor, sign * App.delta, true, selected ? selected.seatNo : '', {
+              offerFate: sign > 0
+            });
+          }
         } else {
           renderAll();
         }
@@ -2917,6 +2939,12 @@
         if (App.rankBumpSeat === seats[0]) App.rankBumpSeat = null;
       }, 900);
       refreshClassStats();
+      if (opts.offerFate && applyDelta > 0) {
+        offerFateAfterPlus(student, {
+          forceGroup: !!(applyGroup && data.groupId),
+          groupId: data.groupId || 0
+        });
+      }
       if (typeof opts.onDone === 'function') opts.onDone(data);
     });
   }
@@ -8215,74 +8243,155 @@
     return 8;
   }
 
-  function showLotteryFate() {
+  function renderFateOfferUi(revealedPoints) {
+    var offer = App.fateOffer;
+    var pending = !!(offer && offer.pending);
+    var who = offer
+      ? (offer.forceGroup && offer.groupId
+        ? ((offer.lab ? '實驗第' : '第') + offer.groupId + '組')
+        : (offer.name || '同學'))
+      : '';
+    if (els.fatePanel) {
+      els.fatePanel.hidden = !(pending && offer && offer.source === 'manual');
+    }
+    if (els.fatePanelWho) {
+      els.fatePanelWho.textContent = who ? ('給 ' + who) : '';
+    }
+    if (els.fatePanelLabel) {
+      els.fatePanelLabel.textContent = revealedPoints != null
+        ? ('揭曉：+' + revealedPoints)
+        : '命運加分待揭曉';
+    }
+    if (els.btnFateApply) els.btnFateApply.disabled = !pending || revealedPoints != null;
+    if (els.lotteryFateWrap) {
+      els.lotteryFateWrap.hidden = !(pending && offer && offer.source === 'lottery');
+    }
+    if (els.lotteryFateLabel) {
+      els.lotteryFateLabel.textContent = revealedPoints != null
+        ? ('揭曉：+' + revealedPoints)
+        : '命運加分待揭曉';
+    }
+    if (els.btnLotteryApplyFate) {
+      els.btnLotteryApplyFate.disabled = !pending || revealedPoints != null;
+    }
+  }
+
+  function hideFateOffer() {
+    App.fateOffer = null;
+    App.lotteryFate = null;
+    App.lotteryFatePending = false;
+    renderFateOfferUi();
+    if (els.fatePanel) els.fatePanel.hidden = true;
+    if (els.lotteryFateWrap) els.lotteryFateWrap.hidden = true;
+    if (els.btnFateApply) els.btnFateApply.disabled = false;
+    if (els.btnLotteryApplyFate) els.btnLotteryApplyFate.disabled = false;
+  }
+
+  function showFateOffer(opts) {
+    opts = opts || {};
+    App.fateOffer = {
+      pending: true,
+      source: opts.source || 'manual',
+      seatNo: opts.seatNo || '',
+      name: opts.name || '',
+      forceGroup: !!opts.forceGroup,
+      groupId: opts.groupId || 0,
+      lab: !!opts.lab
+    };
     App.lotteryFatePending = true;
     App.lotteryFate = null;
-    if (els.lotteryFateWrap) els.lotteryFateWrap.hidden = false;
-    if (els.lotteryFateLabel) els.lotteryFateLabel.textContent = '命運加分待揭曉';
-    if (els.btnLotteryApplyFate) els.btnLotteryApplyFate.disabled = false;
+    renderFateOfferUi();
+  }
+
+  function offerFateAfterPlus(student, opts) {
+    opts = opts || {};
+    if (!student) return;
+    showFateOffer({
+      source: 'manual',
+      seatNo: student.seatNo,
+      name: student.name,
+      forceGroup: !!opts.forceGroup,
+      groupId: opts.groupId || 0,
+      lab: isLabView()
+    });
+    toast('還可抽命運加分（可略過）', 2800);
+  }
+
+  function showLotteryFate() {
+    var winner = App.lotteryLastWinner || findStudent(App.selectedSeatNo);
+    var mode = lotteryMode();
+    showFateOffer({
+      source: 'lottery',
+      seatNo: winner ? winner.seatNo : (App.selectedSeatNo || ''),
+      name: winner ? winner.name : '',
+      forceGroup: mode === 'group' && !!App.lotteryLastGroupId,
+      groupId: App.lotteryLastGroupId || 0,
+      lab: false
+    });
   }
 
   function hideLotteryFate() {
-    App.lotteryFate = null;
-    App.lotteryFatePending = false;
-    if (els.lotteryFateWrap) els.lotteryFateWrap.hidden = true;
-    if (els.btnLotteryApplyFate) els.btnLotteryApplyFate.disabled = false;
+    hideFateOffer();
   }
 
-  function skipLotteryFate() {
-    hideLotteryFate();
+  function skipFateOffer() {
+    hideFateOffer();
     toast('已略過命運加分');
   }
 
-  function applyLotteryFate() {
-    if (!App.lotteryFatePending || !App.classroom) {
+  function applyFateOffer() {
+    var offer = App.fateOffer;
+    if (!offer || !offer.pending || !App.classroom) {
       toast('目前沒有命運加分可套用');
       return;
     }
     var points = rollFatePoints();
     App.lotteryFate = points;
+    offer.pending = false;
     App.lotteryFatePending = false;
-    if (els.lotteryFateLabel) els.lotteryFateLabel.textContent = '揭曉：+' + points;
-    if (els.btnLotteryApplyFate) els.btnLotteryApplyFate.disabled = true;
-    var mode = lotteryMode();
-    if (mode === 'group' && App.lotteryLastGroupId) {
+    renderFateOfferUi(points);
+
+    if (offer.forceGroup && offer.groupId) {
       var members = (App.classroom.students || []).filter(function (s) {
-        return String(classGroups().assign[String(s.seatNo)]) === String(App.lotteryLastGroupId);
+        var gid = offer.lab ? studentLabGroupId(s.seatNo) : parseInt(classGroups().assign[String(s.seatNo)], 10);
+        return String(gid) === String(offer.groupId);
       });
       if (!members.length) {
-        hideLotteryFate();
+        hideFateOffer();
         toast('找不到該組成員');
         return;
       }
       var actor = members.filter(function (s) {
-        return String(s.seatNo) === String(App.selectedSeatNo);
+        return String(s.seatNo) === String(offer.seatNo || App.selectedSeatNo);
       })[0] || members[0];
-      toast('第' + App.lotteryLastGroupId + '組命運加分 +' + points, 4500);
+      toast((offer.lab ? '實驗第' : '第') + offer.groupId + '組命運加分 +' + points, 4500);
       changeScore(actor, points, true, actor.seatNo, {
         detail: '命運加分·整組',
-        onDone: function () { hideLotteryFate(); }
+        onDone: function () { hideFateOffer(); }
       });
       return;
     }
-    var winner = App.lotteryLastWinner || findStudent(App.selectedSeatNo);
+
+    var winner = findStudent(offer.seatNo) || App.lotteryLastWinner || findStudent(App.selectedSeatNo);
     if (!winner) {
-      hideLotteryFate();
-      toast('找不到抽中的同學');
+      hideFateOffer();
+      toast('找不到同學');
       return;
     }
     toast(winner.name + ' 命運加分 +' + points, 4500);
-    if (App.peerTeach && App.peerHelperSeatNo && String(App.peerHelperSeatNo) !== String(winner.seatNo)) {
+    if (offer.source === 'lottery' && App.peerTeach && App.peerHelperSeatNo &&
+        String(App.peerHelperSeatNo) !== String(winner.seatNo)) {
       var helper = findStudent(App.peerHelperSeatNo);
       if (helper) {
         applyPeerTeachScores(helper, winner, points);
-        hideLotteryFate();
+        hideFateOffer();
         return;
       }
     }
     changeScore(winner, points, false, '', {
+      forceNoGroup: true,
       detail: '命運加分',
-      onDone: function () { hideLotteryFate(); }
+      onDone: function () { hideFateOffer(); }
     });
   }
 

@@ -2368,6 +2368,69 @@
     gap: 8px;
     flex-wrap: wrap;
   }
+
+  .fate-panel {
+    position: fixed;
+    inset: auto 16px 18px 16px;
+    z-index: 40;
+    display: flex;
+    justify-content: center;
+    pointer-events: none;
+  }
+
+  .fate-panel[hidden] {
+    display: none !important;
+  }
+
+  .fate-panel-card {
+    pointer-events: auto;
+    width: min(420px, 100%);
+    padding: 14px 16px;
+    border-radius: 16px;
+    text-align: center;
+    border: 1px solid #ebd39a;
+    background:
+      radial-gradient(circle at 20% 0%, rgba(243, 200, 75, 0.4), transparent 55%),
+      linear-gradient(180deg, #fff8e8, #f7f3ea);
+    box-shadow: 0 12px 32px rgba(27, 58, 75, 0.22);
+  }
+
+  .fate-panel-kicker {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: #8a5a00;
+  }
+
+  .fate-panel-who {
+    margin: 4px 0 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: #1b3a4b;
+  }
+
+  .fate-panel-label {
+    margin: 6px 0 0;
+    font-size: 22px;
+    font-weight: 800;
+    color: #8a5a00;
+  }
+
+  .fate-panel-hint {
+    margin: 4px 0 10px;
+    font-size: 12px;
+    color: var(--muted);
+    line-height: 1.45;
+  }
+
+  .fate-panel-actions {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
   .seat-card.peer-helper {
     box-shadow: 0 0 0 3px #2f6f8f, 0 8px 18px rgba(47, 111, 143, 0.35);
   }
