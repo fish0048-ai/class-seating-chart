@@ -1485,11 +1485,12 @@
           handlePeerTeachClick(student);
           return;
         }
-        if (App.mode === 'plus' || App.mode === 'minus') {
-          const sign = App.mode === 'plus' ? 1 : -1;
-          changeScore(student, sign * App.delta, false, '', {
-            offerFate: sign > 0
-          });
+        if (App.mode === 'plus') {
+          beginManualFate(student);
+          return;
+        }
+        if (App.mode === 'minus') {
+          changeScore(student, -App.delta);
         } else {
           renderAll();
         }
@@ -2132,11 +2133,12 @@
       handlePeerTeachClick(student);
       return;
     }
-    if (App.mode === 'plus' || App.mode === 'minus') {
-      const sign = App.mode === 'plus' ? 1 : -1;
-      changeScore(student, sign * App.delta, false, '', {
-        offerFate: sign > 0
-      });
+    if (App.mode === 'plus') {
+      beginManualFate(student);
+      return;
+    }
+    if (App.mode === 'minus') {
+      changeScore(student, -App.delta);
     } else {
       renderAll();
     }
@@ -2281,7 +2283,7 @@
     }
     renderMode();
     renderGroupBar();
-    toast(mode === 'plus' ? '加分模式：點學生即可加分' : mode === 'minus' ? '扣分模式：點學生即可扣分' : '已回到選取模式');
+    toast(mode === 'plus' ? '加分模式：點學生後揭曉命運分數（只加一次）' : mode === 'minus' ? '扣分模式：點學生即可扣分' : '已回到選取模式');
   }
 
   function renderMode() {
@@ -2298,7 +2300,7 @@
   }
 
   function renderDelta() {
-    document.querySelectorAll('.chip').forEach(function (chip) {
+    document.querySelectorAll('.delta-group .chip').forEach(function (chip) {
       chip.classList.toggle('active', Number(chip.getAttribute('data-delta')) === App.delta);
     });
   }
@@ -2539,9 +2541,11 @@
       }
       var actor = selected || members[0];
       App.selectedSeatNo = actor.seatNo;
-      changeScore(actor, sign * App.delta, true, selected ? selected.seatNo : '', {
-        offerFate: sign > 0
-      });
+      if (App.mode === 'plus') {
+        beginManualFate(actor, { forceGroup: true, groupId: gid });
+        return;
+      }
+      changeScore(actor, sign * App.delta, true, selected ? selected.seatNo : '');
     } else {
       App.selectedSeatNo = (selected || members[0]).seatNo;
       renderAll();
@@ -2659,11 +2663,11 @@
           if (App.mode === 'minus' && !selected) {
             toast('請先點座位上那位同學，再點小組扣分，成績統計才會記下是因為誰');
           }
-          if (actor) {
-            changeScore(actor, sign * App.delta, true, selected ? selected.seatNo : '', {
-              offerFate: sign > 0
-            });
+          if (App.mode === 'plus') {
+            if (actor) beginManualFate(actor, { forceGroup: true, groupId: gid });
+            return;
           }
+          if (actor) changeScore(actor, sign * App.delta, true, selected ? selected.seatNo : '');
         } else {
           renderAll();
         }
@@ -2934,12 +2938,6 @@
         if (App.rankBumpSeat === seats[0]) App.rankBumpSeat = null;
       }, 900);
       refreshClassStats();
-      if (opts.offerFate && applyDelta > 0) {
-        offerFateAfterPlus(student, {
-          forceGroup: !!(applyGroup && data.groupId),
-          groupId: data.groupId || 0
-        });
-      }
       if (typeof opts.onDone === 'function') opts.onDone(data);
     });
   }
@@ -8278,6 +8276,38 @@
     if (els.btnLotteryApplyFate) els.btnLotteryApplyFate.disabled = false;
   }
 
+  function beginManualFate(student, opts) {
+    opts = opts || {};
+    if (!canEdit()) {
+      toast('檢視模式不能加分');
+      return;
+    }
+    if (!student) return;
+    if (App.fateOffer && App.fateOffer.pending) {
+      toast('請先完成或略過目前的命運加分');
+      return;
+    }
+    App.selectedSeatNo = student.seatNo;
+    var forceGroup = opts.forceGroup === true ||
+      isLabView() ||
+      !!(els.groupApplyScore && els.groupApplyScore.checked);
+    var groupId = Number(opts.groupId) || 0;
+    if (forceGroup && !groupId) {
+      groupId = isLabView() ? studentLabGroupId(student.seatNo) : studentGroupId(student.seatNo);
+    }
+    if (forceGroup && !groupId) forceGroup = false;
+    showFateOffer({
+      source: 'manual',
+      seatNo: student.seatNo,
+      name: student.name,
+      forceGroup: forceGroup,
+      groupId: groupId || 0,
+      lab: isLabView()
+    });
+    renderAll();
+    toast('命運加分：按「加分」揭曉（只加一次）');
+  }
+
   function showFateOffer(opts) {
     opts = opts || {};
     App.fateOffer = {
@@ -8292,20 +8322,6 @@
     App.lotteryFatePending = true;
     App.lotteryFate = null;
     renderFateOfferUi();
-  }
-
-  function offerFateAfterPlus(student, opts) {
-    opts = opts || {};
-    if (!student) return;
-    showFateOffer({
-      source: 'manual',
-      seatNo: student.seatNo,
-      name: student.name,
-      forceGroup: !!opts.forceGroup,
-      groupId: opts.groupId || 0,
-      lab: isLabView()
-    });
-    toast('還可抽命運加分（可略過）', 2800);
   }
 
   function showLotteryFate() {
