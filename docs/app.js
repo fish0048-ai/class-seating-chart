@@ -40,6 +40,7 @@
     groupAssign: false,
     groupPick: 1,
     layoutMode: 'seatNo',
+    statsBySeat: {},
     groupDeductions: [],
     appView: 'class',
     hwAssignmentId: '',
@@ -1061,22 +1062,59 @@
     run('loadClassroom', [className], function (data) {
       App.drawn[className] = App.drawn[className] || [];
       applyPayload(data, true);
-      api('listDaily', [className]).then(function (daily) {
-        if (daily && daily.days) {
-          App.dailyDays = daily.days;
-          renderRoster();
-        }
-      }).catch(function () {});
+      refreshClassStats();
     });
   }
 
+  function seatLookupKey(seatNo) {
+    var raw = String(seatNo == null ? '' : seatNo).trim();
+    var digits = raw.replace(/\D/g, '');
+    if (digits) return String(parseInt(digits, 10));
+    return raw;
+  }
+
+  function refreshClassStats(done) {
+    var className = App.classroom && App.classroom.className;
+    if (!className) {
+      if (done) done();
+      return;
+    }
+    api('getClassStats', [className]).then(function (data) {
+      App.statsBySeat = {};
+      (data && data.students ? data.students : []).forEach(function (row) {
+        if (!row) return;
+        var keys = [String(row.seatNo), seatLookupKey(row.seatNo)];
+        keys.forEach(function (k) {
+          if (k) App.statsBySeat[k] = row;
+        });
+      });
+      if (data && data.activeDate) App.activeDate = data.activeDate;
+      renderRoster();
+      if (done) done();
+    }).catch(function () {
+      if (done) done();
+    });
+  }
+
+  function statsRowFor(student) {
+    if (!student) return null;
+    var key = String(student.seatNo);
+    return (App.statsBySeat && (App.statsBySeat[key] || App.statsBySeat[seatLookupKey(key)])) || null;
+  }
+
   function totalActivityScore(student) {
+    var row = statsRowFor(student);
+    if (row) {
+      if (row.grand != null && isFinite(Number(row.grand))) return Number(row.grand);
+      return (Number(row.settledTotal) || 0) + (Number(student.score) || 0);
+    }
     var live = Number(student && student.score) || 0;
-    var seat = String(student && student.seatNo || '');
+    var seat = seatLookupKey(student && student.seatNo);
     var past = 0;
     (App.dailyDays || []).forEach(function (day) {
+      if (App.activeDate && day.date === App.activeDate) return;
       (day.students || []).forEach(function (s) {
-        if (String(s.seatNo) === seat) past += Number(s.score) || 0;
+        if (seatLookupKey(s.seatNo) === seat) past += Number(s.score) || 0;
       });
     });
     return past + live;
@@ -1091,6 +1129,7 @@
     var map = {};
     ranked.forEach(function (s, i) {
       map[String(s.seatNo)] = i + 1;
+      map[seatLookupKey(s.seatNo)] = i + 1;
     });
     return { ranked: ranked, map: map };
   }
@@ -1100,12 +1139,11 @@
     var students = App.classroom.students || [];
     var todayIndex = buildRankIndex(students, function (s) { return Number(s.score) || 0; });
     var totalIndex = buildRankIndex(students, totalActivityScore);
-    var ranked = students.slice().sort(function (a, b) {
-      var as = Number(a.score) || 0;
-      var bs = Number(b.score) || 0;
-      if (bs !== as) return bs - as;
-      var tdiff = totalActivityScore(b) - totalActivityScore(a);
-      if (tdiff) return tdiff;
+    var ranked = students.filter(function (student) {
+      return Number(student.score) > 0;
+    }).sort(function (a, b) {
+      var diff = Number(b.score) - Number(a.score);
+      if (diff) return diff;
       return String(a.seatNo).localeCompare(String(b.seatNo), 'zh-Hant', { numeric: true });
     });
     if (els.rankEmpty) els.rankEmpty.hidden = ranked.length > 0;
@@ -1114,8 +1152,8 @@
       return;
     }
     els.roster.innerHTML = ranked.map(function (student) {
-      var todayRank = todayIndex.map[String(student.seatNo)] || '—';
-      var totalRank = totalIndex.map[String(student.seatNo)] || '—';
+      var todayRank = todayIndex.map[String(student.seatNo)] || todayIndex.map[seatLookupKey(student.seatNo)] || '—';
+      var totalRank = totalIndex.map[String(student.seatNo)] || totalIndex.map[seatLookupKey(student.seatNo)] || '—';
       var todayScore = Number(student.score) || 0;
       var totalScore = totalActivityScore(student);
       var deltaHtml = '';
@@ -1126,17 +1164,15 @@
         else deltaHtml = '<span class="rank-delta same">＝</span>';
       }
       var selected = student.seatNo === App.selectedSeatNo ? ' selected' : '';
-      var medal = todayScore > 0 && todayRank === 1 ? ' gold'
-        : todayScore > 0 && todayRank === 2 ? ' silver'
-        : todayScore > 0 && todayRank === 3 ? ' bronze' : '';
+      var medal = todayRank === 1 ? ' gold' : todayRank === 2 ? ' silver' : todayRank === 3 ? ' bronze' : '';
       var bump = student.seatNo === App.rankBumpSeat ? ' rank-up' : '';
       var signed = (todayScore > 0 ? '+' : '') + todayScore;
       return '<li><button type="button" class="' + selected + medal + bump + '" data-seat="' + escapeHtml(student.seatNo) + '">' +
-        '<span class="rank-no">' + (todayScore > 0 ? todayRank : '·') + '</span>' +
+        '<span class="rank-no">' + todayRank + '</span>' +
         '<span class="rank-main"><span class="rank-name">' + escapeHtml(student.name) + deltaHtml + '</span>' +
         '<span class="rank-meta">' +
           '<span class="rank-chip">座 ' + escapeHtml(student.seatNo) + '</span>' +
-          '<span class="rank-chip">今 #' + todayRank + '</span>' +
+          '<span class="rank-chip">今 #' + todayRank + '（' + todayScore + '）</span>' +
           '<span class="rank-chip">總 #' + totalRank + '（' + totalScore + '）</span>' +
         '</span></span>' +
         '<strong class="' + scoreClass(todayScore) + '">' + signed + '</strong></button></li>';
@@ -1409,9 +1445,10 @@
     if (els.btnLayoutSeatNo) els.btnLayoutSeatNo.classList.toggle('tab-on', App.layoutMode !== 'group');
     if (els.btnLayoutGroup) els.btnLayoutGroup.classList.toggle('tab-on', App.layoutMode === 'group');
     if (els.boardHint) {
+      var n = (App.classroom && App.classroom.students) ? App.classroom.students.length : 0;
       els.boardHint.textContent = App.layoutMode === 'group'
-        ? '依分組顯示。未分組的同學會列在最下方。'
-        : '依座號排列。需要時可切到「依分組」。';
+        ? ('依分組顯示全班 ' + n + ' 人；未分組列在最下方。')
+        : ('依座號顯示全班 ' + n + ' 人；點學生即可加扣分。');
     }
   }
 
@@ -2571,6 +2608,7 @@
       setTimeout(function () {
         if (App.rankBumpSeat === seats[0]) App.rankBumpSeat = null;
       }, 900);
+      refreshClassStats();
       if (typeof opts.onDone === 'function') opts.onDone(data);
     });
   }
@@ -2594,6 +2632,7 @@
         spawnScoreFloat(sn, data.undone.reversedDelta);
       });
       toast('已復原 ' + data.undone.name + ' 的加扣分');
+      refreshClassStats();
     });
   }
 

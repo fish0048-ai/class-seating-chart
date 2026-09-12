@@ -297,19 +297,37 @@
   }
 
   .board.board-list {
-    grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
     gap: 10px;
     padding: 4px 2px 8px;
     overflow: auto;
   }
 
   .board.board-list .seat {
-    min-height: 0;
+    position: relative;
+    min-height: 108px;
+    aspect-ratio: auto;
   }
 
   .board.board-list .seat-card {
-    min-height: 92px;
-    height: 100%;
+    position: relative;
+    inset: auto;
+    width: 100%;
+    height: auto;
+    min-height: 108px;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+
+  .board.board-list .seat-name {
+    white-space: normal;
+    overflow: visible;
+    word-break: break-word;
+    font-size: 15px;
+  }
+
+  .board.board-list .seat-no {
+    font-size: 12px;
   }
 
   .board-group-block {
@@ -342,8 +360,22 @@
 
   .board-group-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
     gap: 8px;
+  }
+
+  .board-group-grid .seat {
+    position: relative;
+    min-height: 108px;
+  }
+
+  .board-group-grid .seat-card {
+    position: relative;
+    inset: auto;
+    width: 100%;
+    height: auto;
+    min-height: 108px;
+    cursor: pointer;
   }
 
   .lab-board {
