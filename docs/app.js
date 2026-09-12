@@ -8359,6 +8359,12 @@
     App.lotteryFatePending = false;
     renderFateOfferUi(points);
 
+    if (!points) {
+      toast('揭曉：不加分', 3500);
+      setTimeout(hideFateOffer, 900);
+      return;
+    }
+
     if (offer.forceGroup && offer.groupId) {
       var members = (App.classroom.students || []).filter(function (s) {
         var gid = offer.lab ? studentLabGroupId(s.seatNo) : parseInt(classGroups().assign[String(s.seatNo)], 10);
