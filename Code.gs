@@ -66,6 +66,9 @@ const MAX_HISTORY_ROWS = 800;
 /** 你的座位表／成績資料庫（Google 試算表 ID）。課表不在這份裡。 */
 const SPREADSHEET_ID = '1AES93Jv8l65YI2LQ-scVRPqYSLFxtVOD-UqIU99gQSA';
 
+/** 上課課表試算表（只讀）。請與 docs/config.js 的 timetableId 保持一致。 */
+const TIMETABLE_SPREADSHEET_ID = '13VrWBx6hoKpUON_JNxIrynH_gyRV8HnhUt0MMscjkWg';
+
 /** 只有這些 Google 帳號能改資料、進教師模式。其餘登入只能看。 */
 const TEACHER_EMAILS = ['chunhsinkuo@kcis.hc.edu.tw'];
 
@@ -309,6 +312,9 @@ function handleRequest_(req) {
         return logLottery(req);
       case 'getStore':
         return getCloudStore();
+      case 'getTimetable':
+        if (!user) throw new Error('請先用 Google 帳號登入');
+        return getTimetableApi_();
       case 'putStore':
         return putCloudStore(req.store || payload);
       case 'repairGroups':
@@ -682,6 +688,38 @@ function getSs_() {
     return SpreadsheetApp.openById(SPREADSHEET_ID);
   }
   return SpreadsheetApp.getActiveSpreadsheet();
+}
+
+/** 從另一份「上課課表」試算表讀取最新內容（只讀，不寫入）。 */
+function getTimetableApi_() {
+  var id = String(TIMETABLE_SPREADSHEET_ID || '').trim();
+  if (!id) throw new Error('尚未設定課表試算表 ID');
+  var ss;
+  try {
+    ss = SpreadsheetApp.openById(id);
+  } catch (err) {
+    throw new Error('打不開課表試算表，請確認部署帳號有權限開啟該檔：' + (err && err.message ? err.message : err));
+  }
+  var sheets = ss.getSheets().map(function (sh) {
+    var range = sh.getDataRange();
+    var values = range ? range.getDisplayValues() : [];
+    return {
+      name: sh.getName(),
+      gid: String(sh.getSheetId()),
+      values: values
+    };
+  }).filter(function (sheet) {
+    return sheet.values && sheet.values.length;
+  });
+  if (!sheets.length) throw new Error('課表試算表目前是空的');
+  return {
+    ok: true,
+    title: ss.getName() || '上課課表',
+    url: ss.getUrl(),
+    source: 'google',
+    fetchedAt: new Date().toISOString(),
+    sheets: sheets
+  };
 }
 
 function withLock_(fn) {

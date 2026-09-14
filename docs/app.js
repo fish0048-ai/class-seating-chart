@@ -452,6 +452,12 @@
       renderTimetable();
     });
   }
+  var btnTimetableRefresh = document.getElementById('btnTimetableRefresh');
+  if (btnTimetableRefresh) {
+    btnTimetableRefresh.addEventListener('click', function () {
+      loadTimetable(true);
+    });
+  }
   if (els.timetableGrid) {
     els.timetableGrid.addEventListener('click', function (event) {
       var btn = event.target.closest('[data-tt-class]');
@@ -3719,21 +3725,89 @@
       'https://docs.google.com/spreadsheets/d/13VrWBx6hoKpUON_JNxIrynH_gyRV8HnhUt0MMscjkWg/edit').trim();
   }
 
-  function timetableEmbedUrl() {
+  function timetableEmbedUrl(bust) {
     var id = String((window.SEAT_CONFIG && window.SEAT_CONFIG.timetableId) ||
       '13VrWBx6hoKpUON_JNxIrynH_gyRV8HnhUt0MMscjkWg').trim();
-    return 'https://docs.google.com/spreadsheets/d/' + id + '/htmlembed?widget=true&headers=false';
+    var url = 'https://docs.google.com/spreadsheets/d/' + id + '/htmlembed?widget=true&headers=false';
+    if (bust) url += '&_=' + Date.now();
+    return url;
   }
 
-  function loadTimetable() {
-    App.timetableData = fallbackTimetable();
+  function formatTimetableFetchedAt(iso) {
+    if (!iso) return '';
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return '';
+    return d.getFullYear() + '/' + (d.getMonth() + 1) + '/' + d.getDate() + ' ' +
+      String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+
+  function applyTimetablePayload(data, meta) {
+    meta = meta || {};
+    if (!data || !data.sheets || !data.sheets.length) {
+      throw new Error('課表沒有讀到工作表');
+    }
+    App.timetableData = {
+      ok: true,
+      title: data.title || '上課課表',
+      url: data.url || timetableUrl(),
+      source: data.source || meta.source || 'google',
+      fetchedAt: data.fetchedAt || new Date().toISOString(),
+      sheets: data.sheets.map(function (sheet) {
+        return {
+          name: String(sheet.name || '課表'),
+          gid: String(sheet.gid || ''),
+          values: sheet.values || []
+        };
+      })
+    };
+    if (App.timetableSheet >= App.timetableData.sheets.length) App.timetableSheet = 0;
     renderTimetable();
-    api('getLessonLog', []).then(function (data) {
-      if (data && data.lessonLog) {
-        App.lessonLog = mergeLessonLogClient_(App.lessonLog, data.lessonLog);
-        if (App.teacherTab === 'timetable') renderTimetable();
+    setTimetableStatus(meta.message || '');
+  }
+
+  function loadTimetable(force) {
+    if (!App.timetableData) {
+      App.timetableData = fallbackTimetable();
+      renderTimetable();
+    }
+    if (els.timetableStatus) {
+      els.timetableStatus.textContent = force ? '正在重新抓取 Google 課表…' : '正在從 Google 課表載入…';
+    }
+    if (els.timetableFrame && (force || !els.timetableFrame.getAttribute('src'))) {
+      els.timetableFrame.src = timetableEmbedUrl(true);
+    }
+
+    var chain;
+    if (window.CloudStore && CloudStore.request && cloudConnected()) {
+      chain = CloudStore.request('getTimetable', { _: Date.now() });
+    } else {
+      chain = Promise.reject(new Error('尚未連上雲端，無法讀取最新課表'));
+    }
+
+    chain.then(function (data) {
+      if (data && data.ok === false) {
+        throw new Error(data.error || '讀取課表失敗');
       }
-    }).catch(function () {});
+      applyTimetablePayload(data, {
+        source: 'google',
+        message: '已載入 Google 課表最新內容'
+      });
+      api('getLessonLog', []).then(function (logData) {
+        if (logData && logData.lessonLog) {
+          App.lessonLog = mergeLessonLogClient_(App.lessonLog, logData.lessonLog);
+          if (App.teacherTab === 'timetable') renderTimetable();
+        }
+      }).catch(function () {});
+    }).catch(function (err) {
+      if (!App.timetableData) App.timetableData = fallbackTimetable();
+      renderTimetable();
+      var msg = err && err.message ? err.message : '讀取課表失敗';
+      if (/未知的操作/.test(msg)) {
+        msg = '後端還沒更新 getTimetable。請把最新 Code.gs 貼上 Apps Script 並新增部署後再按重新整理。';
+      }
+      setTimetableStatus('目前先顯示備援課表。' + msg);
+      toast(msg, 7000);
+    });
   }
 
   function startTimetableClock() {
@@ -3750,9 +3824,14 @@
     }
   }
 
-  function setTimetableStatus() {
+  function setTimetableStatus(extra) {
     if (!els.timetableStatus) return;
-    els.timetableStatus.textContent = '這份是上課課表，不是成績資料庫。上方會顯示該班最近教學日誌；點班級可去上課。';
+    var data = App.timetableData || {};
+    var when = formatTimetableFetchedAt(data.fetchedAt);
+    var source = data.source === 'google' ? 'Google 試算表' : '本機備援';
+    var base = '這份是上課課表，不是成績資料庫。來源：' + source +
+      (when ? '（' + when + '）' : '') + '。上方會顯示該班最近教學日誌；點班級可去上課。';
+    els.timetableStatus.textContent = extra ? (base + ' ' + extra) : base;
   }
 
   function weekdayIndex(now) {
@@ -3960,7 +4039,7 @@
       els.timetableOpenLink.href = data.url || timetableUrl();
     }
     if (els.timetableFrame && !els.timetableFrame.getAttribute('src')) {
-      els.timetableFrame.src = timetableEmbedUrl();
+      els.timetableFrame.src = timetableEmbedUrl(true);
     }
     if (els.timetableSheets) {
       els.timetableSheets.hidden = sheets.length < 2;
