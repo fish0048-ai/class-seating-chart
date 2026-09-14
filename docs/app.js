@@ -4514,17 +4514,19 @@
   }
 
   function renderFocusCard(kind, row, today, now, remainLabel, holidayName) {
-    var title = row ? periodLabel(row, true) : (kind === 'now' ? '現在沒有課' : '沒有下一節');
-    if (row && row.time) title += ' ' + prettyTime(row.time);
+    var period = row ? periodLabel(row) : (kind === 'now' ? '現在沒有課' : '沒有下一節');
+    var time = row && row.time ? prettyTime(row.time) : '';
+    var remain = '';
     if (remainLabel === 'end' && row && row.end != null) {
-      title += '｜還有 ' + remainText(minutesNow(now), row.end);
+      remain = '還有 ' + remainText(minutesNow(now), row.end) + ' 下課';
     } else if (remainLabel === 'start' && row && row.start != null) {
-      title += '｜還有 ' + remainText(minutesNow(now), row.start);
+      remain = '還有 ' + remainText(minutesNow(now), row.start) + ' 開始';
     }
+    var title = period + (time ? '　' + time : '') + (remain ? '　' + remain : '');
     var text = holidayName ? '' : slotText(row, today);
     var cls = matchClassName(text);
     var go = cls
-      ? '<button type="button" class="tool primary" data-tt-class="' + escapeHtml(cls) + '">去 ' + escapeHtml(cls) + '</button>'
+      ? '<button type="button" class="tool primary" data-tt-class="' + escapeHtml(cls) + '">去 ' + escapeHtml(cls) + ' 上課</button>'
       : '';
     var body = holidayName
       ? '<span class="tt-focus-empty">放假｜' + escapeHtml(holidayName) + '</span>'
