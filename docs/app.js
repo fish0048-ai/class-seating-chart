@@ -37,6 +37,8 @@
     statsSeatNo: '',
     schoolBusy: false,
     timetableSheet: 0,
+    scheduleChanges: [],
+    scheduleWeek: '',
     groupPanel: false,
     groupAssign: false,
     groupPick: 1,
@@ -456,6 +458,30 @@
   if (btnTimetableRefresh) {
     btnTimetableRefresh.addEventListener('click', function () {
       loadTimetable(true);
+    });
+  }
+  var btnTtSwapSave = document.getElementById('btnTtSwapSave');
+  if (btnTtSwapSave) {
+    btnTtSwapSave.addEventListener('click', function () {
+      requireTeacher(saveScheduleChangeFromForm);
+    });
+  }
+  var ttSwapList = document.getElementById('ttSwapList');
+  if (ttSwapList) {
+    ttSwapList.addEventListener('click', function (event) {
+      var btn = event.target.closest('[data-tt-swap-del]');
+      if (!btn) return;
+      requireTeacher(function () {
+        deleteScheduleChange(btn.getAttribute('data-tt-swap-del'));
+      });
+    });
+  }
+  var ttSwapWeek = document.getElementById('ttSwapWeek');
+  if (ttSwapWeek) {
+    ttSwapWeek.addEventListener('change', function () {
+      App.scheduleWeek = ttSwapWeek.value || mondayKeyOf(new Date());
+      renderScheduleChangePanel();
+      renderTimetable();
     });
   }
   if (els.timetableGrid) {
@@ -1519,8 +1545,28 @@
     if (data.lessonLog) {
       App.lessonLog = mergeLessonLogClient_(App.lessonLog, data.lessonLog);
     }
+    if (data.scheduleChanges) {
+      App.scheduleChanges = mergeScheduleChangesClient_(App.scheduleChanges, data.scheduleChanges);
+    }
     renderAll();
     if (App.classroom) refreshClassStats();
+  }
+
+  function mergeScheduleChangesClient_(localList, remoteList) {
+    var byId = {};
+    (remoteList || []).concat(localList || []).forEach(function (item) {
+      if (!item || !item.id || !item.className) return;
+      var prev = byId[item.id];
+      if (!prev || String(item.updatedAt || item.createdAt || '') >= String(prev.updatedAt || prev.createdAt || '')) {
+        byId[item.id] = item;
+      }
+    });
+    return Object.keys(byId).map(function (id) { return byId[id]; }).filter(function (item) {
+      return !item.deleted;
+    }).sort(function (a, b) {
+      return String(b.weekStart || '').localeCompare(String(a.weekStart || '')) ||
+        String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
+    });
   }
 
   function countLessonLogClient_(log) {
@@ -3077,6 +3123,7 @@
     if (App.teacherTab === 'timetable') {
       App.ttFocusKey = '';
       loadTimetable();
+      loadScheduleChanges();
       startTimetableClock();
     } else {
       stopTimetableClock();
@@ -3690,6 +3737,243 @@
   var TT_DAYS = ['週一', '週二', '週三', '週四', '週五'];
   var TT_CLASS_COLORS = ['#dbeaf2', '#dcecdc', '#f3e3c6', '#ead8f0', '#f6d9d4', '#e8e4d4'];
 
+  function mondayKeyOf(date) {
+    var d = date instanceof Date ? new Date(date.getTime()) : new Date();
+    if (isNaN(d.getTime())) d = new Date();
+    var day = d.getDay();
+    var diff = day === 0 ? -6 : 1 - day;
+    d.setHours(12, 0, 0, 0);
+    d.setDate(d.getDate() + diff);
+    return d.getFullYear() + '-' +
+      String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0');
+  }
+
+  function shiftMondayKey(weekStart, weeks) {
+    var parts = String(weekStart || '').split('-').map(Number);
+    var d = new Date(parts[0], (parts[1] || 1) - 1, parts[2] || 1, 12, 0, 0);
+    if (isNaN(d.getTime())) d = new Date();
+    d.setDate(d.getDate() + (Number(weeks) || 0) * 7);
+    return mondayKeyOf(d);
+  }
+
+  function formatWeekLabel(weekStart) {
+    var parts = String(weekStart || '').split('-');
+    if (parts.length !== 3) return weekStart || '';
+    var mon = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]), 12, 0, 0);
+    var fri = new Date(mon.getTime());
+    fri.setDate(fri.getDate() + 4);
+    function short(d) {
+      return (d.getMonth() + 1) + '/' + d.getDate();
+    }
+    var thisMon = mondayKeyOf(new Date());
+    var tag = weekStart === thisMon ? '（本週）' : (weekStart === shiftMondayKey(thisMon, 1) ? '（下週）' : '');
+    return short(mon) + '～' + short(fri) + tag;
+  }
+
+  function periodKey(text) {
+    return String(text || '').replace(/第|節|\s/g, '').trim();
+  }
+
+  function findPeriodRowIndex(rows, period) {
+    var target = periodKey(period);
+    if (!target) return -1;
+    var i;
+    for (i = 0; i < (rows || []).length; i++) {
+      if (periodKey(rows[i].period) === target) return i;
+      if (String(rows[i].period || '').trim() === String(period || '').trim()) return i;
+    }
+    return -1;
+  }
+
+  function scheduleChangesForWeek(weekStart) {
+    var key = weekStart || App.scheduleWeek || mondayKeyOf(new Date());
+    return (App.scheduleChanges || []).filter(function (item) {
+      return item && item.weekStart === key;
+    });
+  }
+
+  function applyScheduleChangesToModel(model, weekStart) {
+    if (!model || model.raw || !model.rows) {
+      return { model: model, marks: {} };
+    }
+    var rows = model.rows.map(function (row) {
+      return {
+        period: row.period,
+        time: row.time,
+        start: row.start,
+        end: row.end,
+        isBreak: row.isBreak,
+        cells: (row.cells || []).slice()
+      };
+    });
+    var marks = {};
+    scheduleChangesForWeek(weekStart).forEach(function (ch) {
+      var fromRi = findPeriodRowIndex(rows, ch.fromPeriod);
+      var toRi = findPeriodRowIndex(rows, ch.toPeriod);
+      if (fromRi < 0 || toRi < 0) return;
+      var fd = Number(ch.fromDay);
+      var td = Number(ch.toDay);
+      if (!(fd >= 0 && fd <= 4 && td >= 0 && td <= 4)) return;
+      var fromText = rows[fromRi].cells[fd] || '';
+      var toText = rows[toRi].cells[td] || '';
+      var fromCls = matchClassName(fromText);
+      var movedText = fromText;
+      if (ch.className && fromCls && fromCls !== ch.className) {
+        movedText = ch.className;
+      } else if (!fromText && ch.className) {
+        movedText = ch.className;
+      }
+      rows[fromRi].cells[fd] = toText;
+      rows[toRi].cells[td] = movedText || ch.className || '';
+      marks[fd + ':' + fromRi] = 'from';
+      marks[td + ':' + toRi] = 'to';
+    });
+    return {
+      model: { days: model.days, rows: rows },
+      marks: marks
+    };
+  }
+
+  function loadScheduleChanges() {
+    if (!App.scheduleWeek) App.scheduleWeek = mondayKeyOf(new Date());
+    api('getScheduleChanges', []).then(function (data) {
+      if (data && data.scheduleChanges) {
+        App.scheduleChanges = mergeScheduleChangesClient_(App.scheduleChanges, data.scheduleChanges);
+      }
+      if (data && data.weekStart && !App.scheduleWeek) App.scheduleWeek = data.weekStart;
+      renderScheduleChangePanel();
+      if (App.teacherTab === 'timetable') renderTimetable();
+    }).catch(function () {
+      renderScheduleChangePanel();
+    });
+  }
+
+  function fillScheduleChangeFormOptions(model) {
+    var classEl = document.getElementById('ttSwapClass');
+    var fromPeriod = document.getElementById('ttSwapFromPeriod');
+    var toPeriod = document.getElementById('ttSwapToPeriod');
+    var weekEl = document.getElementById('ttSwapWeek');
+    if (weekEl) {
+      var thisMon = mondayKeyOf(new Date());
+      var options = [0, 1, 2, -1].map(function (offset) {
+        var key = shiftMondayKey(thisMon, offset);
+        return { key: key, label: formatWeekLabel(key) };
+      });
+      var current = App.scheduleWeek || thisMon;
+      if (options.every(function (o) { return o.key !== current; })) {
+        options.unshift({ key: current, label: formatWeekLabel(current) });
+      }
+      weekEl.innerHTML = options.map(function (o) {
+        return '<option value="' + escapeHtml(o.key) + '"' + (o.key === current ? ' selected' : '') + '>' +
+          escapeHtml(o.label) + '</option>';
+      }).join('');
+    }
+    if (classEl) {
+      var names = (App.classNames || []).filter(function (n) { return n && n !== '範例班'; });
+      if (!names.length) names = App.classNames || [];
+      var prevClass = classEl.value;
+      classEl.innerHTML = names.map(function (name) {
+        return '<option value="' + escapeHtml(name) + '">' + escapeHtml(name) + '</option>';
+      }).join('');
+      if (prevClass && names.indexOf(prevClass) >= 0) classEl.value = prevClass;
+    }
+    var periods = [];
+    ((model && model.rows) || []).forEach(function (row) {
+      if (row.isBreak) return;
+      var label = String(row.period || '').trim();
+      if (!label || periods.indexOf(label) >= 0) return;
+      periods.push(label);
+    });
+    if (!periods.length) {
+      periods = ['1', '2', '3', '4', '5', '6', '7'];
+    }
+    function fillPeriod(sel) {
+      if (!sel) return;
+      var prev = sel.value;
+      sel.innerHTML = periods.map(function (p) {
+        return '<option value="' + escapeHtml(p) + '">' + escapeHtml(periodLabel({ period: p })) + '</option>';
+      }).join('');
+      if (prev && periods.indexOf(prev) >= 0) sel.value = prev;
+    }
+    fillPeriod(fromPeriod);
+    fillPeriod(toPeriod);
+  }
+
+  function renderScheduleChangePanel() {
+    var list = document.getElementById('ttSwapList');
+    if (!list) return;
+    var week = App.scheduleWeek || mondayKeyOf(new Date());
+    var items = scheduleChangesForWeek(week);
+    if (!items.length) {
+      list.innerHTML = '<p class="tt-swap-empty">本週還沒有調課。加入後，上方「現在／接下來」與下方課表會立刻改顯示（Google 原表不動）。</p>';
+      return;
+    }
+    list.innerHTML = items.map(function (item) {
+      var from = (TT_DAYS[item.fromDay] || '') + periodLabel({ period: item.fromPeriod });
+      var to = (TT_DAYS[item.toDay] || '') + periodLabel({ period: item.toPeriod });
+      var note = item.note ? '　' + item.note : '';
+      return '<div class="tt-swap-item">' +
+        '<strong>' + escapeHtml(item.className) + '</strong>' +
+        '<span class="tt-swap-meta">' + escapeHtml(from) + ' → ' + escapeHtml(to) + escapeHtml(note) + '</span>' +
+        '<button type="button" class="tool danger" data-tt-swap-del="' + escapeHtml(item.id) + '">刪除</button>' +
+        '</div>';
+    }).join('');
+  }
+
+  function saveScheduleChangeFromForm() {
+    var weekEl = document.getElementById('ttSwapWeek');
+    var classEl = document.getElementById('ttSwapClass');
+    var fromDay = document.getElementById('ttSwapFromDay');
+    var fromPeriod = document.getElementById('ttSwapFromPeriod');
+    var toDay = document.getElementById('ttSwapToDay');
+    var toPeriod = document.getElementById('ttSwapToPeriod');
+    var noteEl = document.getElementById('ttSwapNote');
+    var body = {
+      weekStart: weekEl ? weekEl.value : mondayKeyOf(new Date()),
+      className: classEl ? classEl.value : '',
+      fromDay: fromDay ? Number(fromDay.value) : 0,
+      fromPeriod: fromPeriod ? fromPeriod.value : '',
+      toDay: toDay ? Number(toDay.value) : 0,
+      toPeriod: toPeriod ? toPeriod.value : '',
+      note: noteEl ? noteEl.value : ''
+    };
+    api('saveScheduleChange', [body]).then(function (data) {
+      if (data && data.scheduleChanges) {
+        App.scheduleChanges = data.scheduleChanges;
+      }
+      App.scheduleWeek = body.weekStart;
+      if (noteEl) noteEl.value = '';
+      renderScheduleChangePanel();
+      renderTimetable();
+      if (data && data.synced === false) {
+        toast((data.cloudError || '調課已暫存，但還沒同步到雲端') + '。請按「立即同步」', 7000);
+      } else {
+        toast(body.className + ' 調課已套用到當周課表（Google 試算表未改動）');
+      }
+    }).catch(function (err) {
+      toast(err && err.message ? err.message : '儲存調課失敗');
+    });
+  }
+
+  function deleteScheduleChange(id) {
+    if (!window.confirm('刪掉這筆調課提醒？課表顯示會恢復該週原本位置。')) return;
+    api('deleteScheduleChange', [{ id: id }]).then(function (data) {
+      App.scheduleChanges = (data && data.scheduleChanges) || App.scheduleChanges.filter(function (item) {
+        return item.id !== id;
+      });
+      renderScheduleChangePanel();
+      renderTimetable();
+      if (data && data.synced === false) {
+        toast((data.cloudError || '已刪除，但還沒同步到雲端') + '。請按「立即同步」', 7000);
+      } else {
+        toast('已刪除調課');
+      }
+    }).catch(function (err) {
+      toast(err && err.message ? err.message : '刪除失敗');
+    });
+  }
+
   function fallbackTimetable() {
     return {
       ok: true,
@@ -4051,14 +4335,23 @@
     var sheet = sheets[App.timetableSheet] || sheets[0];
     var model = parseTimetableSheet(sheet && sheet.values);
     var now = new Date();
+    var thisWeek = mondayKeyOf(now);
+    if (!App.scheduleWeek) App.scheduleWeek = thisWeek;
+    fillScheduleChangeFormOptions(model);
+    renderScheduleChangePanel();
+    var appliedLive = applyScheduleChangesToModel(model, thisWeek);
+    var appliedView = applyScheduleChangesToModel(model, App.scheduleWeek || thisWeek);
+    var liveModel = appliedLive.model || model;
+    var viewModel = appliedView.model || model;
+    var marks = appliedView.marks || {};
     var today = weekdayIndex(now);
     var mins = minutesNow(now);
-    var nowRow = today >= 0 ? currentPeriodIndex(model, now) : -1;
-    var nextRow = today >= 0 ? nextBusyIndex(model, today, nowRow, mins) : -1;
-    renderTimetableNow(model, today, nowRow, nextRow, now);
-    renderTimetableGrid(model, today, nowRow, nextRow);
+    var nowRow = today >= 0 ? currentPeriodIndex(liveModel, now) : -1;
+    var nextRow = today >= 0 ? nextBusyIndex(liveModel, today, nowRow, mins) : -1;
+    renderTimetableNow(liveModel, today, nowRow, nextRow, now);
+    renderTimetableGrid(viewModel, today, nowRow, nextRow, marks);
     setTimetableStatus();
-    var focusKey = nowRow + ':' + nextRow + ':' + today;
+    var focusKey = nowRow + ':' + nextRow + ':' + today + ':' + (App.scheduleWeek || '');
     if (App.ttFocusKey !== focusKey) {
       App.ttFocusKey = focusKey;
       var mark = els.timetableGrid && (els.timetableGrid.querySelector('.tt-current') || els.timetableGrid.querySelector('.tt-upcoming'));
@@ -4163,13 +4456,14 @@
   }
 
   function cellInner(cell, badge) {
-    var mark = badge ? '<span class="tt-badge">' + badge + '</span>' : '';
+    var mark = badge ? '<span class="tt-badge' + (badge === '調課' ? ' tt-badge-swap' : '') + '">' + badge + '</span>' : '';
     var body = cell ? (matchClassName(cell) ? ttClassButton(cell) : escapeHtml(cell)) : (badge ? '<span class="tt-focus-empty">空堂</span>' : '');
     return mark + body;
   }
 
-  function renderTimetableGrid(model, today, nowRow, nextRow) {
+  function renderTimetableGrid(model, today, nowRow, nextRow, marks) {
     if (!els.timetableGrid) return;
+    marks = marks || {};
     if (model.raw) {
       els.timetableGrid.innerHTML = '<div class="tt-table-wrap"><table class="tt-table">' +
         (model.values || []).map(function (row) {
@@ -4179,10 +4473,11 @@
         }).join('') + '</table></div>';
       return;
     }
+    var viewingThisWeek = (App.scheduleWeek || mondayKeyOf(new Date())) === mondayKeyOf(new Date());
     var colgroup = '<colgroup><col class="tt-col-period"><col class="tt-col-time">' +
       model.days.map(function () { return '<col class="tt-col-day">'; }).join('') + '</colgroup>';
     var head = '<th class="tt-col-period">節次</th><th class="tt-col-time">時間</th>' + model.days.map(function (day, i) {
-      return '<th class="tt-col-day' + (i === today ? ' tt-today' : '') + '">' + escapeHtml(day) + '</th>';
+      return '<th class="tt-col-day' + (viewingThisWeek && i === today ? ' tt-today' : '') + '">' + escapeHtml(day) + '</th>';
     }).join('');
     var body = model.rows.map(function (row, r) {
       var trClass = row.isBreak ? 'tt-break' : '';
@@ -4191,13 +4486,18 @@
         row.cells.map(function (cell, i) {
           var cls = ['tt-col-day'];
           var badge = '';
-          if (i === today) cls.push('tt-today');
-          if (r === nowRow && i === today) {
+          var swapMark = marks[i + ':' + r];
+          if (viewingThisWeek && i === today) cls.push('tt-today');
+          if (swapMark) {
+            cls.push('tt-swapped');
+            badge = '調課';
+          }
+          if (viewingThisWeek && r === nowRow && i === today) {
             cls.push('tt-current');
-            badge = '現在';
-          } else if (r === nextRow && i === today) {
+            badge = badge || '現在';
+          } else if (viewingThisWeek && r === nextRow && i === today) {
             cls.push('tt-upcoming');
-            badge = '接下來';
+            if (!badge) badge = '接下來';
           }
           return '<td class="' + cls.join(' ') + '">' + cellInner(cell, badge) + '</td>';
         }).join('') + '</tr>';

@@ -241,6 +241,49 @@
               </div>
             </div>
             <div id="timetableNow" class="tt-focus"></div>
+            <section class="tt-swap" id="timetableSwapPanel" aria-label="調課提醒">
+              <div class="tt-swap-head">
+                <h3>調課提醒</h3>
+                <p class="hint">只改這個網站當周課表顯示，不會動到 Google 課表試算表。平板與筆電會共用。</p>
+              </div>
+              <div class="tt-swap-form" id="ttSwapForm">
+                <label>適用週（週一）
+                  <select id="ttSwapWeek"></select>
+                </label>
+                <label>班級
+                  <select id="ttSwapClass"></select>
+                </label>
+                <label>原星期
+                  <select id="ttSwapFromDay">
+                    <option value="0">週一</option>
+                    <option value="1">週二</option>
+                    <option value="2">週三</option>
+                    <option value="3">週四</option>
+                    <option value="4">週五</option>
+                  </select>
+                </label>
+                <label>原節次
+                  <select id="ttSwapFromPeriod"></select>
+                </label>
+                <label>調到星期
+                  <select id="ttSwapToDay">
+                    <option value="0">週一</option>
+                    <option value="1">週二</option>
+                    <option value="2">週三</option>
+                    <option value="3">週四</option>
+                    <option value="4">週五</option>
+                  </select>
+                </label>
+                <label>調到節次
+                  <select id="ttSwapToPeriod"></select>
+                </label>
+                <label class="tt-swap-note">備註
+                  <input id="ttSwapNote" type="text" maxlength="120" placeholder="選填，例如考試／活動" />
+                </label>
+                <button type="button" class="tool primary" id="btnTtSwapSave">加入調課</button>
+              </div>
+              <div id="ttSwapList" class="tt-swap-list" aria-live="polite"></div>
+            </section>
             <div id="timetableGrid" class="tt-wrap"></div>
             <details class="tt-live">
               <summary>看 Google 課表原貌（只讀，不會寫入成績）</summary>

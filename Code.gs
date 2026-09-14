@@ -1047,6 +1047,7 @@ function mergeProtectCloudStore_(incoming, existing) {
     store.mockExam = existing.mockExam;
   }
   store.lessonLog = mergeCloudLessonLog_(store.lessonLog, existing.lessonLog);
+  store.scheduleChanges = mergeCloudScheduleChanges_(store.scheduleChanges, existing.scheduleChanges);
   return store;
 }
 
@@ -1113,6 +1114,48 @@ function mergeCloudLessonLog_(localLog, remoteLog) {
   Object.keys(names).forEach(function (cn) {
     out[cn] = mergeCloudLessonPack_(localLog[cn], remoteLog[cn]);
   });
+  return out;
+}
+
+function mergeCloudScheduleChanges_(localList, remoteList) {
+  var byId = {};
+  function take(item) {
+    if (!item || typeof item !== 'object') return;
+    var id = String(item.id || '').trim();
+    var className = String(item.className || '').trim();
+    var fromPeriod = String(item.fromPeriod || '').trim();
+    var toPeriod = String(item.toPeriod || '').trim();
+    if (!id || !className || !fromPeriod || !toPeriod) return;
+    var fromDay = Number(item.fromDay);
+    var toDay = Number(item.toDay);
+    if (!isFinite(fromDay) || fromDay < 0 || fromDay > 4) fromDay = 0;
+    if (!isFinite(toDay) || toDay < 0 || toDay > 4) toDay = 0;
+    var weekStart = String(item.weekStart || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStart)) return;
+    var norm = {
+      id: id,
+      weekStart: weekStart,
+      className: className,
+      fromDay: fromDay,
+      fromPeriod: fromPeriod,
+      toDay: toDay,
+      toPeriod: toPeriod,
+      note: String(item.note || '').trim().slice(0, 120),
+      deleted: !!item.deleted,
+      createdAt: String(item.createdAt || ''),
+      updatedAt: String(item.updatedAt || item.createdAt || '')
+    };
+    var prev = byId[id];
+    if (!prev || String(norm.updatedAt || '') >= String(prev.updatedAt || '')) byId[id] = norm;
+  }
+  (remoteList || []).forEach(take);
+  (localList || []).forEach(take);
+  var out = Object.keys(byId).map(function (id) { return byId[id]; });
+  out.sort(function (a, b) {
+    return String(b.weekStart).localeCompare(String(a.weekStart)) ||
+      String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
+  });
+  if (out.length > 80) out = out.slice(0, 80);
   return out;
 }
 

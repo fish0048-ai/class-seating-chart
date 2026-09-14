@@ -436,6 +436,7 @@
       local.mockExam = clone(remote.mockExam);
     }
     local.lessonLog = mergeLessonLogProtect_(local.lessonLog, remote.lessonLog);
+    local.scheduleChanges = mergeScheduleChangesProtect_(local.scheduleChanges, remote.scheduleChanges);
     return local;
   }
 
@@ -633,6 +634,7 @@
     if (!parsed.grades) parsed.grades = {};
     parsed.mockExam = normalizeMockExam_(parsed.mockExam);
     parsed.lessonLog = normalizeLessonLog_(parsed.lessonLog);
+    parsed.scheduleChanges = normalizeScheduleChanges_(parsed.scheduleChanges);
     return parsed;
   }
 
@@ -642,6 +644,83 @@
 
   function emptyLessonLog_() {
     return {};
+  }
+
+  function emptyScheduleChanges_() {
+    return [];
+  }
+
+  function mondayKeyFromDate_(date) {
+    var d = date instanceof Date ? new Date(date.getTime()) : new Date();
+    if (isNaN(d.getTime())) d = new Date();
+    var day = d.getDay();
+    var diff = day === 0 ? -6 : 1 - day;
+    d.setHours(12, 0, 0, 0);
+    d.setDate(d.getDate() + diff);
+    return d.getFullYear() + '-' +
+      String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0');
+  }
+
+  function normalizeScheduleChange_(raw) {
+    raw = raw || {};
+    var id = String(raw.id || '').trim();
+    if (!id) id = 'SC' + Date.now() + String(Math.floor(Math.random() * 1000));
+    var weekStart = String(raw.weekStart || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStart)) weekStart = mondayKeyFromDate_(new Date());
+    var fromDay = Number(raw.fromDay);
+    var toDay = Number(raw.toDay);
+    if (!isFinite(fromDay) || fromDay < 0 || fromDay > 4) fromDay = 0;
+    if (!isFinite(toDay) || toDay < 0 || toDay > 4) toDay = 0;
+    return {
+      id: id,
+      weekStart: weekStart,
+      className: String(raw.className || '').trim(),
+      fromDay: fromDay,
+      fromPeriod: String(raw.fromPeriod || '').trim(),
+      toDay: toDay,
+      toPeriod: String(raw.toPeriod || '').trim(),
+      note: String(raw.note || '').trim().slice(0, 120),
+      deleted: !!raw.deleted,
+      createdAt: String(raw.createdAt || nowIso()),
+      updatedAt: String(raw.updatedAt || raw.createdAt || nowIso())
+    };
+  }
+
+  function normalizeScheduleChanges_(raw) {
+    var list = Array.isArray(raw) ? raw : [];
+    var byId = {};
+    list.forEach(function (item) {
+      var norm = normalizeScheduleChange_(item);
+      if (!norm.className || !norm.fromPeriod || !norm.toPeriod) return;
+      if (!norm.deleted && norm.fromDay === norm.toDay && norm.fromPeriod === norm.toPeriod) return;
+      var prev = byId[norm.id];
+      if (!prev || String(norm.updatedAt || '') >= String(prev.updatedAt || '')) byId[norm.id] = norm;
+    });
+    var out = Object.keys(byId).map(function (id) { return byId[id]; });
+    out.sort(function (a, b) {
+      return String(b.weekStart).localeCompare(String(a.weekStart)) ||
+        String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
+    });
+    if (out.length > 80) out = out.slice(0, 80);
+    return out;
+  }
+
+  function activeScheduleChanges_(list) {
+    return normalizeScheduleChanges_(list).filter(function (item) { return !item.deleted; });
+  }
+
+  function mergeScheduleChangesProtect_(localList, remoteList) {
+    var byId = {};
+    (remoteList || []).concat(localList || []).forEach(function (item) {
+      var norm = normalizeScheduleChange_(item);
+      if (!norm.id || !norm.className) return;
+      var prev = byId[norm.id];
+      if (!prev || String(norm.updatedAt || norm.createdAt || '') >= String(prev.updatedAt || prev.createdAt || '')) {
+        byId[norm.id] = norm;
+      }
+    });
+    return normalizeScheduleChanges_(Object.keys(byId).map(function (id) { return byId[id]; }));
   }
 
   function normalizeLessonEntry_(raw, className) {
@@ -738,6 +817,7 @@
     if (!memStore.grades) memStore.grades = {};
     if (!memStore.mockExam) memStore.mockExam = emptyMockExam_();
     if (!memStore.lessonLog) memStore.lessonLog = emptyLessonLog_();
+    if (!memStore.scheduleChanges) memStore.scheduleChanges = emptyScheduleChanges_();
     if (hydrated && ensureRolledScores_(memStore)) saveStore(memStore);
     return memStore;
   }
@@ -1242,6 +1322,7 @@
       classroom: clone(room),
       mockExam: store.mockExam || emptyMockExam_(),
       lessonLog: store.lessonLog || emptyLessonLog_(),
+      scheduleChanges: activeScheduleChanges_(store.scheduleChanges),
       plusHits: plusHitsForClass_(store, className)
     }, store);
   }
@@ -2077,6 +2158,87 @@
         ok: true,
         lessonLog: store.lessonLog || emptyLessonLog_(),
         classNames: classNames(store)
+      });
+    },
+    getScheduleChanges: function () {
+      var store = loadStore();
+      return wrap({
+        ok: true,
+        scheduleChanges: activeScheduleChanges_(store.scheduleChanges),
+        weekStart: mondayKeyFromDate_(new Date())
+      });
+    },
+    saveScheduleChange: function (body) {
+      var store = loadStore();
+      var item = normalizeScheduleChange_(body || {});
+      item.deleted = false;
+      if (!item.className) throw new Error('請選班級');
+      if (!item.fromPeriod || !item.toPeriod) throw new Error('請選原來與調到的節次');
+      if (item.fromDay === item.toDay && item.fromPeriod === item.toPeriod) {
+        throw new Error('原來與調到的節次不能相同');
+      }
+      item.updatedAt = nowIso();
+      if (!item.createdAt) item.createdAt = item.updatedAt;
+      store.scheduleChanges = normalizeScheduleChanges_(store.scheduleChanges);
+      var found = false;
+      store.scheduleChanges = store.scheduleChanges.map(function (old) {
+        if (old.id !== item.id) return old;
+        found = true;
+        return item;
+      });
+      if (!found) store.scheduleChanges.unshift(item);
+      store.scheduleChanges = normalizeScheduleChanges_(store.scheduleChanges);
+      saveStore(store);
+      var result = { ok: true, scheduleChanges: activeScheduleChanges_(store.scheduleChanges), item: item };
+      if (!cloudOn() || !hydrated) return wrap(result);
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      return pushCloud_(memStore).then(function () {
+        result.scheduleChanges = activeScheduleChanges_(memStore.scheduleChanges);
+        result.synced = true;
+        return result;
+      }).catch(function (err) {
+        result.synced = false;
+        result.cloudError = err && err.message ? err.message : '雲端同步失敗';
+        return result;
+      });
+    },
+    deleteScheduleChange: function (body) {
+      var store = loadStore();
+      var id = String((body && body.id) || '').trim();
+      if (!id) throw new Error('缺少要刪的調課');
+      store.scheduleChanges = normalizeScheduleChanges_(store.scheduleChanges);
+      var found = false;
+      store.scheduleChanges = store.scheduleChanges.map(function (item) {
+        if (item.id !== id) return item;
+        found = true;
+        return Object.assign({}, item, { deleted: true, updatedAt: nowIso() });
+      });
+      if (!found) {
+        store.scheduleChanges.unshift(normalizeScheduleChange_({
+          id: id,
+          className: '-',
+          fromPeriod: '-',
+          toPeriod: '--',
+          weekStart: mondayKeyFromDate_(new Date()),
+          deleted: true,
+          updatedAt: nowIso()
+        }));
+      }
+      store.scheduleChanges = normalizeScheduleChanges_(store.scheduleChanges);
+      saveStore(store);
+      var result = { ok: true, scheduleChanges: activeScheduleChanges_(store.scheduleChanges) };
+      if (!cloudOn() || !hydrated) return wrap(result);
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      return pushCloud_(memStore).then(function () {
+        result.scheduleChanges = activeScheduleChanges_(memStore.scheduleChanges);
+        result.synced = true;
+        return result;
+      }).catch(function (err) {
+        result.synced = false;
+        result.cloudError = err && err.message ? err.message : '雲端同步失敗';
+        return result;
       });
     },
     saveLessonProgress: function (body) {
