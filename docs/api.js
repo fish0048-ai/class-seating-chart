@@ -668,6 +668,8 @@
     if (!id) id = 'SC' + Date.now() + String(Math.floor(Math.random() * 1000));
     var weekStart = String(raw.weekStart || '').trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStart)) weekStart = mondayKeyFromDate_(new Date());
+    var toWeekStart = String(raw.toWeekStart || raw.weekStart || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(toWeekStart)) toWeekStart = weekStart;
     var fromDay = Number(raw.fromDay);
     var toDay = Number(raw.toDay);
     if (!isFinite(fromDay) || fromDay < 0 || fromDay > 4) fromDay = 0;
@@ -675,6 +677,7 @@
     return {
       id: id,
       weekStart: weekStart,
+      toWeekStart: toWeekStart,
       className: String(raw.className || '').trim(),
       fromDay: fromDay,
       fromPeriod: String(raw.fromPeriod || '').trim(),
@@ -693,13 +696,17 @@
     list.forEach(function (item) {
       var norm = normalizeScheduleChange_(item);
       if (!norm.className || !norm.fromPeriod || !norm.toPeriod) return;
-      if (!norm.deleted && norm.fromDay === norm.toDay && norm.fromPeriod === norm.toPeriod) return;
+      if (!norm.deleted &&
+          norm.weekStart === norm.toWeekStart &&
+          norm.fromDay === norm.toDay &&
+          norm.fromPeriod === norm.toPeriod) return;
       var prev = byId[norm.id];
       if (!prev || String(norm.updatedAt || '') >= String(prev.updatedAt || '')) byId[norm.id] = norm;
     });
     var out = Object.keys(byId).map(function (id) { return byId[id]; });
     out.sort(function (a, b) {
       return String(b.weekStart).localeCompare(String(a.weekStart)) ||
+        String(b.toWeekStart || '').localeCompare(String(a.toWeekStart || '')) ||
         String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
     });
     if (out.length > 80) out = out.slice(0, 80);
@@ -2174,7 +2181,9 @@
       item.deleted = false;
       if (!item.className) throw new Error('請選班級');
       if (!item.fromPeriod || !item.toPeriod) throw new Error('請選原來與調到的節次');
-      if (item.fromDay === item.toDay && item.fromPeriod === item.toPeriod) {
+      if (item.weekStart === item.toWeekStart &&
+          item.fromDay === item.toDay &&
+          item.fromPeriod === item.toPeriod) {
         throw new Error('原來與調到的節次不能相同');
       }
       item.updatedAt = nowIso();

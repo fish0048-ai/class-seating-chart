@@ -1433,59 +1433,67 @@
 
   .tt-focus-grid {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    align-items: stretch;
   }
 
   .tt-focus-card {
     display: grid;
-    grid-template-rows: auto auto auto 1fr auto auto;
-    gap: 4px;
-    padding: 14px 16px 12px;
-    border-radius: 16px;
-    min-height: 168px;
+    grid-template-columns: auto 1fr auto;
+    grid-template-rows: auto auto;
+    gap: 2px 10px;
+    padding: 8px 10px;
+    border-radius: 12px;
+    min-height: 0;
+    align-items: center;
   }
 
   .tt-focus-now {
     background: #eaf4fb;
-    border: 3px solid var(--primary);
+    border: 2px solid var(--primary);
   }
 
   .tt-focus-next {
     background: #fff7ec;
-    border: 3px dashed var(--accent);
+    border: 2px dashed var(--accent);
   }
 
   .tt-kicker {
     margin: 0;
-    font-size: 12px;
+    font-size: 11px;
     font-weight: 700;
-    letter-spacing: 0.12em;
+    letter-spacing: 0.08em;
     color: var(--muted);
+    grid-column: 1;
+    grid-row: 1;
   }
 
   .tt-period {
     margin: 0;
-    font-size: 20px;
+    font-size: 14px;
     font-weight: 800;
     line-height: 1.2;
+    grid-column: 1;
+    grid-row: 2;
   }
 
   .tt-time {
-    margin: 0;
-    font-size: 13px;
-    color: var(--muted);
-    min-height: 1.2em;
+    display: none;
   }
 
   .tt-focus-body {
-    min-height: 44px;
+    min-height: 0;
     display: flex;
     align-items: center;
+    gap: 6px;
+    grid-column: 2;
+    grid-row: 1 / span 2;
   }
 
-  .tt-focus-journal {
-    margin-top: 2px;
+  .tt-focus-journal,
+  .tt-remain {
+    display: none;
   }
 
   .tt-journal {
@@ -1519,21 +1527,15 @@
 
   .tt-focus-item,
   .tt-focus-body .tt-class {
-    font-size: 28px;
-    min-width: 72px;
-    min-height: 44px;
+    font-size: 18px;
+    min-width: 48px;
+    min-height: 32px;
+    padding: 4px 8px;
   }
 
   .tt-focus-empty {
     color: var(--muted);
-  }
-
-  .tt-remain {
-    margin: 0;
-    min-height: 1.3em;
-    font-size: 14px;
-    font-weight: 700;
-    color: var(--primary);
+    font-size: 13px;
   }
 
   .tt-focus-next .tt-remain {
@@ -1541,9 +1543,47 @@
   }
 
   .tt-focus-action {
-    min-height: 44px;
+    min-height: 0;
     display: flex;
-    align-items: end;
+    align-items: center;
+    justify-content: flex-end;
+    grid-column: 3;
+    grid-row: 1 / span 2;
+  }
+
+  .tt-focus-action .tool {
+    min-height: 32px;
+    padding: 4px 8px;
+    font-size: 12px;
+  }
+
+  .tt-holiday-banner {
+    margin: 8px 0 0;
+    padding: 8px 12px;
+    border-radius: 10px;
+    background: #fde8e8;
+    border: 1px solid #e8b4b4;
+    color: #7a2e2e;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .tt-holiday-banner[hidden] {
+    display: none;
+  }
+
+  .tt-table th.tt-holiday-day,
+  .tt-table td.tt-holiday-day {
+    background: #fdecec;
+  }
+
+  .tt-table th.tt-holiday-day {
+    color: #9b3030;
+  }
+
+  .tt-table td.tt-holiday-day {
+    color: #9b3030;
+    font-weight: 700;
   }
 
   .tt-swap {
@@ -2762,7 +2802,11 @@
     .seat-name { font-size: 14px; }
   }
     .chart-grid { grid-template-columns: 1fr; }
-    .tt-focus-grid { grid-template-columns: 1fr; }
+    .tt-focus-grid { grid-template-columns: 1fr 1fr; gap: 6px; }
+    .tt-focus-card { padding: 6px 8px; gap: 2px 6px; }
+    .tt-focus-item,
+    .tt-focus-body .tt-class { font-size: 15px; min-width: 40px; }
+    .tt-focus-action .tool { font-size: 11px; padding: 3px 6px; }
     .lab-board { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: repeat(3, minmax(140px, 1fr)); }
   }
   .setup-card ol { margin: 8px 0 0; padding-left: 20px; line-height: 1.7; color: var(--muted); }

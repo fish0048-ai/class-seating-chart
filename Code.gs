@@ -1132,9 +1132,12 @@ function mergeCloudScheduleChanges_(localList, remoteList) {
     if (!isFinite(toDay) || toDay < 0 || toDay > 4) toDay = 0;
     var weekStart = String(item.weekStart || '').trim();
     if (!/^\d{4}-\d{2}-\d{2}$/.test(weekStart)) return;
+    var toWeekStart = String(item.toWeekStart || item.weekStart || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(toWeekStart)) toWeekStart = weekStart;
     var norm = {
       id: id,
       weekStart: weekStart,
+      toWeekStart: toWeekStart,
       className: className,
       fromDay: fromDay,
       fromPeriod: fromPeriod,

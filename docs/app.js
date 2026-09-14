@@ -3789,7 +3789,10 @@
   function scheduleChangesForWeek(weekStart) {
     var key = weekStart || App.scheduleWeek || mondayKeyOf(new Date());
     return (App.scheduleChanges || []).filter(function (item) {
-      return item && item.weekStart === key;
+      if (!item || item.deleted) return false;
+      var fromWeek = item.weekStart || '';
+      var toWeek = item.toWeekStart || item.weekStart || '';
+      return fromWeek === key || toWeek === key;
     });
   }
 
@@ -3808,31 +3811,134 @@
       };
     });
     var marks = {};
-    scheduleChangesForWeek(weekStart).forEach(function (ch) {
+    var key = weekStart || mondayKeyOf(new Date());
+    scheduleChangesForWeek(key).forEach(function (ch) {
+      var fromWeek = ch.weekStart || '';
+      var toWeek = ch.toWeekStart || ch.weekStart || '';
+      var sameWeek = fromWeek === toWeek;
       var fromRi = findPeriodRowIndex(rows, ch.fromPeriod);
       var toRi = findPeriodRowIndex(rows, ch.toPeriod);
-      if (fromRi < 0 || toRi < 0) return;
       var fd = Number(ch.fromDay);
       var td = Number(ch.toDay);
       if (!(fd >= 0 && fd <= 4 && td >= 0 && td <= 4)) return;
-      var fromText = rows[fromRi].cells[fd] || '';
-      var toText = rows[toRi].cells[td] || '';
-      var fromCls = matchClassName(fromText);
-      var movedText = fromText;
-      if (ch.className && fromCls && fromCls !== ch.className) {
-        movedText = ch.className;
-      } else if (!fromText && ch.className) {
-        movedText = ch.className;
+
+      if (sameWeek && fromWeek === key) {
+        if (fromRi < 0 || toRi < 0) return;
+        var fromText = rows[fromRi].cells[fd] || '';
+        var toText = rows[toRi].cells[td] || '';
+        var fromCls = matchClassName(fromText);
+        var movedText = fromText;
+        if (ch.className && fromCls && fromCls !== ch.className) movedText = ch.className;
+        else if (!fromText && ch.className) movedText = ch.className;
+        rows[fromRi].cells[fd] = toText;
+        rows[toRi].cells[td] = movedText || ch.className || '';
+        marks[fd + ':' + fromRi] = 'from';
+        marks[td + ':' + toRi] = 'to';
+        return;
       }
-      rows[fromRi].cells[fd] = toText;
-      rows[toRi].cells[td] = movedText || ch.className || '';
-      marks[fd + ':' + fromRi] = 'from';
-      marks[td + ':' + toRi] = 'to';
+
+      if (fromWeek === key && fromRi >= 0) {
+        var src = rows[fromRi].cells[fd] || '';
+        var srcCls = matchClassName(src);
+        if (!src || !ch.className || srcCls === ch.className || src.indexOf(ch.className) >= 0) {
+          rows[fromRi].cells[fd] = '';
+        }
+        marks[fd + ':' + fromRi] = 'from';
+      }
+      if (toWeek === key && toRi >= 0) {
+        rows[toRi].cells[td] = ch.className || rows[toRi].cells[td] || '';
+        marks[td + ':' + toRi] = 'to';
+      }
     });
     return {
       model: { days: model.days, rows: rows },
       marks: marks
     };
+  }
+
+  /** 115 學年度相關國定假日／補假（含週末日供對照；課表只標週一～五）。 */
+  var NATIONAL_HOLIDAYS = [
+    { date: '2026-09-25', name: '中秋節' },
+    { date: '2026-09-28', name: '教師節' },
+    { date: '2026-10-09', name: '國慶日補假' },
+    { date: '2026-10-10', name: '國慶日' },
+    { date: '2026-10-25', name: '光復節' },
+    { date: '2026-10-26', name: '光復節補假' },
+    { date: '2026-12-25', name: '行憲紀念日' },
+    { date: '2027-01-01', name: '開國紀念日' },
+    { date: '2027-02-04', name: '小年夜' },
+    { date: '2027-02-05', name: '除夕' },
+    { date: '2027-02-06', name: '春節' },
+    { date: '2027-02-07', name: '春節' },
+    { date: '2027-02-08', name: '春節' },
+    { date: '2027-02-09', name: '春節補假' },
+    { date: '2027-02-10', name: '春節補假' },
+    { date: '2027-02-28', name: '和平紀念日' },
+    { date: '2027-03-01', name: '和平紀念日補假' },
+    { date: '2027-04-03', name: '兒童清明連假' },
+    { date: '2027-04-04', name: '兒童節' },
+    { date: '2027-04-05', name: '清明節' },
+    { date: '2027-04-06', name: '清明補假' },
+    { date: '2027-04-30', name: '勞動節補假' },
+    { date: '2027-05-01', name: '勞動節' },
+    { date: '2027-06-09', name: '端午節' }
+  ];
+
+  function dateKeyFromParts(y, m, d) {
+    return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+  }
+
+  function addDaysToKey(weekStart, dayOffset) {
+    var parts = String(weekStart || '').split('-').map(Number);
+    var d = new Date(parts[0], (parts[1] || 1) - 1, parts[2] || 1, 12, 0, 0);
+    if (isNaN(d.getTime())) return '';
+    d.setDate(d.getDate() + (Number(dayOffset) || 0));
+    return dateKeyFromParts(d.getFullYear(), d.getMonth() + 1, d.getDate());
+  }
+
+  function holidaysForWeek(weekStart) {
+    var map = {};
+    var i;
+    for (i = 0; i < 5; i++) {
+      var key = addDaysToKey(weekStart, i);
+      NATIONAL_HOLIDAYS.forEach(function (h) {
+        if (h.date === key) map[i] = h;
+      });
+    }
+    return map;
+  }
+
+  function renderHolidayBanner(weekStart, holidayMap) {
+    var el = document.getElementById('ttHolidayBanner');
+    if (!el) return;
+    var items = Object.keys(holidayMap || {}).map(function (day) {
+      var h = holidayMap[day];
+      return (TT_DAYS[Number(day)] || '') + ' ' + h.name + '（' + h.date.slice(5).replace('-', '/') + '）';
+    });
+    if (!items.length) {
+      el.hidden = true;
+      el.textContent = '';
+      return;
+    }
+    el.hidden = false;
+    el.textContent = '本週國定假日／補假：' + items.join('、') + '。假日欄位已標示，課表格子改顯示放假。';
+  }
+
+  function weekSelectOptionsHtml(selected, extraKeys) {
+    var thisMon = mondayKeyOf(new Date());
+    var keys = {};
+    var offsets = [-2, -1, 0, 1, 2, 3, 4, 5, 6];
+    offsets.forEach(function (offset) {
+      keys[shiftMondayKey(thisMon, offset)] = true;
+    });
+    (extraKeys || []).forEach(function (k) {
+      if (k) keys[k] = true;
+    });
+    if (selected) keys[selected] = true;
+    return Object.keys(keys).sort().map(function (key) {
+      return '<option value="' + escapeHtml(key) + '"' + (key === selected ? ' selected' : '') + '>' +
+        escapeHtml(formatWeekLabel(key)) + '</option>';
+    }).join('');
   }
 
   function loadScheduleChanges() {
@@ -3854,20 +3960,18 @@
     var fromPeriod = document.getElementById('ttSwapFromPeriod');
     var toPeriod = document.getElementById('ttSwapToPeriod');
     var weekEl = document.getElementById('ttSwapWeek');
-    if (weekEl) {
-      var thisMon = mondayKeyOf(new Date());
-      var options = [0, 1, 2, -1].map(function (offset) {
-        var key = shiftMondayKey(thisMon, offset);
-        return { key: key, label: formatWeekLabel(key) };
-      });
-      var current = App.scheduleWeek || thisMon;
-      if (options.every(function (o) { return o.key !== current; })) {
-        options.unshift({ key: current, label: formatWeekLabel(current) });
-      }
-      weekEl.innerHTML = options.map(function (o) {
-        return '<option value="' + escapeHtml(o.key) + '"' + (o.key === current ? ' selected' : '') + '>' +
-          escapeHtml(o.label) + '</option>';
-      }).join('');
+    var fromWeekEl = document.getElementById('ttSwapFromWeek');
+    var toWeekEl = document.getElementById('ttSwapToWeek');
+    var thisMon = mondayKeyOf(new Date());
+    var viewWeek = App.scheduleWeek || thisMon;
+    if (weekEl) weekEl.innerHTML = weekSelectOptionsHtml(viewWeek);
+    if (fromWeekEl) {
+      var prevFrom = fromWeekEl.value || viewWeek;
+      fromWeekEl.innerHTML = weekSelectOptionsHtml(prevFrom, [viewWeek]);
+    }
+    if (toWeekEl) {
+      var prevTo = toWeekEl.value || viewWeek;
+      toWeekEl.innerHTML = weekSelectOptionsHtml(prevTo, [viewWeek]);
     }
     if (classEl) {
       var names = (App.classNames || []).filter(function (n) { return n && n !== '範例班'; });
@@ -3906,15 +4010,18 @@
     var week = App.scheduleWeek || mondayKeyOf(new Date());
     var items = scheduleChangesForWeek(week);
     if (!items.length) {
-      list.innerHTML = '<p class="tt-swap-empty">本週還沒有調課。加入後，上方「現在／接下來」與下方課表會立刻改顯示（Google 原表不動）。</p>';
+      list.innerHTML = '<p class="tt-swap-empty">這一週還沒有相關調課。可同週對調，也可跨週：原週某一節 → 另一週某一節。</p>';
       return;
     }
     list.innerHTML = items.map(function (item) {
-      var from = (TT_DAYS[item.fromDay] || '') + periodLabel({ period: item.fromPeriod });
-      var to = (TT_DAYS[item.toDay] || '') + periodLabel({ period: item.toPeriod });
+      var fromWeek = item.weekStart || week;
+      var toWeek = item.toWeekStart || item.weekStart || week;
+      var from = formatWeekLabel(fromWeek) + ' ' + (TT_DAYS[item.fromDay] || '') + periodLabel({ period: item.fromPeriod });
+      var to = formatWeekLabel(toWeek) + ' ' + (TT_DAYS[item.toDay] || '') + periodLabel({ period: item.toPeriod });
       var note = item.note ? '　' + item.note : '';
+      var cross = fromWeek !== toWeek ? '（跨週）' : '';
       return '<div class="tt-swap-item">' +
-        '<strong>' + escapeHtml(item.className) + '</strong>' +
+        '<strong>' + escapeHtml(item.className) + escapeHtml(cross) + '</strong>' +
         '<span class="tt-swap-meta">' + escapeHtml(from) + ' → ' + escapeHtml(to) + escapeHtml(note) + '</span>' +
         '<button type="button" class="tool danger" data-tt-swap-del="' + escapeHtml(item.id) + '">刪除</button>' +
         '</div>';
@@ -3924,13 +4031,18 @@
   function saveScheduleChangeFromForm() {
     var weekEl = document.getElementById('ttSwapWeek');
     var classEl = document.getElementById('ttSwapClass');
+    var fromWeekEl = document.getElementById('ttSwapFromWeek');
+    var toWeekEl = document.getElementById('ttSwapToWeek');
     var fromDay = document.getElementById('ttSwapFromDay');
     var fromPeriod = document.getElementById('ttSwapFromPeriod');
     var toDay = document.getElementById('ttSwapToDay');
     var toPeriod = document.getElementById('ttSwapToPeriod');
     var noteEl = document.getElementById('ttSwapNote');
+    var fromWeek = fromWeekEl ? fromWeekEl.value : mondayKeyOf(new Date());
+    var toWeek = toWeekEl ? toWeekEl.value : fromWeek;
     var body = {
-      weekStart: weekEl ? weekEl.value : mondayKeyOf(new Date()),
+      weekStart: fromWeek,
+      toWeekStart: toWeek,
       className: classEl ? classEl.value : '',
       fromDay: fromDay ? Number(fromDay.value) : 0,
       fromPeriod: fromPeriod ? fromPeriod.value : '',
@@ -3942,14 +4054,14 @@
       if (data && data.scheduleChanges) {
         App.scheduleChanges = data.scheduleChanges;
       }
-      App.scheduleWeek = body.weekStart;
+      App.scheduleWeek = weekEl && weekEl.value ? weekEl.value : fromWeek;
       if (noteEl) noteEl.value = '';
       renderScheduleChangePanel();
       renderTimetable();
       if (data && data.synced === false) {
         toast((data.cloudError || '調課已暫存，但還沒同步到雲端') + '。請按「立即同步」', 7000);
       } else {
-        toast(body.className + ' 調課已套用到當周課表（Google 試算表未改動）');
+        toast(body.className + (fromWeek !== toWeek ? ' 跨週調課' : ' 調課') + '已套用（Google 試算表未改動）');
       }
     }).catch(function (err) {
       toast(err && err.message ? err.message : '儲存調課失敗');
@@ -4339,19 +4451,24 @@
     if (!App.scheduleWeek) App.scheduleWeek = thisWeek;
     fillScheduleChangeFormOptions(model);
     renderScheduleChangePanel();
+    var viewWeek = App.scheduleWeek || thisWeek;
+    var holidayLive = holidaysForWeek(thisWeek);
+    var holidayView = holidaysForWeek(viewWeek);
+    renderHolidayBanner(viewWeek, holidayView);
     var appliedLive = applyScheduleChangesToModel(model, thisWeek);
-    var appliedView = applyScheduleChangesToModel(model, App.scheduleWeek || thisWeek);
+    var appliedView = applyScheduleChangesToModel(model, viewWeek);
     var liveModel = appliedLive.model || model;
     var viewModel = appliedView.model || model;
     var marks = appliedView.marks || {};
     var today = weekdayIndex(now);
     var mins = minutesNow(now);
-    var nowRow = today >= 0 ? currentPeriodIndex(liveModel, now) : -1;
-    var nextRow = today >= 0 ? nextBusyIndex(liveModel, today, nowRow, mins) : -1;
-    renderTimetableNow(liveModel, today, nowRow, nextRow, now);
-    renderTimetableGrid(viewModel, today, nowRow, nextRow, marks);
+    var todayIsHoliday = today >= 0 && !!holidayLive[today];
+    var nowRow = (!todayIsHoliday && today >= 0) ? currentPeriodIndex(liveModel, now) : -1;
+    var nextRow = (!todayIsHoliday && today >= 0) ? nextBusyIndex(liveModel, today, nowRow, mins) : -1;
+    renderTimetableNow(liveModel, today, nowRow, nextRow, now, holidayLive);
+    renderTimetableGrid(viewModel, today, nowRow, nextRow, marks, holidayView);
     setTimetableStatus();
-    var focusKey = nowRow + ':' + nextRow + ':' + today + ':' + (App.scheduleWeek || '');
+    var focusKey = nowRow + ':' + nextRow + ':' + today + ':' + viewWeek;
     if (App.ttFocusKey !== focusKey) {
       App.ttFocusKey = focusKey;
       var mark = els.timetableGrid && (els.timetableGrid.querySelector('.tt-current') || els.timetableGrid.querySelector('.tt-upcoming'));
@@ -4396,62 +4513,73 @@
     return String(row.cells[today] || '').trim();
   }
 
-  function renderFocusCard(kind, row, today, now, remainLabel) {
-    var mins = minutesNow(now);
-    var title = row ? periodLabel(row) : (kind === 'now' ? '現在沒有課' : '沒有下一節');
-    var text = slotText(row, today);
+  function renderFocusCard(kind, row, today, now, remainLabel, holidayName) {
+    var title = row ? periodLabel(row, true) : (kind === 'now' ? '現在沒有課' : '沒有下一節');
+    if (row && row.time) title += ' ' + prettyTime(row.time);
+    if (remainLabel === 'end' && row && row.end != null) {
+      title += '｜還有 ' + remainText(minutesNow(now), row.end);
+    } else if (remainLabel === 'start' && row && row.start != null) {
+      title += '｜還有 ' + remainText(minutesNow(now), row.start);
+    }
+    var text = holidayName ? '' : slotText(row, today);
     var cls = matchClassName(text);
-    var time = prettyTime(row && row.time ? row.time : '');
-    var remain = '';
-    if (row && remainLabel === 'end' && row.end != null) remain = '還有 ' + remainText(mins, row.end) + ' 下課';
-    if (row && remainLabel === 'start' && row.start != null) remain = '還有 ' + remainText(mins, row.start) + ' 開始';
     var go = cls
-      ? '<button type="button" class="tool primary" data-tt-class="' + escapeHtml(cls) + '">前往 ' + escapeHtml(cls) + ' 上課</button>'
+      ? '<button type="button" class="tool primary" data-tt-class="' + escapeHtml(cls) + '">去 ' + escapeHtml(cls) + '</button>'
       : '';
-    var body = text
-      ? (cls ? ttClassButton(text) : '<span class="tt-focus-item">' + escapeHtml(text) + '</span>')
-      : '<span class="tt-focus-empty">' + (kind === 'now' ? '這一節沒有排課' : '沒有下一節') + '</span>';
-    var journal = cls ? ttJournalSnippet(cls) : '';
+    var body = holidayName
+      ? '<span class="tt-focus-empty">放假｜' + escapeHtml(holidayName) + '</span>'
+      : (text
+        ? (cls ? ttClassButton(text) : '<span class="tt-focus-item">' + escapeHtml(text) + '</span>')
+        : '<span class="tt-focus-empty">' + (kind === 'now' ? '這一節沒有排課' : '沒有下一節') + '</span>');
     return '<article class="tt-focus-card tt-focus-' + kind + '">' +
       '<p class="tt-kicker">' + (kind === 'now' ? '現在' : '接下來') + '</p>' +
       '<p class="tt-period">' + escapeHtml(title) + '</p>' +
-      '<p class="tt-time">' + escapeHtml(time || '　') + '</p>' +
       '<div class="tt-focus-body">' + body + '</div>' +
-      (journal ? '<div class="tt-focus-journal">' + journal + '</div>' : '') +
-      '<p class="tt-remain">' + escapeHtml(remain || '　') + '</p>' +
       '<div class="tt-focus-action">' + go + '</div>' +
       '</article>';
   }
 
-  function renderTimetableNow(model, today, nowRow, nextRow, now) {
+  function renderTimetableNow(model, today, nowRow, nextRow, now, holidayMap) {
     if (!els.timetableNow) return;
+    holidayMap = holidayMap || {};
     var weekdays = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
     var clock = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
     if (els.timetableClock) els.timetableClock.textContent = weekdays[now.getDay()] + '　' + clock;
-    var current = nowRow >= 0 ? model.rows[nowRow] : null;
-    var next = nextRow >= 0 ? model.rows[nextRow] : null;
+    var todayHoliday = today >= 0 && holidayMap[today] ? holidayMap[today].name : '';
+    var current = (!todayHoliday && nowRow >= 0) ? model.rows[nowRow] : null;
+    var next = (!todayHoliday && nextRow >= 0) ? model.rows[nextRow] : null;
     var nowRemain = current ? 'end' : '';
     var nextRemain = next ? 'start' : '';
     var nowCard;
     if (today < 0) {
       nowCard = '<article class="tt-focus-card tt-focus-now">' +
         '<p class="tt-kicker">現在</p><p class="tt-period">週末</p>' +
-        '<p class="tt-time">　</p><div class="tt-focus-body"><span class="tt-focus-empty">今天沒有排課</span></div>' +
-        '<p class="tt-remain">　</p><div class="tt-focus-action"></div></article>';
+        '<div class="tt-focus-body"><span class="tt-focus-empty">今天沒有排課</span></div>' +
+        '<div class="tt-focus-action"></div></article>';
+    } else if (todayHoliday) {
+      nowCard = '<article class="tt-focus-card tt-focus-now">' +
+        '<p class="tt-kicker">現在</p><p class="tt-period">國定假日</p>' +
+        '<div class="tt-focus-body"><span class="tt-focus-empty">放假｜' + escapeHtml(todayHoliday) + '</span></div>' +
+        '<div class="tt-focus-action"></div></article>';
     } else if (!current && !next) {
       nowCard = '<article class="tt-focus-card tt-focus-now">' +
-        '<p class="tt-kicker">現在</p><p class="tt-period">今天的課上完了</p>' +
-        '<p class="tt-time">　</p><div class="tt-focus-body"><span class="tt-focus-empty">目前沒有下一節</span></div>' +
-        '<p class="tt-remain">　</p><div class="tt-focus-action"></div></article>';
+        '<p class="tt-kicker">現在</p><p class="tt-period">今天課上完了</p>' +
+        '<div class="tt-focus-body"><span class="tt-focus-empty">目前沒有下一節</span></div>' +
+        '<div class="tt-focus-action"></div></article>';
     } else if (!current) {
       nowCard = '<article class="tt-focus-card tt-focus-now">' +
-        '<p class="tt-kicker">現在</p><p class="tt-period">課間休息</p>' +
-        '<p class="tt-time">　</p><div class="tt-focus-body"><span class="tt-focus-empty">先看接下來這一節</span></div>' +
-        '<p class="tt-remain">　</p><div class="tt-focus-action"></div></article>';
+        '<p class="tt-kicker">現在</p><p class="tt-period">課間</p>' +
+        '<div class="tt-focus-body"><span class="tt-focus-empty">先看接下來</span></div>' +
+        '<div class="tt-focus-action"></div></article>';
     } else {
-      nowCard = renderFocusCard('now', current, today, now, nowRemain);
+      nowCard = renderFocusCard('now', current, today, now, nowRemain, '');
     }
-    var nextCard = renderFocusCard('next', next, today, now, nextRemain);
+    var nextCard = todayHoliday
+      ? '<article class="tt-focus-card tt-focus-next">' +
+        '<p class="tt-kicker">接下來</p><p class="tt-period">放假</p>' +
+        '<div class="tt-focus-body"><span class="tt-focus-empty">' + escapeHtml(todayHoliday) + '</span></div>' +
+        '<div class="tt-focus-action"></div></article>'
+      : renderFocusCard('next', next, today, now, nextRemain, '');
     els.timetableNow.innerHTML = '<div class="tt-focus-grid">' + nowCard + nextCard + '</div>';
   }
 
@@ -4461,9 +4589,10 @@
     return mark + body;
   }
 
-  function renderTimetableGrid(model, today, nowRow, nextRow, marks) {
+  function renderTimetableGrid(model, today, nowRow, nextRow, marks, holidayMap) {
     if (!els.timetableGrid) return;
     marks = marks || {};
+    holidayMap = holidayMap || {};
     if (model.raw) {
       els.timetableGrid.innerHTML = '<div class="tt-table-wrap"><table class="tt-table">' +
         (model.values || []).map(function (row) {
@@ -4477,17 +4606,28 @@
     var colgroup = '<colgroup><col class="tt-col-period"><col class="tt-col-time">' +
       model.days.map(function () { return '<col class="tt-col-day">'; }).join('') + '</colgroup>';
     var head = '<th class="tt-col-period">節次</th><th class="tt-col-time">時間</th>' + model.days.map(function (day, i) {
-      return '<th class="tt-col-day' + (viewingThisWeek && i === today ? ' tt-today' : '') + '">' + escapeHtml(day) + '</th>';
+      var holiday = holidayMap[i];
+      var label = holiday ? (day + '·' + holiday.name) : day;
+      return '<th class="tt-col-day' +
+        (viewingThisWeek && i === today ? ' tt-today' : '') +
+        (holiday ? ' tt-holiday-day' : '') + '">' + escapeHtml(label) + '</th>';
     }).join('');
     var body = model.rows.map(function (row, r) {
       var trClass = row.isBreak ? 'tt-break' : '';
       return '<tr class="' + trClass + '"><th class="tt-col-period">' + escapeHtml(periodLabel(row, true)) +
         '</th><td class="tt-col-time">' + escapeHtml(prettyTime(row.time)) + '</td>' +
         row.cells.map(function (cell, i) {
+          var holiday = holidayMap[i];
           var cls = ['tt-col-day'];
           var badge = '';
           var swapMark = marks[i + ':' + r];
           if (viewingThisWeek && i === today) cls.push('tt-today');
+          if (holiday) {
+            cls.push('tt-holiday-day');
+            return '<td class="' + cls.join(' ') + '">' +
+              (row.isBreak ? escapeHtml(cell || '') : ('放假｜' + escapeHtml(holiday.name))) +
+              '</td>';
+          }
           if (swapMark) {
             cls.push('tt-swapped');
             badge = '調課';
