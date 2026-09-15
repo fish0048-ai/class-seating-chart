@@ -1100,8 +1100,46 @@ function mergeCloudLessonPack_(localPack, remotePack) {
   return {
     current: current.slice(0, 80),
     updatedAt: updatedAt,
-    entries: entries
+    entries: entries,
+    events: mergeCloudLessonEvents_(localPack.events, remotePack.events)
   };
+}
+
+function mergeCloudLessonEvents_(localList, remoteList) {
+  var byId = {};
+  function take(item) {
+    if (!item || typeof item !== 'object') return;
+    var id = String(item.id || '').trim();
+    var className = String(item.className || '').trim();
+    var date = String(item.date || '').trim();
+    var period = String(item.period || '').trim();
+    if (!id || !className || !date || !period) return;
+    var type = String(item.type || '').trim().toLowerCase();
+    if (type !== 'lab') type = 'exam';
+    var norm = {
+      id: id,
+      className: className,
+      type: type,
+      date: date,
+      period: period,
+      note: String(item.note || '').trim().slice(0, 80),
+      deleted: !!item.deleted,
+      createdAt: String(item.createdAt || ''),
+      updatedAt: String(item.updatedAt || item.createdAt || '')
+    };
+    var prev = byId[id];
+    if (!prev || String(norm.updatedAt || '') >= String(prev.updatedAt || '')) byId[id] = norm;
+  }
+  (remoteList || []).forEach(take);
+  (localList || []).forEach(take);
+  var out = Object.keys(byId).map(function (id) { return byId[id]; });
+  out.sort(function (a, b) {
+    return String(a.date).localeCompare(String(b.date)) ||
+      String(a.period).localeCompare(String(b.period)) ||
+      String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
+  });
+  if (out.length > 120) out = out.slice(0, 120);
+  return out;
 }
 
 function mergeCloudLessonLog_(localLog, remoteLog) {

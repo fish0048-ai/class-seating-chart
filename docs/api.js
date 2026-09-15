@@ -376,7 +376,12 @@
     var updatedAt = localPack.updatedAt || '';
     if ((remotePack.updatedAt || '') > updatedAt) updatedAt = remotePack.updatedAt;
     if (!updatedAt) updatedAt = nowIso();
-    return { current: current.slice(0, 80), updatedAt: updatedAt, entries: entries };
+    return {
+      current: current.slice(0, 80),
+      updatedAt: updatedAt,
+      entries: entries,
+      events: mergeLessonEventsProtect_(localPack.events, remotePack.events, '')
+    };
   }
 
   function mergeLessonLogProtect_(localLog, remoteLog) {
@@ -744,6 +749,62 @@
     };
   }
 
+  function normalizeLessonEvent_(raw, className) {
+    raw = raw || {};
+    var id = String(raw.id || '').trim();
+    if (!id) id = 'E' + Date.now() + String(Math.floor(Math.random() * 1000));
+    var type = String(raw.type || '').trim().toLowerCase();
+    if (type === '實驗' || type === 'lab' || type === 'experiment') type = 'lab';
+    else type = 'exam';
+    var date = String(raw.date || '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) date = '';
+    return {
+      id: id,
+      className: String(raw.className || className || '').trim(),
+      type: type,
+      date: date,
+      period: String(raw.period || '').trim(),
+      note: String(raw.note || '').trim().slice(0, 80),
+      deleted: !!raw.deleted,
+      createdAt: String(raw.createdAt || nowIso()),
+      updatedAt: String(raw.updatedAt || raw.createdAt || nowIso())
+    };
+  }
+
+  function normalizeLessonEvents_(raw, className) {
+    var list = Array.isArray(raw) ? raw : [];
+    var byId = {};
+    list.forEach(function (item) {
+      var norm = normalizeLessonEvent_(item, className);
+      if (!norm.className || !norm.date || !norm.period) return;
+      var prev = byId[norm.id];
+      if (!prev || String(norm.updatedAt || '') >= String(prev.updatedAt || '')) byId[norm.id] = norm;
+    });
+    var out = Object.keys(byId).map(function (id) { return byId[id]; });
+    out.sort(function (a, b) {
+      return String(a.date).localeCompare(String(b.date)) ||
+        String(a.period).localeCompare(String(b.period)) ||
+        String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
+    });
+    if (out.length > 120) out = out.slice(0, 120);
+    return out;
+  }
+
+  function activeLessonEvents_(list) {
+    return (list || []).filter(function (item) { return item && !item.deleted; });
+  }
+
+  function mergeLessonEventsProtect_(localList, remoteList, className) {
+    var byId = {};
+    (remoteList || []).concat(localList || []).forEach(function (item) {
+      var norm = normalizeLessonEvent_(item, className);
+      if (!norm.id || !norm.className) return;
+      var prev = byId[norm.id];
+      if (!prev || String(norm.updatedAt || '') >= String(prev.updatedAt || '')) byId[norm.id] = norm;
+    });
+    return normalizeLessonEvents_(Object.keys(byId).map(function (id) { return byId[id]; }), className);
+  }
+
   function normalizeLessonLog_(raw) {
     if (!raw || typeof raw !== 'object') return emptyLessonLog_();
     var out = {};
@@ -761,7 +822,8 @@
       out[String(cn)] = {
         current: String(src.current || '').trim().slice(0, 80),
         updatedAt: String(src.updatedAt || ''),
-        entries: entries
+        entries: entries,
+        events: normalizeLessonEvents_(src.events, cn)
       };
     });
     return out;
@@ -770,7 +832,10 @@
   function ensureLessonClass_(store, className) {
     store.lessonLog = normalizeLessonLog_(store.lessonLog);
     if (!store.lessonLog[className]) {
-      store.lessonLog[className] = { current: '', updatedAt: '', entries: [] };
+      store.lessonLog[className] = { current: '', updatedAt: '', entries: [], events: [] };
+    }
+    if (!Array.isArray(store.lessonLog[className].events)) {
+      store.lessonLog[className].events = [];
     }
     return store.lessonLog[className];
   }
@@ -2165,6 +2230,71 @@
         ok: true,
         lessonLog: store.lessonLog || emptyLessonLog_(),
         classNames: classNames(store)
+      });
+    },
+    saveLessonEvent: function (body) {
+      var store = loadStore();
+      var className = String((body && body.className) || '').trim();
+      if (!className) throw new Error('請先選班級');
+      var item = normalizeLessonEvent_(body || {}, className);
+      item.deleted = false;
+      if (!item.date) throw new Error('請選日期');
+      if (!item.period) throw new Error('請選節次');
+      item.className = className;
+      item.updatedAt = nowIso();
+      if (!item.createdAt) item.createdAt = item.updatedAt;
+      var pack = ensureLessonClass_(store, className);
+      pack.events = normalizeLessonEvents_(pack.events, className);
+      var found = false;
+      pack.events = pack.events.map(function (old) {
+        if (old.id !== item.id) return old;
+        found = true;
+        return item;
+      });
+      if (!found) pack.events.push(item);
+      pack.events = normalizeLessonEvents_(pack.events, className);
+      pack.updatedAt = nowIso();
+      store.lessonLog = normalizeLessonLog_(store.lessonLog);
+      saveStore(store);
+      var result = { ok: true, lessonLog: store.lessonLog, className: className, item: item };
+      if (!cloudOn() || !hydrated) return wrap(result);
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      return pushCloud_(memStore).then(function () {
+        result.lessonLog = memStore.lessonLog || result.lessonLog;
+        result.synced = true;
+        return result;
+      }).catch(function (err) {
+        result.synced = false;
+        result.cloudError = err && err.message ? err.message : '雲端同步失敗';
+        return result;
+      });
+    },
+    deleteLessonEvent: function (body) {
+      var store = loadStore();
+      var className = String((body && body.className) || '').trim();
+      var id = String((body && body.id) || '').trim();
+      if (!className || !id) throw new Error('缺少要刪的考試／實驗');
+      var pack = ensureLessonClass_(store, className);
+      pack.events = normalizeLessonEvents_(pack.events, className).map(function (item) {
+        if (item.id !== id) return item;
+        return Object.assign({}, item, { deleted: true, updatedAt: nowIso() });
+      });
+      pack.updatedAt = nowIso();
+      store.lessonLog = normalizeLessonLog_(store.lessonLog);
+      saveStore(store);
+      var result = { ok: true, lessonLog: store.lessonLog, className: className };
+      if (!cloudOn() || !hydrated) return wrap(result);
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      return pushCloud_(memStore).then(function () {
+        result.lessonLog = memStore.lessonLog || result.lessonLog;
+        result.synced = true;
+        return result;
+      }).catch(function (err) {
+        result.synced = false;
+        result.cloudError = err && err.message ? err.message : '雲端同步失敗';
+        return result;
       });
     },
     getScheduleChanges: function () {

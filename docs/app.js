@@ -725,6 +725,22 @@
       requireTeacher(saveLessonJournal);
     });
   }
+  var journalEventSave = document.getElementById('btnJournalEventSave');
+  if (journalEventSave) {
+    journalEventSave.addEventListener('click', function () {
+      requireTeacher(saveLessonEventFromForm);
+    });
+  }
+  var journalEventBody = document.getElementById('journalEventBody');
+  if (journalEventBody) {
+    journalEventBody.addEventListener('click', function (event) {
+      var btn = event.target.closest('[data-journal-event-del]');
+      if (!btn) return;
+      requireTeacher(function () {
+        deleteLessonEvent(btn.getAttribute('data-journal-event-class'), btn.getAttribute('data-journal-event-del'));
+      });
+    });
+  }
   var cloudBtn = document.getElementById('btnCloudConnect');
   if (cloudBtn) cloudBtn.addEventListener('click', connectCloud);
   var repairGroupsBtn = document.getElementById('btnRepairGroups');
@@ -1587,8 +1603,8 @@
     Object.keys(localLog).forEach(function (cn) { names[cn] = true; });
     Object.keys(remoteLog).forEach(function (cn) { names[cn] = true; });
     Object.keys(names).forEach(function (cn) {
-      var localPack = localLog[cn] || { current: '', updatedAt: '', entries: [] };
-      var remotePack = remoteLog[cn] || { current: '', updatedAt: '', entries: [] };
+      var localPack = localLog[cn] || { current: '', updatedAt: '', entries: [], events: [] };
+      var remotePack = remoteLog[cn] || { current: '', updatedAt: '', entries: [], events: [] };
       var byId = {};
       var byDate = {};
       function take(entry) {
@@ -1616,10 +1632,25 @@
       entries.sort(function (a, b) {
         return String(b.date).localeCompare(String(a.date)) || String(b.createdAt || '').localeCompare(String(a.createdAt || ''));
       });
+      var eventById = {};
+      (remotePack.events || []).concat(localPack.events || []).forEach(function (ev) {
+        if (!ev || !ev.id) return;
+        var prev = eventById[ev.id];
+        if (!prev || String(ev.updatedAt || ev.createdAt || '') >= String(prev.updatedAt || prev.createdAt || '')) {
+          eventById[ev.id] = ev;
+        }
+      });
+      var events = Object.keys(eventById).map(function (id) { return eventById[id]; }).filter(function (ev) {
+        return !ev.deleted;
+      }).sort(function (a, b) {
+        return String(a.date || '').localeCompare(String(b.date || '')) ||
+          String(a.period || '').localeCompare(String(b.period || ''));
+      });
       out[cn] = {
         current: String(localPack.current || remotePack.current || '').trim().slice(0, 80),
         updatedAt: (localPack.updatedAt || '') > (remotePack.updatedAt || '') ? localPack.updatedAt : (remotePack.updatedAt || localPack.updatedAt || ''),
-        entries: entries
+        entries: entries,
+        events: events
       };
     });
     if (!Object.keys(out).length && countLessonLogClient_(remoteLog) >= countLessonLogClient_(localLog)) {
@@ -3141,7 +3172,160 @@
 
   function lessonPackFor(className) {
     var log = App.lessonLog || {};
-    return log[className] || { current: '', updatedAt: '', entries: [] };
+    return log[className] || { current: '', updatedAt: '', entries: [], events: [] };
+  }
+
+  function lessonEventLabel(type) {
+    return type === 'lab' ? '實驗' : '考試';
+  }
+
+  function activeEventsForClass(className) {
+    return ((lessonPackFor(className).events) || []).filter(function (ev) {
+      return ev && !ev.deleted && ev.date && ev.period;
+    });
+  }
+
+  function allActiveLessonEvents() {
+    var out = [];
+    Object.keys(App.lessonLog || {}).forEach(function (cn) {
+      activeEventsForClass(cn).forEach(function (ev) {
+        out.push(ev);
+      });
+    });
+    return out;
+  }
+
+  function lessonEventsForWeek(weekStart, model) {
+    var map = {};
+    var dates = {};
+    var i;
+    for (i = 0; i < 5; i++) {
+      dates[addDaysToKey(weekStart, i)] = i;
+    }
+    allActiveLessonEvents().forEach(function (ev) {
+      var day = dates[ev.date];
+      if (day == null) return;
+      var ri = model && model.rows ? findPeriodRowIndex(model.rows, ev.period) : -1;
+      if (ri < 0) return;
+      var key = day + ':' + ri;
+      if (!map[key]) map[key] = [];
+      map[key].push(ev);
+    });
+    return map;
+  }
+
+  function eventTagsHtml(events) {
+    if (!events || !events.length) return '';
+    return '<div class="tt-event-tags">' + events.map(function (ev) {
+      var kind = ev.type === 'lab' ? 'lab' : 'exam';
+      var tip = escapeHtml(ev.className + ' ' + lessonEventLabel(ev.type) + (ev.note ? '｜' + ev.note : ''));
+      return '<span class="tt-event-tag ' + kind + '" title="' + tip + '">' +
+        escapeHtml(ev.className + '·' + lessonEventLabel(ev.type)) + '</span>';
+    }).join('') + '</div>';
+  }
+
+  function fillJournalEventForm(className) {
+    var dateEl = document.getElementById('journalEventDate');
+    var periodEl = document.getElementById('journalEventPeriod');
+    if (dateEl && document.activeElement !== dateEl && !dateEl.value) {
+      dateEl.value = formatDateKey(new Date());
+    }
+    if (periodEl) {
+      var periods = [];
+      var sheet = App.timetableData && App.timetableData.sheets &&
+        App.timetableData.sheets[App.timetableSheet || 0];
+      if (sheet) {
+        var model = parseTimetableSheet(sheet.values);
+        ((model && model.rows) || []).forEach(function (row) {
+          if (row.isBreak) return;
+          var label = String(row.period || '').trim();
+          if (label && periods.indexOf(label) < 0) periods.push(label);
+        });
+      }
+      if (!periods.length) periods = ['1', '2', '3', '4', '5', '6', '7', '8'];
+      var prev = periodEl.value;
+      periodEl.innerHTML = periods.map(function (p) {
+        return '<option value="' + escapeHtml(p) + '">' + escapeHtml(periodLabel({ period: p })) + '</option>';
+      }).join('');
+      if (prev && periods.indexOf(prev) >= 0) periodEl.value = prev;
+    }
+  }
+
+  function renderJournalEvents(className) {
+    var body = document.getElementById('journalEventBody');
+    if (!body) return;
+    if (!className) {
+      body.innerHTML = '<tr><td colspan="5">請先選班級。</td></tr>';
+      return;
+    }
+    var events = activeEventsForClass(className).slice().sort(function (a, b) {
+      return String(a.date).localeCompare(String(b.date)) || String(a.period).localeCompare(String(b.period));
+    });
+    if (!events.length) {
+      body.innerHTML = '<tr><td colspan="5">還沒有考試／實驗時間。填好後按「加入考試／實驗」。</td></tr>';
+      return;
+    }
+    var today = formatDateKey(new Date());
+    body.innerHTML = events.map(function (item) {
+      var past = item.date < today ? ' style="opacity:.65"' : '';
+      return '<tr' + past + '>' +
+        '<td>' + escapeHtml(lessonEventLabel(item.type)) + '</td>' +
+        '<td>' + escapeHtml(formatZhDate(item.date)) + '</td>' +
+        '<td>' + escapeHtml(periodLabel({ period: item.period })) + '</td>' +
+        '<td>' + escapeHtml(item.note || '—') + '</td>' +
+        '<td><button type="button" class="tool danger" data-journal-event-del="' + escapeHtml(item.id) +
+          '" data-journal-event-class="' + escapeHtml(className) + '">刪</button></td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  function saveLessonEventFromForm() {
+    var className = (els.dbClassFilter && els.dbClassFilter.value !== '__all__')
+      ? els.dbClassFilter.value
+      : teacherTargetClass();
+    if (!className) {
+      toast('請先選班級');
+      return;
+    }
+    var typeEl = document.getElementById('journalEventType');
+    var dateEl = document.getElementById('journalEventDate');
+    var periodEl = document.getElementById('journalEventPeriod');
+    var noteEl = document.getElementById('journalEventNote');
+    api('saveLessonEvent', [{
+      className: className,
+      type: typeEl ? typeEl.value : 'exam',
+      date: dateEl ? dateEl.value : '',
+      period: periodEl ? periodEl.value : '',
+      note: noteEl ? noteEl.value : ''
+    }]).then(function (data) {
+      App.lessonLog = mergeLessonLogClient_(App.lessonLog, data.lessonLog || {});
+      if (noteEl) noteEl.value = '';
+      renderLessonJournal();
+      if (App.teacherTab === 'timetable') renderTimetable();
+      if (data && data.synced === false) {
+        toast((data.cloudError || '已暫存，但還沒同步到雲端') + '。請按「立即同步」', 7000);
+      } else {
+        toast(className + ' 已加入' + lessonEventLabel((data.item && data.item.type) || 'exam') + '時間');
+      }
+    }).catch(function (err) {
+      toast(err && err.message ? err.message : '儲存失敗');
+    });
+  }
+
+  function deleteLessonEvent(className, id) {
+    if (!window.confirm('刪掉這筆考試／實驗時間？課表上的標記也會一起消失。')) return;
+    api('deleteLessonEvent', [{ className: className, id: id }]).then(function (data) {
+      App.lessonLog = mergeLessonLogClient_(App.lessonLog, data.lessonLog || {});
+      renderLessonJournal();
+      if (App.teacherTab === 'timetable') renderTimetable();
+      if (data && data.synced === false) {
+        toast((data.cloudError || '已刪除，但還沒同步到雲端') + '。請按「立即同步」', 7000);
+      } else {
+        toast('已刪除');
+      }
+    }).catch(function (err) {
+      toast(err && err.message ? err.message : '刪除失敗');
+    });
   }
 
   function latestLessonEntry(pack) {
@@ -3196,12 +3380,18 @@
             ? formatZhDate(latest.date)
             : (pack.updatedAt ? formatTime(pack.updatedAt) : '');
           var noteBit = latest && latest.note ? latest.note : '';
+          var events = activeEventsForClass(cn);
+          var nextEv = events.filter(function (ev) { return ev.date >= formatDateKey(new Date()); })[0];
+          var eventBit = nextEv
+            ? (lessonEventLabel(nextEv.type) + ' ' + formatZhDate(nextEv.date) + ' 第' + nextEv.period + '節')
+            : '';
           var on = cn === target ? ' tab-on' : '';
           return '<button type="button" class="journal-card' + on + '" data-journal-class="' + escapeHtml(cn) + '">' +
             '<span>' + escapeHtml(cn) + '</span>' +
             '<strong>' + escapeHtml(current) + '</strong>' +
             (when ? '<em>' + escapeHtml(when) + '</em>' : '') +
             (noteBit ? '<small>' + escapeHtml(noteBit) + '</small>' : '') +
+            (eventBit ? '<small class="journal-event-hint">' + escapeHtml(eventBit) + '</small>' : '') +
             '</button>';
         }).join('');
         overview.querySelectorAll('[data-journal-class]').forEach(function (btn) {
@@ -3217,6 +3407,8 @@
       }
     }
     fillJournalForm(target);
+    fillJournalEventForm(target);
+    renderJournalEvents(target);
     if (!body) return;
     if (!target) {
       body.innerHTML = '<tr><td colspan="4">請先選班級。</td></tr>';
@@ -4460,13 +4652,15 @@
     var liveModel = appliedLive.model || model;
     var viewModel = appliedView.model || model;
     var marks = appliedView.marks || {};
+    var eventMarks = lessonEventsForWeek(viewWeek, viewModel);
+    var liveEventMarks = lessonEventsForWeek(thisWeek, liveModel);
     var today = weekdayIndex(now);
     var mins = minutesNow(now);
     var todayIsHoliday = today >= 0 && !!holidayLive[today];
     var nowRow = (!todayIsHoliday && today >= 0) ? currentPeriodIndex(liveModel, now) : -1;
     var nextRow = (!todayIsHoliday && today >= 0) ? nextBusyIndex(liveModel, today, nowRow, mins) : -1;
-    renderTimetableNow(liveModel, today, nowRow, nextRow, now, holidayLive);
-    renderTimetableGrid(viewModel, today, nowRow, nextRow, marks, holidayView);
+    renderTimetableNow(liveModel, today, nowRow, nextRow, now, holidayLive, liveEventMarks);
+    renderTimetableGrid(viewModel, today, nowRow, nextRow, marks, holidayView, eventMarks);
     setTimetableStatus();
     var focusKey = nowRow + ':' + nextRow + ':' + today + ':' + viewWeek;
     if (App.ttFocusKey !== focusKey) {
@@ -4513,7 +4707,7 @@
     return String(row.cells[today] || '').trim();
   }
 
-  function renderFocusCard(kind, row, today, now, remainLabel, holidayName) {
+  function renderFocusCard(kind, row, today, now, remainLabel, holidayName, events) {
     var period = row ? periodLabel(row) : (kind === 'now' ? '現在沒有課' : '沒有下一節');
     var time = row && row.time ? prettyTime(row.time) : '';
     var remain = '';
@@ -4533,6 +4727,7 @@
       : (text
         ? (cls ? ttClassButton(text) : '<span class="tt-focus-item">' + escapeHtml(text) + '</span>')
         : '<span class="tt-focus-empty">' + (kind === 'now' ? '這一節沒有排課' : '沒有下一節') + '</span>');
+    body += eventTagsHtml(events);
     return '<article class="tt-focus-card tt-focus-' + kind + '">' +
       '<p class="tt-kicker">' + (kind === 'now' ? '現在' : '接下來') + '</p>' +
       '<p class="tt-period">' + escapeHtml(title) + '</p>' +
@@ -4541,9 +4736,10 @@
       '</article>';
   }
 
-  function renderTimetableNow(model, today, nowRow, nextRow, now, holidayMap) {
+  function renderTimetableNow(model, today, nowRow, nextRow, now, holidayMap, eventMarks) {
     if (!els.timetableNow) return;
     holidayMap = holidayMap || {};
+    eventMarks = eventMarks || {};
     var weekdays = ['週日', '週一', '週二', '週三', '週四', '週五', '週六'];
     var clock = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
     if (els.timetableClock) els.timetableClock.textContent = weekdays[now.getDay()] + '　' + clock;
@@ -4552,6 +4748,8 @@
     var next = (!todayHoliday && nextRow >= 0) ? model.rows[nextRow] : null;
     var nowRemain = current ? 'end' : '';
     var nextRemain = next ? 'start' : '';
+    var nowEvents = (today >= 0 && nowRow >= 0) ? (eventMarks[today + ':' + nowRow] || []) : [];
+    var nextEvents = (today >= 0 && nextRow >= 0) ? (eventMarks[today + ':' + nextRow] || []) : [];
     var nowCard;
     if (today < 0) {
       nowCard = '<article class="tt-focus-card tt-focus-now">' +
@@ -4574,27 +4772,28 @@
         '<div class="tt-focus-body"><span class="tt-focus-empty">先看接下來</span></div>' +
         '<div class="tt-focus-action"></div></article>';
     } else {
-      nowCard = renderFocusCard('now', current, today, now, nowRemain, '');
+      nowCard = renderFocusCard('now', current, today, now, nowRemain, '', nowEvents);
     }
     var nextCard = todayHoliday
       ? '<article class="tt-focus-card tt-focus-next">' +
         '<p class="tt-kicker">接下來</p><p class="tt-period">放假</p>' +
         '<div class="tt-focus-body"><span class="tt-focus-empty">' + escapeHtml(todayHoliday) + '</span></div>' +
         '<div class="tt-focus-action"></div></article>'
-      : renderFocusCard('next', next, today, now, nextRemain, '');
+      : renderFocusCard('next', next, today, now, nextRemain, '', nextEvents);
     els.timetableNow.innerHTML = '<div class="tt-focus-grid">' + nowCard + nextCard + '</div>';
   }
 
-  function cellInner(cell, badge) {
+  function cellInner(cell, badge, events) {
     var mark = badge ? '<span class="tt-badge' + (badge === '調課' ? ' tt-badge-swap' : '') + '">' + badge + '</span>' : '';
     var body = cell ? (matchClassName(cell) ? ttClassButton(cell) : escapeHtml(cell)) : (badge ? '<span class="tt-focus-empty">空堂</span>' : '');
-    return mark + body;
+    return mark + body + eventTagsHtml(events);
   }
 
-  function renderTimetableGrid(model, today, nowRow, nextRow, marks, holidayMap) {
+  function renderTimetableGrid(model, today, nowRow, nextRow, marks, holidayMap, eventMarks) {
     if (!els.timetableGrid) return;
     marks = marks || {};
     holidayMap = holidayMap || {};
+    eventMarks = eventMarks || {};
     if (model.raw) {
       els.timetableGrid.innerHTML = '<div class="tt-table-wrap"><table class="tt-table">' +
         (model.values || []).map(function (row) {
@@ -4623,6 +4822,7 @@
           var cls = ['tt-col-day'];
           var badge = '';
           var swapMark = marks[i + ':' + r];
+          var events = eventMarks[i + ':' + r] || [];
           if (viewingThisWeek && i === today) cls.push('tt-today');
           if (holiday) {
             cls.push('tt-holiday-day');
@@ -4630,6 +4830,7 @@
               (row.isBreak ? escapeHtml(cell || '') : ('放假｜' + escapeHtml(holiday.name))) +
               '</td>';
           }
+          if (events.length) cls.push('tt-has-event');
           if (swapMark) {
             cls.push('tt-swapped');
             badge = '調課';
@@ -4641,7 +4842,7 @@
             cls.push('tt-upcoming');
             if (!badge) badge = '接下來';
           }
-          return '<td class="' + cls.join(' ') + '">' + cellInner(cell, badge) + '</td>';
+          return '<td class="' + cls.join(' ') + '">' + cellInner(cell, badge, events) + '</td>';
         }).join('') + '</tr>';
     }).join('');
     els.timetableGrid.innerHTML = '<div class="tt-table-wrap"><table class="tt-table">' + colgroup +
