@@ -6083,18 +6083,20 @@
     var rows = students.map(function (stu) {
       var parts = studentGradeParts(stu, '');
       return Object.assign({ seatNo: stu.seatNo, name: stu.name }, parts);
-    }).sort(function (a, b) {
+    });
+    var byScore = rows.slice().sort(function (a, b) {
       return (b.total == null ? -999 : b.total) - (a.total == null ? -999 : a.total);
     });
     var lastTotal = null;
     var lastRank = 0;
-    rows.forEach(function (row, index) {
+    byScore.forEach(function (row, index) {
       if (lastTotal === null || row.total !== lastTotal) {
         lastRank = index + 1;
         lastTotal = row.total;
       }
       row.rank = lastRank;
     });
+    rows.sort(seatOrder);
 
     var usualHead = '<th>上課加扣</th><th>換算分</th>' +
       labs.map(function (col) { return gradeColHead(col, 'lab'); }).join('') +
