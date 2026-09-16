@@ -123,6 +123,7 @@
             </div>
             <p class="hint" id="boardHint">點學生即可加扣分；預設依座號排列。</p>
           </div>
+          <div id="hwMissingBanner" class="hw-missing-banner" hidden></div>
           <div id="groupBar" class="group-bar" hidden>
             <div class="group-bar-row">
               <label class="group-size-label">每組人數
@@ -197,6 +198,7 @@
         <button type="button" class="tool" data-teacher-tab="stats">統計圖表</button>
         <button type="button" class="tool" data-teacher-tab="exam">模擬考</button>
         <button type="button" class="tool" data-teacher-tab="journal">教學日誌</button>
+        <button type="button" class="tool" data-teacher-tab="missing">缺交作業</button>
         <button type="button" class="tool" data-teacher-tab="homework">作業檢核</button>
         <button type="button" class="tool" data-teacher-tab="settings">設定與上傳</button>
         <button type="button" class="tool" id="btnExport">下載備份</button>
@@ -908,6 +910,29 @@
                 <tbody id="journalBody"></tbody>
               </table>
             </div>
+          </div>
+
+          <div id="tabMissing" class="teacher-panel missing-panel" hidden>
+            <p class="hint">登記各班缺交作業名單。儲存後會顯示在上課模式該班畫面（只顯示座號）。平板與筆電會共用。</p>
+            <div class="form-grid missing-form">
+              <label>作業名稱
+                <input id="missingTitle" type="text" maxlength="60" placeholder="例如 講義第 3 回" />
+              </label>
+              <label>備註
+                <input id="missingNote" type="text" maxlength="120" placeholder="選填" />
+              </label>
+              <label>座號（可打字，逗號分隔）
+                <input id="missingSeatsText" type="text" maxlength="200" placeholder="例如 01,05,12" />
+              </label>
+            </div>
+            <p class="hint">或直接點下面座號切換缺交：</p>
+            <div id="missingSeatPick" class="missing-seat-pick" role="group" aria-label="缺交座號"></div>
+            <div class="modal-actions">
+              <button type="button" class="tool primary" id="btnMissingSave">儲存缺交名單</button>
+              <button type="button" class="tool" id="btnMissingClearPick">清除已選座號</button>
+            </div>
+            <h3 class="subhead">本班缺交名單</h3>
+            <div id="missingList" class="missing-list" aria-live="polite"></div>
           </div>
 
           <div id="tabHomework" class="teacher-panel hw-panel" hidden>

@@ -1048,6 +1048,7 @@ function mergeProtectCloudStore_(incoming, existing) {
   }
   store.lessonLog = mergeCloudLessonLog_(store.lessonLog, existing.lessonLog);
   store.scheduleChanges = mergeCloudScheduleChanges_(store.scheduleChanges, existing.scheduleChanges);
+  store.hwMissing = mergeCloudHwMissing_(store.hwMissing, existing.hwMissing);
   return store;
 }
 
@@ -1197,6 +1198,53 @@ function mergeCloudScheduleChanges_(localList, remoteList) {
       String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
   });
   if (out.length > 80) out = out.slice(0, 80);
+  return out;
+}
+
+function mergeCloudHwMissing_(localMap, remoteMap) {
+  localMap = localMap && typeof localMap === 'object' ? localMap : {};
+  remoteMap = remoteMap && typeof remoteMap === 'object' ? remoteMap : {};
+  var names = {};
+  Object.keys(localMap).forEach(function (cn) { names[cn] = true; });
+  Object.keys(remoteMap).forEach(function (cn) { names[cn] = true; });
+  var out = {};
+  Object.keys(names).forEach(function (cn) {
+    var byId = {};
+    function take(item) {
+      if (!item || typeof item !== 'object') return;
+      var id = String(item.id || '').trim();
+      if (!id) return;
+      var seats = [];
+      var seen = {};
+      (item.seats || []).forEach(function (raw) {
+        var seat = String(raw == null ? '' : raw).trim();
+        if (!seat) return;
+        if (/^\d+$/.test(seat) && seat.length < 2) seat = ('0' + seat).slice(-2);
+        if (seen[seat]) return;
+        seen[seat] = true;
+        seats.push(seat);
+      });
+      var norm = {
+        id: id,
+        className: String(item.className || cn || '').trim(),
+        title: String(item.title || '').trim().slice(0, 60) || '缺交作業',
+        seats: seats,
+        note: String(item.note || '').trim().slice(0, 120),
+        deleted: !!item.deleted,
+        createdAt: String(item.createdAt || ''),
+        updatedAt: String(item.updatedAt || item.createdAt || '')
+      };
+      var prev = byId[id];
+      if (!prev || String(norm.updatedAt || '') >= String(prev.updatedAt || '')) byId[id] = norm;
+    }
+    (remoteMap[cn] || []).forEach(take);
+    (localMap[cn] || []).forEach(take);
+    out[cn] = Object.keys(byId).map(function (id) { return byId[id]; });
+    out[cn].sort(function (a, b) {
+      return String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
+    });
+    if (out[cn].length > 40) out[cn] = out[cn].slice(0, 40);
+  });
   return out;
 }
 

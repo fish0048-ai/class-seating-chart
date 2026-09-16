@@ -39,6 +39,8 @@
     timetableSheet: 0,
     scheduleChanges: [],
     scheduleWeek: '',
+    hwMissing: {},
+    missingPick: {},
     groupPanel: false,
     groupAssign: false,
     groupPick: 1,
@@ -533,6 +535,7 @@
           renderLessonJournal();
         });
       }
+      if (App.teacherTab === 'missing') renderHwMissingTab();
     });
   }
   if (els.dbDateFilter) {
@@ -739,6 +742,54 @@
       requireTeacher(function () {
         deleteLessonEvent(btn.getAttribute('data-journal-event-class'), btn.getAttribute('data-journal-event-del'));
       });
+    });
+  }
+  var btnMissingSave = document.getElementById('btnMissingSave');
+  if (btnMissingSave) {
+    btnMissingSave.addEventListener('click', function () {
+      requireTeacher(saveHwMissingFromForm);
+    });
+  }
+  var btnMissingClearPick = document.getElementById('btnMissingClearPick');
+  if (btnMissingClearPick) {
+    btnMissingClearPick.addEventListener('click', function () {
+      App.missingPick = {};
+      var text = document.getElementById('missingSeatsText');
+      if (text) text.value = '';
+      renderHwMissingSeatPick();
+    });
+  }
+  var missingSeatPick = document.getElementById('missingSeatPick');
+  if (missingSeatPick) {
+    missingSeatPick.addEventListener('click', function (event) {
+      var btn = event.target.closest('[data-missing-seat]');
+      if (!btn) return;
+      var seat = btn.getAttribute('data-missing-seat');
+      if (!seat) return;
+      if (App.missingPick[seat]) delete App.missingPick[seat];
+      else App.missingPick[seat] = true;
+      syncMissingSeatsTextFromPick();
+      renderHwMissingSeatPick();
+    });
+  }
+  var missingList = document.getElementById('missingList');
+  if (missingList) {
+    missingList.addEventListener('click', function (event) {
+      var btn = event.target.closest('[data-missing-del]');
+      if (!btn) return;
+      requireTeacher(function () {
+        deleteHwMissingItem(btn.getAttribute('data-missing-class'), btn.getAttribute('data-missing-del'));
+      });
+    });
+  }
+  var missingSeatsText = document.getElementById('missingSeatsText');
+  if (missingSeatsText) {
+    missingSeatsText.addEventListener('input', function () {
+      App.missingPick = {};
+      parseMissingSeatsText(missingSeatsText.value).forEach(function (seat) {
+        App.missingPick[seat] = true;
+      });
+      renderHwMissingSeatPick();
     });
   }
   var cloudBtn = document.getElementById('btnCloudConnect');
@@ -1564,8 +1615,36 @@
     if (data.scheduleChanges) {
       App.scheduleChanges = mergeScheduleChangesClient_(App.scheduleChanges, data.scheduleChanges);
     }
+    if (data.hwMissing) {
+      App.hwMissing = mergeHwMissingClient_(App.hwMissing, data.hwMissing);
+    }
     renderAll();
     if (App.classroom) refreshClassStats();
+  }
+
+  function mergeHwMissingClient_(localMap, remoteMap) {
+    localMap = localMap && typeof localMap === 'object' ? localMap : {};
+    remoteMap = remoteMap && typeof remoteMap === 'object' ? remoteMap : {};
+    var names = {};
+    Object.keys(localMap).forEach(function (cn) { names[cn] = true; });
+    Object.keys(remoteMap).forEach(function (cn) { names[cn] = true; });
+    var out = {};
+    Object.keys(names).forEach(function (cn) {
+      var byId = {};
+      ((remoteMap[cn] || []).concat(localMap[cn] || [])).forEach(function (item) {
+        if (!item || !item.id) return;
+        var prev = byId[item.id];
+        if (!prev || String(item.updatedAt || item.createdAt || '') >= String(prev.updatedAt || prev.createdAt || '')) {
+          byId[item.id] = item;
+        }
+      });
+      out[cn] = Object.keys(byId).map(function (id) { return byId[id]; }).filter(function (item) {
+        return !item.deleted;
+      }).sort(function (a, b) {
+        return String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
+      });
+    });
+    return out;
   }
 
   function mergeScheduleChangesClient_(localList, remoteList) {
@@ -1702,6 +1781,8 @@
     renderDelta();
     if (App.appView === 'teacher' && App.teacherTab === 'exam') renderMockExamTable();
     if (App.appView === 'teacher' && App.teacherTab === 'journal') renderLessonJournal();
+    if (App.appView === 'teacher' && App.teacherTab === 'missing') renderHwMissingTab();
+    renderHwMissingBanner();
   }
 
   function renderClassSelect() {
@@ -1772,11 +1853,13 @@
     const gid = studentGroupId(student.seatNo);
     const groupCls = gid ? ' has-group' : '';
     const pickedCls = (App.groupAssign && gid === App.groupPick) ? ' group-picked' : '';
+    const missingCls = isSeatHwMissing(student.seatNo) ? ' hw-missing' : '';
     const groupStyle = gid ? ' style="--group-color:' + groupColor(gid) + '"' : '';
     const groupBadge = gid ? '<span class="seat-group">第' + gid + '組</span>' : '';
+    const missingBadge = missingCls ? '<span class="seat-hw-missing">缺交</span>' : '';
     return '<div class="seat">' +
-      '<article class="seat-card' + selected + helper + groupCls + pickedCls + '" data-seat="' + escapeHtml(student.seatNo) + '"' + groupStyle + '>' +
-        groupBadge +
+      '<article class="seat-card' + selected + helper + groupCls + pickedCls + missingCls + '" data-seat="' + escapeHtml(student.seatNo) + '"' + groupStyle + '>' +
+        groupBadge + missingBadge +
         '<span class="seat-no">' + escapeHtml(student.seatNo) + '</span>' +
         '<span class="seat-name">' + escapeHtml(student.name) + '</span>' +
         seatScoreBlockHtml(student) +
@@ -2597,7 +2680,10 @@
   function labSeatCard(student, gid) {
     var selected = student.seatNo === App.selectedSeatNo ? ' selected' : '';
     var helper = App.peerHelperSeatNo && String(student.seatNo) === String(App.peerHelperSeatNo) ? ' peer-helper' : '';
-    return '<article class="seat-card has-group' + selected + helper + '" data-seat="' + escapeHtml(student.seatNo) + '" style="--group-color:' + groupColor(gid) + '">' +
+    var missingCls = isSeatHwMissing(student.seatNo) ? ' hw-missing' : '';
+    var missingBadge = missingCls ? '<span class="seat-hw-missing">缺交</span>' : '';
+    return '<article class="seat-card has-group' + selected + helper + missingCls + '" data-seat="' + escapeHtml(student.seatNo) + '" style="--group-color:' + groupColor(gid) + '">' +
+      missingBadge +
       '<span class="seat-no">' + escapeHtml(student.seatNo) + '</span>' +
       '<span class="seat-name">' + escapeHtml(student.name) + '</span>' +
       seatScoreBlockHtml(student) +
@@ -3114,6 +3200,7 @@
     var homework = document.getElementById('tabHomework');
     var exam = document.getElementById('tabExam');
     var journal = document.getElementById('tabJournal');
+    var missing = document.getElementById('tabMissing');
     var settings = document.getElementById('tabSettings');
     if (roster) roster.hidden = App.teacherTab !== 'roster';
     if (timetable) timetable.hidden = App.teacherTab !== 'timetable';
@@ -3122,6 +3209,7 @@
     if (stats) stats.hidden = App.teacherTab !== 'stats';
     if (exam) exam.hidden = App.teacherTab !== 'exam';
     if (journal) journal.hidden = App.teacherTab !== 'journal';
+    if (missing) missing.hidden = App.teacherTab !== 'missing';
     if (homework) homework.hidden = App.teacherTab !== 'homework';
     if (settings) settings.hidden = App.teacherTab !== 'settings';
     document.querySelectorAll('.teacher-tab-only').forEach(function (btn) {
@@ -3135,7 +3223,7 @@
       els.dbClassFilter.parentElement.hidden = App.teacherTab === 'settings' || App.teacherTab === 'timetable';
     }
     document.querySelectorAll('.teacher-date-only').forEach(function (el) {
-      el.hidden = App.teacherTab === 'settings' || App.teacherTab === 'stats' || App.teacherTab === 'summary' || App.teacherTab === 'timetable' || App.teacherTab === 'homework' || App.teacherTab === 'exam' || App.teacherTab === 'journal';
+      el.hidden = App.teacherTab === 'settings' || App.teacherTab === 'stats' || App.teacherTab === 'summary' || App.teacherTab === 'timetable' || App.teacherTab === 'homework' || App.teacherTab === 'exam' || App.teacherTab === 'journal' || App.teacherTab === 'missing';
     });
     updateScoreDayLabel();
     if (App.teacherTab === 'settings' && changed) openSettings();
@@ -3150,6 +3238,9 @@
         renderLessonJournal();
       });
     }
+    if (App.teacherTab === 'missing') {
+      loadHwMissingTab();
+    }
     if (App.teacherTab === 'homework') loadHomeworkTab();
     if (App.teacherTab === 'timetable') {
       App.ttFocusKey = '';
@@ -3160,7 +3251,213 @@
       stopTimetableClock();
     }
     if (App.teacherTab === 'stats' && App.statsView === 'school') ensureSchoolStats();
-    if (App.teacherTab !== 'roster' && App.teacherTab !== 'settings' && App.teacherTab !== 'timetable' && App.teacherTab !== 'homework' && App.teacherTab !== 'exam' && App.teacherTab !== 'journal') refreshTeacherExtras();
+    if (App.teacherTab !== 'roster' && App.teacherTab !== 'settings' && App.teacherTab !== 'timetable' && App.teacherTab !== 'homework' && App.teacherTab !== 'exam' && App.teacherTab !== 'journal' && App.teacherTab !== 'missing') refreshTeacherExtras();
+  }
+
+  function normalizeDisplaySeat_(seat) {
+    var s = String(seat == null ? '' : seat).trim();
+    if (/^\d+$/.test(s)) return s.padStart(2, '0');
+    return s;
+  }
+
+  function parseMissingSeatsText(text) {
+    return String(text || '').split(/[,，\s]+/).map(normalizeDisplaySeat_).filter(Boolean);
+  }
+
+  function activeHwMissingItems(className) {
+    className = className || (App.classroom && App.classroom.className) || '';
+    return ((App.hwMissing && App.hwMissing[className]) || []).filter(function (item) {
+      return item && !item.deleted && (item.seats || []).length;
+    });
+  }
+
+  function hwMissingSeatSet(className) {
+    var set = {};
+    activeHwMissingItems(className).forEach(function (item) {
+      (item.seats || []).forEach(function (seat) {
+        set[normalizeDisplaySeat_(seat)] = true;
+        set[String(Number(seat) || seat)] = true;
+      });
+    });
+    return set;
+  }
+
+  function isSeatHwMissing(seatNo) {
+    if (!App.classroom) return false;
+    var set = hwMissingSeatSet(App.classroom.className);
+    var seat = String(seatNo || '');
+    return !!(set[normalizeDisplaySeat_(seat)] || set[seat] || set[String(Number(seat) || '')]);
+  }
+
+  function syncMissingSeatsTextFromPick() {
+    var text = document.getElementById('missingSeatsText');
+    if (!text) return;
+    var seats = Object.keys(App.missingPick || {}).filter(function (k) { return App.missingPick[k]; })
+      .map(normalizeDisplaySeat_).sort(function (a, b) {
+        return (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0);
+      });
+    text.value = seats.join(',');
+  }
+
+  function loadHwMissingTab() {
+    var className = teacherTargetClass();
+    api('getHwMissing', [className]).then(function (data) {
+      if (data && data.hwMissing) {
+        App.hwMissing = mergeHwMissingClient_(App.hwMissing, data.hwMissing);
+      }
+      renderHwMissingTab();
+      renderHwMissingBanner();
+    }).catch(function () {
+      renderHwMissingTab();
+    });
+  }
+
+  function renderHwMissingTab() {
+    var className = teacherTargetClass();
+    renderHwMissingSeatPick();
+    var list = document.getElementById('missingList');
+    if (!list) return;
+    if (!className) {
+      list.innerHTML = '<p class="hint">請先在上方選班級。</p>';
+      return;
+    }
+    var items = activeHwMissingItems(className);
+    if (!items.length) {
+      list.innerHTML = '<p class="hint">這班還沒有缺交名單。點座號或輸入座號後按「儲存缺交名單」。</p>';
+      return;
+    }
+    list.innerHTML = items.map(function (item) {
+      return '<div class="missing-item">' +
+        '<strong>' + escapeHtml(item.title || '缺交作業') + '</strong>' +
+        '<span class="missing-seats">缺交座號：' + escapeHtml((item.seats || []).join('、')) + '</span>' +
+        (item.note ? '<span class="missing-note">' + escapeHtml(item.note) + '</span>' : '') +
+        '<button type="button" class="tool danger" data-missing-del="' + escapeHtml(item.id) +
+          '" data-missing-class="' + escapeHtml(className) + '">刪除</button>' +
+        '</div>';
+    }).join('');
+  }
+
+  function renderHwMissingSeatPick() {
+    var wrap = document.getElementById('missingSeatPick');
+    if (!wrap) return;
+    var className = teacherTargetClass();
+    var room = null;
+    if (App.classroom && App.classroom.className === className) room = App.classroom;
+    if (!room && className) {
+      // seats from current db rows if available
+      var seats = [];
+      (App.dbRows || []).forEach(function (row) {
+        if (String(row.className) === String(className) && row.seatNo) seats.push(row);
+      });
+      if (seats.length) {
+        wrap.innerHTML = seats.sort(function (a, b) {
+          return (parseInt(a.seatNo, 10) || 0) - (parseInt(b.seatNo, 10) || 0);
+        }).map(function (row) {
+          var seat = normalizeDisplaySeat_(row.seatNo);
+          var on = App.missingPick[seat] ? ' tab-on' : '';
+          return '<button type="button" class="tool missing-seat-btn' + on + '" data-missing-seat="' +
+            escapeHtml(seat) + '">' + escapeHtml(seat) + '</button>';
+        }).join('');
+        return;
+      }
+    }
+    var students = (room && room.students) || (App.classroom && App.classroom.className === className ? App.classroom.students : []);
+    if (!className) {
+      wrap.innerHTML = '<p class="hint">請先選班級。</p>';
+      return;
+    }
+    if (!(students || []).length) {
+      wrap.innerHTML = '<p class="hint">這班還沒有名單，也可直接在上方輸入座號。</p>';
+      return;
+    }
+    wrap.innerHTML = (students || []).slice().sort(seatOrder).map(function (s) {
+      var seat = normalizeDisplaySeat_(s.seatNo);
+      var on = App.missingPick[seat] ? ' tab-on' : '';
+      return '<button type="button" class="tool missing-seat-btn' + on + '" data-missing-seat="' +
+        escapeHtml(seat) + '" title="' + escapeHtml(s.name || '') + '">' + escapeHtml(seat) + '</button>';
+    }).join('');
+  }
+
+  function saveHwMissingFromForm() {
+    var className = teacherTargetClass();
+    if (!className) {
+      toast('請先選班級');
+      return;
+    }
+    var titleEl = document.getElementById('missingTitle');
+    var noteEl = document.getElementById('missingNote');
+    var textEl = document.getElementById('missingSeatsText');
+    var seats = Object.keys(App.missingPick || {}).filter(function (k) { return App.missingPick[k]; });
+    if (!seats.length && textEl) seats = parseMissingSeatsText(textEl.value);
+    api('saveHwMissing', [{
+      className: className,
+      title: titleEl ? titleEl.value : '',
+      note: noteEl ? noteEl.value : '',
+      seats: seats
+    }]).then(function (data) {
+      if (data && data.hwMissing) {
+        App.hwMissing = mergeHwMissingClient_(App.hwMissing, data.hwMissing);
+      }
+      App.missingPick = {};
+      if (textEl) textEl.value = '';
+      if (noteEl) noteEl.value = '';
+      renderHwMissingTab();
+      renderHwMissingBanner();
+      if (App.classroom && App.classroom.className === className) renderBoard();
+      if (data && data.synced === false) {
+        toast((data.cloudError || '已暫存，但還沒同步到雲端') + '。請按「立即同步」', 7000);
+      } else {
+        toast(className + ' 缺交名單已儲存');
+      }
+    }).catch(function (err) {
+      toast(err && err.message ? err.message : '儲存失敗');
+    });
+  }
+
+  function deleteHwMissingItem(className, id) {
+    if (!window.confirm('刪掉這筆缺交名單？上課模式也不再顯示。')) return;
+    api('deleteHwMissing', [{ className: className, id: id }]).then(function (data) {
+      if (data && data.hwMissing) {
+        App.hwMissing = mergeHwMissingClient_(App.hwMissing, data.hwMissing);
+      } else if (App.hwMissing && App.hwMissing[className]) {
+        App.hwMissing[className] = (App.hwMissing[className] || []).filter(function (item) {
+          return item.id !== id;
+        });
+      }
+      renderHwMissingTab();
+      renderHwMissingBanner();
+      if (App.classroom && App.classroom.className === className) renderBoard();
+      if (data && data.synced === false) {
+        toast((data.cloudError || '已刪除，但還沒同步到雲端') + '。請按「立即同步」', 7000);
+      } else {
+        toast('已刪除缺交名單');
+      }
+    }).catch(function (err) {
+      toast(err && err.message ? err.message : '刪除失敗');
+    });
+  }
+
+  function renderHwMissingBanner() {
+    var el = document.getElementById('hwMissingBanner');
+    if (!el) return;
+    if (!App.classroom || App.appView === 'teacher') {
+      el.hidden = true;
+      el.innerHTML = '';
+      return;
+    }
+    var items = activeHwMissingItems(App.classroom.className);
+    if (!items.length) {
+      el.hidden = true;
+      el.innerHTML = '';
+      return;
+    }
+    el.hidden = false;
+    el.innerHTML = '<strong>缺交作業</strong>' + items.map(function (item) {
+      return '<span class="hw-missing-line">' +
+        escapeHtml(item.title || '缺交') + '：' +
+        escapeHtml((item.seats || []).join('、')) +
+        '</span>';
+    }).join('');
   }
 
   function lessonLogClassNames() {

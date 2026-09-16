@@ -442,6 +442,7 @@
     }
     local.lessonLog = mergeLessonLogProtect_(local.lessonLog, remote.lessonLog);
     local.scheduleChanges = mergeScheduleChangesProtect_(local.scheduleChanges, remote.scheduleChanges);
+    local.hwMissing = mergeHwMissingProtect_(local.hwMissing, remote.hwMissing);
     return local;
   }
 
@@ -640,6 +641,7 @@
     parsed.mockExam = normalizeMockExam_(parsed.mockExam);
     parsed.lessonLog = normalizeLessonLog_(parsed.lessonLog);
     parsed.scheduleChanges = normalizeScheduleChanges_(parsed.scheduleChanges);
+    parsed.hwMissing = normalizeHwMissing_(parsed.hwMissing);
     return parsed;
   }
 
@@ -653,6 +655,95 @@
 
   function emptyScheduleChanges_() {
     return [];
+  }
+
+  function emptyHwMissing_() {
+    return {};
+  }
+
+  function normalizeHwSeatList_(seats) {
+    var seen = {};
+    var out = [];
+    (Array.isArray(seats) ? seats : String(seats || '').split(/[,，\s]+/)).forEach(function (raw) {
+      var seat = String(raw == null ? '' : raw).trim();
+      if (!seat) return;
+      if (/^\d+$/.test(seat)) seat = seat.padStart(2, '0');
+      if (seen[seat]) return;
+      seen[seat] = true;
+      out.push(seat);
+    });
+    out.sort(function (a, b) {
+      return (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0) || String(a).localeCompare(String(b));
+    });
+    return out;
+  }
+
+  function normalizeHwMissingItem_(raw, className) {
+    raw = raw || {};
+    var id = String(raw.id || '').trim();
+    if (!id) id = 'HM' + Date.now() + String(Math.floor(Math.random() * 1000));
+    return {
+      id: id,
+      className: String(raw.className || className || '').trim(),
+      title: String(raw.title || '').trim().slice(0, 60) || '缺交作業',
+      seats: normalizeHwSeatList_(raw.seats),
+      note: String(raw.note || '').trim().slice(0, 120),
+      deleted: !!raw.deleted,
+      createdAt: String(raw.createdAt || nowIso()),
+      updatedAt: String(raw.updatedAt || raw.createdAt || nowIso())
+    };
+  }
+
+  function normalizeHwMissing_(raw) {
+    if (!raw || typeof raw !== 'object') return emptyHwMissing_();
+    var out = {};
+    Object.keys(raw).forEach(function (cn) {
+      var list = Array.isArray(raw[cn]) ? raw[cn] : [];
+      var byId = {};
+      list.forEach(function (item) {
+        var norm = normalizeHwMissingItem_(item, cn);
+        if (!norm.className) return;
+        var prev = byId[norm.id];
+        if (!prev || String(norm.updatedAt || '') >= String(prev.updatedAt || '')) byId[norm.id] = norm;
+      });
+      var items = Object.keys(byId).map(function (id) { return byId[id]; });
+      items.sort(function (a, b) {
+        return String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
+      });
+      if (items.length > 40) items = items.slice(0, 40);
+      out[String(cn)] = items;
+    });
+    return out;
+  }
+
+  function activeHwMissingForClass_(storeOrMap, className) {
+    var map = storeOrMap && storeOrMap.hwMissing ? storeOrMap.hwMissing : storeOrMap;
+    return ((map && map[className]) || []).filter(function (item) {
+      return item && !item.deleted && (item.seats || []).length;
+    });
+  }
+
+  function mergeHwMissingProtect_(localMap, remoteMap) {
+    localMap = localMap && typeof localMap === 'object' ? localMap : {};
+    remoteMap = remoteMap && typeof remoteMap === 'object' ? remoteMap : {};
+    var names = {};
+    Object.keys(localMap).forEach(function (cn) { names[cn] = true; });
+    Object.keys(remoteMap).forEach(function (cn) { names[cn] = true; });
+    var out = {};
+    Object.keys(names).forEach(function (cn) {
+      var byId = {};
+      ((remoteMap[cn] || []).concat(localMap[cn] || [])).forEach(function (item) {
+        var norm = normalizeHwMissingItem_(item, cn);
+        if (!norm.id) return;
+        var prev = byId[norm.id];
+        if (!prev || String(norm.updatedAt || '') >= String(prev.updatedAt || '')) byId[norm.id] = norm;
+      });
+      out[cn] = Object.keys(byId).map(function (id) { return byId[id]; }).sort(function (a, b) {
+        return String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
+      });
+      if (out[cn].length > 40) out[cn] = out[cn].slice(0, 40);
+    });
+    return normalizeHwMissing_(out);
   }
 
   function mondayKeyFromDate_(date) {
@@ -890,6 +981,7 @@
     if (!memStore.mockExam) memStore.mockExam = emptyMockExam_();
     if (!memStore.lessonLog) memStore.lessonLog = emptyLessonLog_();
     if (!memStore.scheduleChanges) memStore.scheduleChanges = emptyScheduleChanges_();
+    if (!memStore.hwMissing) memStore.hwMissing = emptyHwMissing_();
     if (hydrated && ensureRolledScores_(memStore)) saveStore(memStore);
     return memStore;
   }
@@ -1395,6 +1487,7 @@
       mockExam: store.mockExam || emptyMockExam_(),
       lessonLog: store.lessonLog || emptyLessonLog_(),
       scheduleChanges: activeScheduleChanges_(store.scheduleChanges),
+      hwMissing: store.hwMissing || emptyHwMissing_(),
       plusHits: plusHitsForClass_(store, className)
     }, store);
   }
@@ -2372,6 +2465,104 @@
       saveTimer = null;
       return pushCloud_(memStore).then(function () {
         result.scheduleChanges = activeScheduleChanges_(memStore.scheduleChanges);
+        result.synced = true;
+        return result;
+      }).catch(function (err) {
+        result.synced = false;
+        result.cloudError = err && err.message ? err.message : '雲端同步失敗';
+        return result;
+      });
+    },
+    getHwMissing: function (className) {
+      var store = loadStore();
+      var cn = String(className || '').trim();
+      return wrap({
+        ok: true,
+        hwMissing: store.hwMissing || emptyHwMissing_(),
+        items: cn ? activeHwMissingForClass_(store, cn) : [],
+        className: cn,
+        classNames: classNames(store)
+      });
+    },
+    saveHwMissing: function (body) {
+      var store = loadStore();
+      var className = String((body && body.className) || '').trim();
+      if (!className) throw new Error('請先選班級');
+      var item = normalizeHwMissingItem_(body || {}, className);
+      item.deleted = false;
+      item.className = className;
+      if (!item.seats.length) throw new Error('請至少選一位缺交座號');
+      item.updatedAt = nowIso();
+      if (!item.createdAt) item.createdAt = item.updatedAt;
+      store.hwMissing = normalizeHwMissing_(store.hwMissing);
+      if (!store.hwMissing[className]) store.hwMissing[className] = [];
+      var found = false;
+      store.hwMissing[className] = store.hwMissing[className].map(function (old) {
+        if (old.id !== item.id) return old;
+        found = true;
+        return item;
+      });
+      if (!found) store.hwMissing[className].unshift(item);
+      store.hwMissing = normalizeHwMissing_(store.hwMissing);
+      saveStore(store);
+      var result = {
+        ok: true,
+        hwMissing: store.hwMissing,
+        items: activeHwMissingForClass_(store, className),
+        className: className,
+        item: item
+      };
+      if (!cloudOn() || !hydrated) return wrap(result);
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      return pushCloud_(memStore).then(function () {
+        result.hwMissing = memStore.hwMissing || result.hwMissing;
+        result.items = activeHwMissingForClass_(memStore, className);
+        result.synced = true;
+        return result;
+      }).catch(function (err) {
+        result.synced = false;
+        result.cloudError = err && err.message ? err.message : '雲端同步失敗';
+        return result;
+      });
+    },
+    deleteHwMissing: function (body) {
+      var store = loadStore();
+      var className = String((body && body.className) || '').trim();
+      var id = String((body && body.id) || '').trim();
+      if (!className || !id) throw new Error('缺少要刪的缺交名單');
+      store.hwMissing = normalizeHwMissing_(store.hwMissing);
+      if (!store.hwMissing[className]) store.hwMissing[className] = [];
+      var found = false;
+      store.hwMissing[className] = store.hwMissing[className].map(function (item) {
+        if (item.id !== id) return item;
+        found = true;
+        return Object.assign({}, item, { deleted: true, updatedAt: nowIso() });
+      });
+      if (!found) {
+        store.hwMissing[className].unshift(normalizeHwMissingItem_({
+          id: id,
+          className: className,
+          title: '-',
+          seats: ['00'],
+          deleted: true,
+          updatedAt: nowIso()
+        }, className));
+      }
+      store.hwMissing = normalizeHwMissing_(store.hwMissing);
+      saveStore(store);
+      var result = {
+        ok: true,
+        hwMissing: store.hwMissing,
+        items: activeHwMissingForClass_(store, className),
+        className: className
+      };
+      if (!cloudOn() || !hydrated) return wrap(result);
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      return pushCloud_(memStore).then(function () {
+        result.hwMissing = memStore.hwMissing || result.hwMissing;
+        result.items = activeHwMissingForClass_(memStore, className);
         result.synced = true;
         return result;
       }).catch(function (err) {
