@@ -41,7 +41,7 @@
       var timer = setTimeout(function () {
         cleanup();
         reject(new Error('雲端連線逾時。請確認 /exec 網址正確、部署對象是「任何人」，並用教師帳號登入後再按連上雲端。'));
-      }, 25000);
+      }, 45000);
       function cleanup() {
         clearTimeout(timer);
         try { delete global[cb]; } catch (err) { global[cb] = undefined; }
@@ -179,6 +179,60 @@
     });
   }
 
+  function fetchStoreOnce_() {
+    var url = apiUrl();
+    if (!url) {
+      return Promise.reject(new Error('尚未連上雲端資料庫'));
+    }
+    var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    var timer = null;
+    var req = fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'getStore', idToken: authToken_() }),
+      redirect: 'follow',
+      signal: ctrl ? ctrl.signal : undefined
+    }).then(function (res) {
+      return res.text();
+    }).then(parseCloudText_);
+    if (ctrl) {
+      timer = setTimeout(function () {
+        try { ctrl.abort(); } catch (err) {}
+      }, 40000);
+      req = req.then(function (data) {
+        clearTimeout(timer);
+        return data;
+      }, function (err) {
+        clearTimeout(timer);
+        throw err;
+      });
+    }
+    return req.then(null, function (err) {
+      if (err && err.name === 'AbortError') {
+        throw new Error('雲端讀取逾時，請再試一次');
+      }
+      throw err;
+    });
+  }
+
+  function getStoreWithRetry_() {
+    var tries = 0;
+    function attempt() {
+      tries += 1;
+      return fetchStoreOnce_().catch(function (err) {
+        if (isFatalCloudError_(err)) throw err;
+        if (tries >= 3) {
+          var token = authToken_();
+          // JWT 放進網址很容易超長而失敗；太長就不要再用 JSONP
+          if (token && token.length > 1400) throw err;
+          return jsonpGet('getStore');
+        }
+        return wait_(700 * tries).then(attempt);
+      });
+    }
+    return attempt();
+  }
+
   global.CloudStore = {
     url: apiUrl,
     setUrl: setApiUrl,
@@ -192,21 +246,7 @@
       return postAction('verifyAuth', { idToken: idToken || authToken_() });
     },
     getStore: function () {
-      var url = apiUrl();
-      if (!url) {
-        return Promise.reject(new Error('尚未連上雲端資料庫'));
-      }
-      return fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'getStore', idToken: authToken_() }),
-        redirect: 'follow'
-      }).then(function (res) {
-        return res.text();
-      }).then(parseCloudText_).catch(function (err) {
-        if (isFatalCloudError_(err)) throw err;
-        return jsonpGet('getStore');
-      });
+      return getStoreWithRetry_();
     },
     putStore: function (store) {
       return postAction('putStore', { store: store });

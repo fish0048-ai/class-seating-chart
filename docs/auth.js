@@ -110,21 +110,27 @@
       return Promise.reject(new Error('Google 登入沒有信箱，請改用其他帳號'));
     }
     var teacherGuess = isTeacherEmail(claims.email);
+    // 立刻進畫面並載入資料；不要同時打 verifyAuth，否則會跟 getStore 搶 Apps Script（常逾時）
     applyUser(token, claims, teacherGuess);
-    if (typeof CloudStore === 'undefined' || !CloudStore.verifyAuth) {
-      return Promise.resolve(user);
-    }
-    return CloudStore.verifyAuth(token).then(function (data) {
-      if (data && data.email) {
-        user.email = String(data.email).trim().toLowerCase();
-        user.teacher = !!data.teacher;
-        renderAccount();
-        if (onSignedInCb) onSignedInCb(user, true);
-      }
-      return user;
-    }).catch(function () {
-      return user;
-    });
+    scheduleServerVerify_(token);
+    return Promise.resolve(user);
+  }
+
+  function scheduleServerVerify_(token) {
+    if (typeof CloudStore === 'undefined' || !CloudStore.verifyAuth) return;
+    clearTimeout(scheduleServerVerify_._timer);
+    scheduleServerVerify_._timer = setTimeout(function () {
+      if (!user || user.idToken !== token) return;
+      CloudStore.verifyAuth(token).then(function (data) {
+        if (!user || user.idToken !== token) return;
+        if (data && data.email) {
+          user.email = String(data.email).trim().toLowerCase();
+          user.teacher = !!data.teacher;
+          renderAccount();
+          if (onSignedInCb) onSignedInCb(user, true);
+        }
+      }).catch(function () {});
+    }, 4500);
   }
 
   function handleCredential(response) {

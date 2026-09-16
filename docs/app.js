@@ -1202,28 +1202,49 @@
     }
   }
 
-  function bootstrap() {
+  var bootstrapSeq = 0;
+
+  function bootstrap(attempt) {
+    attempt = attempt || 1;
+    var seq = ++bootstrapSeq;
     App.busy = true;
-    if (els.syncMeta && !App.classroom) els.syncMeta.textContent = '正在載入…';
-    showLoadingBoard('正在從雲端載入班級…', false);
+    if (els.syncMeta && !App.classroom) {
+      els.syncMeta.textContent = attempt > 1 ? ('正在重試載入（' + attempt + '/3）…') : '正在載入…';
+    }
+    showLoadingBoard(attempt > 1 ? ('雲端較慢，正在重試第 ' + attempt + ' 次…') : '正在從雲端載入班級…', false);
     var finished = false;
     var slowTimer = setTimeout(function () {
-      if (finished || App.classroom) return;
+      if (finished || App.classroom || seq !== bootstrapSeq) return;
       if (els.syncMeta) els.syncMeta.textContent = '載入時間較久，仍在連雲端…';
-    }, 6000);
+    }, 8000);
+    var failAt = attempt === 1 ? 45000 : 55000;
     var failTimer = setTimeout(function () {
-      if (finished || App.classroom) return;
+      if (finished || App.classroom || seq !== bootstrapSeq) return;
+      if (attempt < 3) {
+        finished = true;
+        App.busy = false;
+        clearTimeout(slowTimer);
+        bootstrap(attempt + 1);
+        return;
+      }
       App.busy = false;
       if (els.syncMeta) els.syncMeta.textContent = '載入逾時，請再試一次';
       showLoadingBoard('雲端回應較慢，資料還沒進來。請再按一次重新載入。', true);
       toast('載入逾時，請再試一次');
-    }, 28000);
+    }, failAt);
     function settle() {
-      if (finished) return false;
+      if (finished || seq !== bootstrapSeq) return false;
       finished = true;
       App.busy = false;
       clearTimeout(slowTimer);
       clearTimeout(failTimer);
+      return true;
+    }
+    function isRetryableLoadError(error) {
+      var msg = error && error.message ? error.message : String(error || '');
+      if (/登入已過期|登入憑證|請先用 Google|沒有權限|只有教師|沒有開放權限|打開該網址/.test(msg)) {
+        return false;
+      }
       return true;
     }
     api('getBootstrapData', []).then(function (data) {
@@ -1238,7 +1259,15 @@
         toast('已從雲端載入，平板與筆電會看到同一份資料');
       }
     }).catch(function (error) {
-      settle();
+      if (!settle()) return;
+      if (attempt < 3 && isRetryableLoadError(error)) {
+        toast('載入失敗，正在重試（' + (attempt + 1) + '/3）…', 3000);
+        setTimeout(function () {
+          if (seq !== bootstrapSeq) return;
+          bootstrap(attempt + 1);
+        }, 900 * attempt);
+        return;
+      }
       var msg = error && error.message ? error.message : '載入失敗，請再試一次';
       if (els.syncMeta) els.syncMeta.textContent = '載入失敗：' + msg;
       showLoadingBoard(msg, true);

@@ -147,6 +147,19 @@ function authorizeScript() {
 function verifyIdToken_(idToken) {
   idToken = String(idToken || '').trim();
   if (!idToken) throw new Error('請先用 Google 帳號登入');
+
+  // 短時間快取，避免登入當下 verifyAuth 與 getStore 各打一次 Google
+  var cache = CacheService.getScriptCache();
+  var digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, idToken);
+  var cacheKey = 'idtok:' + Utilities.base64EncodeWebSafe(digest).substring(0, 80);
+  var cached = cache.get(cacheKey);
+  if (cached) {
+    try {
+      var hit = JSON.parse(cached);
+      if (hit && hit.email) return hit;
+    } catch (ignore) {}
+  }
+
   var res = fetchTokenInfo_(idToken);
   var data = {};
   try {
@@ -166,10 +179,14 @@ function verifyIdToken_(idToken) {
   }
   var email = String(data.email || '').trim().toLowerCase();
   if (!email) throw new Error('Google 登入沒有信箱');
-  return {
+  var user = {
     email: email,
     teacher: teacherEmailList_().indexOf(email) >= 0
   };
+  try {
+    cache.put(cacheKey, JSON.stringify(user), 300);
+  } catch (cacheErr) {}
+  return user;
 }
 
 function verifyAuthPayload_(idToken) {
