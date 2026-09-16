@@ -1478,24 +1478,23 @@
       if (done) done();
       return;
     }
-    var chain = api('getClassStats', [className]).then(function (data) {
-      App.statsBySeat = {};
-      (data && data.students ? data.students : []).forEach(function (row) {
-        if (!row) return;
-        var keys = [String(row.seatNo), seatLookupKey(row.seatNo)];
-        keys.forEach(function (k) {
-          if (k) App.statsBySeat[k] = row;
+    Promise.all([
+      api('getClassStats', [className]).then(function (data) {
+        App.statsBySeat = {};
+        (data && data.students ? data.students : []).forEach(function (row) {
+          if (!row) return;
+          var keys = [String(row.seatNo), seatLookupKey(row.seatNo)];
+          keys.forEach(function (k) {
+            if (k) App.statsBySeat[k] = row;
+          });
         });
-      });
-      if (data && data.activeDate) App.activeDate = data.activeDate;
-    });
-    chain = chain.then(function () {
-      return api('listDaily', [className]).then(function (data) {
+        if (data && data.activeDate) App.activeDate = data.activeDate;
+      }),
+      api('listDaily', [className]).then(function (data) {
         if (data && data.days) App.dailyDays = data.days;
         if (data && data.activeDate) App.activeDate = data.activeDate;
-      }).catch(function () {});
-    });
-    chain.then(function () {
+      }).catch(function () {})
+    ]).then(function () {
       renderRoster();
       if (done) done();
     }).catch(function () {
@@ -1783,6 +1782,18 @@
     if (App.appView === 'teacher' && App.teacherTab === 'journal') renderLessonJournal();
     if (App.appView === 'teacher' && App.teacherTab === 'missing') renderHwMissingTab();
     renderHwMissingBanner();
+  }
+
+  /** 加扣分後的輕量更新：不重跑班級下拉／教師分頁，減少卡頓。 */
+  function refreshScoreUi() {
+    if (!App.classroom || !els.board) return;
+    renderMeta();
+    renderBoard();
+    renderRoster();
+    renderGroupBar();
+    renderGroupRoster();
+    renderMode();
+    updateScoreDayLabel();
   }
 
   function renderClassSelect() {
@@ -3088,7 +3099,7 @@
       App.selectedSeatNo = student.seatNo;
       var seats = data.changedSeatNos && data.changedSeatNos.length ? data.changedSeatNos : [student.seatNo];
       App.rankBumpSeat = seats[0];
-      renderAll();
+      refreshScoreUi();
       seats.forEach(function (sn) {
         flashSeat(sn, applyDelta > 0 ? 'score-plus' : 'score-minus');
         spawnScoreFloat(sn, applyDelta);
@@ -3120,7 +3131,7 @@
       var seats2 = (data.undone.seatNos && data.undone.seatNos.length) ? data.undone.seatNos : [data.undone.seatNo];
       App.selectedSeatNo = data.undone.seatNo;
       App.rankBumpSeat = seats2[0];
-      renderAll();
+      refreshScoreUi();
       seats2.forEach(function (sn) {
         flashSeat(sn, data.undone.reversedDelta > 0 ? 'score-plus' : 'score-minus');
         spawnScoreFloat(sn, data.undone.reversedDelta);
@@ -3788,14 +3799,17 @@
     App.gradebookReady = false;
     clearTimeout(gradeSaveTimer);
     gradeSaveTimer = null;
-    api('listDaily', [className]).then(function (data) {
-      noteScoreRoll(data);
-      renderDailyPanel(data);
-      renderDatabaseTable(App.dbRows || []);
-      return api('getGradebook', [className]);
-    }).then(function (data) {
+    Promise.all([
+      api('listDaily', [className]),
+      api('getGradebook', [className])
+    ]).then(function (results) {
       if (teacherTargetClass() !== className) return;
-      applyGradebook(data);
+      var dailyData = results[0];
+      var bookData = results[1];
+      noteScoreRoll(dailyData);
+      renderDailyPanel(dailyData);
+      renderDatabaseTable(App.dbRows || []);
+      applyGradebook(bookData);
       renderGradebook();
     }).catch(function () {});
   }
@@ -9053,11 +9067,13 @@
       onDone: function () {
         changeScore(helper, 1, false, '', {
           forceNoGroup: true,
-          detail: '互教·教學獎勵'
+          detail: '互教·教學獎勵',
+          onDone: function () {
+            App.peerHelperSeatNo = null;
+            App.selectedSeatNo = learner.seatNo;
+            refreshScoreUi();
+          }
         });
-        App.peerHelperSeatNo = null;
-        App.selectedSeatNo = learner.seatNo;
-        renderAll();
       }
     });
   }
@@ -9491,22 +9507,18 @@
       done();
       return;
     }
-    var chain = Promise.resolve();
+    var jobs = [];
     if (needDaily) {
-      chain = chain.then(function () {
-        return api('listDaily', [className]).then(function (data) {
-          if (data && data.days) App.dailyDays = data.days;
-        });
-      });
+      jobs.push(api('listDaily', [className]).then(function (data) {
+        if (data && data.days) App.dailyDays = data.days;
+      }));
     }
     if (needBook) {
-      chain = chain.then(function () {
-        return api('getGradebook', [className]).then(function (data) {
-          applyGradebook(data);
-        });
-      });
+      jobs.push(api('getGradebook', [className]).then(function (data) {
+        applyGradebook(data);
+      }));
     }
-    chain.then(done).catch(function () { done(); });
+    Promise.all(jobs).then(done).catch(function () { done(); });
   }
 
   function openLottery(fromButton) {
