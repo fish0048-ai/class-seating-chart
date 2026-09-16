@@ -997,7 +997,13 @@
     if (!App.timer.running) return;
     var remain = timerRemainMs();
     App.timer.remainMs = remain;
-    renderTimerUi();
+    var shown = Math.ceil(remain / 1000);
+    var band = remain <= 0 ? 'done' : remain <= 10000 ? 'urgent' : remain <= 30000 ? 'warn' : 'ok';
+    if (shown !== App.timer._uiSec || band !== App.timer._uiBand) {
+      App.timer._uiSec = shown;
+      App.timer._uiBand = band;
+      renderTimerUi();
+    }
     if (remain <= 0) onTimerFinished();
   }
 
@@ -1784,11 +1790,32 @@
     renderHwMissingBanner();
   }
 
+  /** 能就地改分數就不要整板重建。 */
+  function patchSeatScoresOnBoard() {
+    if (!els.board || !App.classroom) return false;
+    var cards = els.board.querySelectorAll('.seat-card[data-seat]');
+    if (!cards.length) return false;
+    var ok = 0;
+    cards.forEach(function (card) {
+      var student = findStudent(card.getAttribute('data-seat'));
+      if (!student) return;
+      ok += 1;
+      card.classList.toggle('selected', String(student.seatNo) === String(App.selectedSeatNo));
+      card.classList.toggle('peer-helper', !!(App.peerHelperSeatNo && String(student.seatNo) === String(App.peerHelperSeatNo)));
+      var scoreEl = card.querySelector('.seat-score');
+      if (!scoreEl) return;
+      var todayScore = Number(student.score) || 0;
+      scoreEl.className = 'seat-score ' + scoreClass(todayScore);
+      scoreEl.textContent = String(todayScore);
+    });
+    return ok > 0;
+  }
+
   /** 加扣分後的輕量更新：不重跑班級下拉／教師分頁，減少卡頓。 */
   function refreshScoreUi() {
     if (!App.classroom || !els.board) return;
     renderMeta();
-    renderBoard();
+    if (!patchSeatScoresOnBoard()) renderBoard();
     renderRoster();
     renderGroupBar();
     renderGroupRoster();
@@ -8447,22 +8474,37 @@
     '作業日期': 'homework-date'
   };
 
+  var xlsxWaiters = null;
+
   function withXlsx(done) {
     if (typeof XLSX !== 'undefined') {
       done(XLSX);
       return;
     }
-    var n = 0;
-    var timer = setInterval(function () {
-      n += 1;
-      if (typeof XLSX !== 'undefined') {
-        clearInterval(timer);
-        done(XLSX);
-      } else if (n > 25) {
-        clearInterval(timer);
-        toast('Excel 功能還沒載入完成，請重新整理頁面後再試');
+    if (xlsxWaiters) {
+      xlsxWaiters.push(done);
+      return;
+    }
+    xlsxWaiters = [done];
+    var script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
+    script.async = true;
+    script.onload = function () {
+      var queue = xlsxWaiters || [];
+      xlsxWaiters = null;
+      if (typeof XLSX === 'undefined') {
+        toast('Excel 功能載入失敗，請重新整理後再試');
+        return;
       }
-    }, 200);
+      queue.forEach(function (fn) {
+        try { fn(XLSX); } catch (err) {}
+      });
+    };
+    script.onerror = function () {
+      xlsxWaiters = null;
+      toast('Excel 功能載入失敗，請檢查網路後再試');
+    };
+    document.head.appendChild(script);
   }
 
   function newGradeColId() {
@@ -10131,16 +10173,41 @@
     };
   }
 
-  function studentAt(row, col) {
-    return App.classroom.students.find(function (s) {
-      return s.row === row && s.col === col;
+  var seatIndex = { room: null, bySeat: null, byKey: null, byPos: null };
+
+  function rebuildSeatIndex() {
+    var room = App.classroom;
+    seatIndex.room = room;
+    seatIndex.bySeat = Object.create(null);
+    seatIndex.byKey = Object.create(null);
+    seatIndex.byPos = Object.create(null);
+    if (!room || !room.students) return;
+    room.students.forEach(function (s) {
+      if (!s) return;
+      var sn = String(s.seatNo);
+      seatIndex.bySeat[sn] = s;
+      seatIndex.byKey[seatLookupKey(sn)] = s;
+      if (s.row != null && s.col != null) {
+        seatIndex.byPos[s.row + ',' + s.col] = s;
+      }
     });
   }
 
+  function ensureSeatIndex() {
+    if (seatIndex.room !== App.classroom || !seatIndex.bySeat) rebuildSeatIndex();
+  }
+
+  function studentAt(row, col) {
+    if (!App.classroom) return null;
+    ensureSeatIndex();
+    return seatIndex.byPos[row + ',' + col] || null;
+  }
+
   function findStudent(seatNo) {
-    return App.classroom.students.find(function (s) {
-      return String(s.seatNo) === String(seatNo);
-    });
+    if (!App.classroom) return null;
+    ensureSeatIndex();
+    var sn = String(seatNo);
+    return seatIndex.bySeat[sn] || seatIndex.byKey[seatLookupKey(sn)] || null;
   }
 
   function flashSeat(seatNo, className) {

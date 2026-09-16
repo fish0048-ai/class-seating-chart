@@ -2456,6 +2456,14 @@
     font-size: 15px;
   }
 
+  .db-table tbody tr,
+  .sheet-table tbody tr,
+  .stats-wide tbody tr,
+  .exam-table tbody tr {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 44px;
+  }
+
   .db-table th {
     position: sticky;
     top: 0;
