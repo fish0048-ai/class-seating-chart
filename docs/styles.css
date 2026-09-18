@@ -1177,6 +1177,13 @@
     color: #fff;
   }
 
+  .tt-event-tag.done {
+    background: #78909c;
+    color: #fff;
+    text-decoration: line-through;
+    opacity: 0.92;
+  }
+
   .tt-table td.tt-has-event {
     position: relative;
   }
@@ -1194,6 +1201,18 @@
   .tt-table td.tt-has-event-both {
     background: linear-gradient(135deg, #ffe8e8 0 50%, #e3f4fb 50% 100%);
     box-shadow: inset 0 0 0 2px #8e24aa;
+  }
+
+  .tt-table td.tt-has-event-done-only {
+    background: #eceff1;
+    box-shadow: inset 0 0 0 2px #78909c;
+  }
+
+  .journal-event-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: flex-end;
   }
 
   .tt-focus-body .tt-event-tags {

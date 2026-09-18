@@ -742,6 +742,16 @@
   var journalEventBody = document.getElementById('journalEventBody');
   if (journalEventBody) {
     journalEventBody.addEventListener('click', function (event) {
+      var doneBtn = event.target.closest('[data-journal-event-done]');
+      if (doneBtn) {
+        requireTeacher(function () {
+          toggleLessonEventDone(
+            doneBtn.getAttribute('data-journal-event-class'),
+            doneBtn.getAttribute('data-journal-event-done')
+          );
+        });
+        return;
+      }
       var btn = event.target.closest('[data-journal-event-del]');
       if (!btn) return;
       requireTeacher(function () {
@@ -3633,9 +3643,10 @@
     return '<div class="tt-event-tags">' + events.map(function (ev) {
       var kind = ev.type === 'lab' ? 'lab' : 'exam';
       var kindLabel = kind === 'lab' ? '實驗' : '考試';
-      var tip = escapeHtml(ev.className + ' ' + kindLabel + (ev.note ? '｜' + ev.note : ''));
-      return '<span class="tt-event-tag ' + kind + '" title="' + tip + '">' +
-        '<strong>' + kindLabel + '</strong>' +
+      var done = !!ev.done;
+      var tip = escapeHtml(ev.className + ' ' + kindLabel + (done ? '（已完成）' : '') + (ev.note ? '｜' + ev.note : ''));
+      return '<span class="tt-event-tag ' + kind + (done ? ' done' : '') + '" title="' + tip + '">' +
+        '<strong>' + (done ? '已完成·' : '') + kindLabel + '</strong>' +
         '<span>' + escapeHtml(ev.className) + (ev.note ? '·' + escapeHtml(ev.note) : '') + '</span></span>';
     }).join('') + '</div>';
   }
@@ -3644,10 +3655,14 @@
     if (!events || !events.length) return '';
     var hasExam = false;
     var hasLab = false;
+    var pending = false;
     events.forEach(function (ev) {
-      if (ev && ev.type === 'lab') hasLab = true;
+      if (!ev) return;
+      if (!ev.done) pending = true;
+      if (ev.type === 'lab') hasLab = true;
       else hasExam = true;
     });
+    if (!pending) return 'tt-has-event tt-has-event-done-only';
     if (hasExam && hasLab) return 'tt-has-event tt-has-event-both';
     if (hasLab) return 'tt-has-event tt-has-event-lab';
     return 'tt-has-event tt-has-event-exam';
@@ -3684,28 +3699,73 @@
     var body = document.getElementById('journalEventBody');
     if (!body) return;
     if (!className) {
-      body.innerHTML = '<tr><td colspan="5">請先選班級。</td></tr>';
+      body.innerHTML = '<tr><td colspan="6">請先選班級。</td></tr>';
       return;
     }
     var events = activeEventsForClass(className).slice().sort(function (a, b) {
+      var da = a.done ? 1 : 0;
+      var db = b.done ? 1 : 0;
+      if (da !== db) return da - db;
       return String(a.date).localeCompare(String(b.date)) || String(a.period).localeCompare(String(b.period));
     });
     if (!events.length) {
-      body.innerHTML = '<tr><td colspan="5">還沒有考試／實驗時間。填好後按「加入考試／實驗」。</td></tr>';
+      body.innerHTML = '<tr><td colspan="6">還沒有考試／實驗時間。填好後按「加入考試／實驗」。</td></tr>';
       return;
     }
     var today = formatDateKey(new Date());
     body.innerHTML = events.map(function (item) {
-      var past = item.date < today ? ' style="opacity:.65"' : '';
+      var past = (item.done || item.date < today) ? ' style="opacity:.7"' : '';
+      var status = item.done ? '已完成' : '未完成';
+      var toggleLabel = item.done ? '改回未完成' : '標為已完成';
       return '<tr' + past + '>' +
         '<td>' + escapeHtml(lessonEventLabel(item.type)) + '</td>' +
         '<td>' + escapeHtml(formatZhDate(item.date)) + '</td>' +
         '<td>' + escapeHtml(periodLabel({ period: item.period })) + '</td>' +
         '<td>' + escapeHtml(item.note || '—') + '</td>' +
-        '<td><button type="button" class="tool danger" data-journal-event-del="' + escapeHtml(item.id) +
-          '" data-journal-event-class="' + escapeHtml(className) + '">刪</button></td>' +
+        '<td>' + escapeHtml(status) + '</td>' +
+        '<td><div class="journal-event-actions">' +
+        '<button type="button" class="tool" data-journal-event-done="' + escapeHtml(item.id) +
+          '" data-journal-event-class="' + escapeHtml(className) + '">' + escapeHtml(toggleLabel) + '</button>' +
+        '<button type="button" class="tool danger" data-journal-event-del="' + escapeHtml(item.id) +
+          '" data-journal-event-class="' + escapeHtml(className) + '">刪</button>' +
+        '</div></td>' +
         '</tr>';
     }).join('');
+  }
+
+  function toggleLessonEventDone(className, id) {
+    className = String(className || '').trim();
+    id = String(id || '').trim();
+    if (!className || !id) return;
+    var item = null;
+    activeEventsForClass(className).forEach(function (ev) {
+      if (ev && String(ev.id) === id) item = ev;
+    });
+    if (!item) {
+      toast('找不到這筆考試／實驗');
+      return;
+    }
+    api('saveLessonEvent', [{
+      id: item.id,
+      className: className,
+      type: item.type,
+      date: item.date,
+      period: item.period,
+      note: item.note || '',
+      done: !item.done,
+      createdAt: item.createdAt || ''
+    }]).then(function (data) {
+      App.lessonLog = mergeLessonLogClient_(App.lessonLog, data.lessonLog || {});
+      renderLessonJournal();
+      if (App.teacherTab === 'timetable') renderTimetable();
+      if (data && data.synced === false) {
+        toast((data.cloudError || '已暫存，但還沒同步到雲端') + '。請按「立即同步」', 7000);
+      } else {
+        toast((data.item && data.item.done) ? '已標為完成' : '已改回未完成');
+      }
+    }).catch(function (err) {
+      toast(err && err.message ? err.message : '更新失敗');
+    });
   }
 
   function saveLessonEventFromForm() {
@@ -3810,7 +3870,9 @@
             : (pack.updatedAt ? formatTime(pack.updatedAt) : '');
           var noteBit = latest && latest.note ? latest.note : '';
           var events = activeEventsForClass(cn);
-          var nextEv = events.filter(function (ev) { return ev.date >= formatDateKey(new Date()); })[0];
+          var nextEv = events.filter(function (ev) {
+            return !ev.done && ev.date >= formatDateKey(new Date());
+          })[0];
           var eventBit = nextEv
             ? (lessonEventLabel(nextEv.type) + ' ' + formatZhDate(nextEv.date) + ' 第' + nextEv.period + '節')
             : '';

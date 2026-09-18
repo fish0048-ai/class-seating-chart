@@ -1,4 +1,4 @@
-/**
+ㄗ為ㄐㄧㄣ/**
  * 班級座位表 — Google Apps Script 後端
  * 以「座位／成績」那份試算表為資料庫。課表是另一份檔案，這裡不會寫入。
  */
@@ -1141,6 +1141,7 @@ function mergeCloudLessonEvents_(localList, remoteList) {
       date: date,
       period: period,
       note: String(item.note || '').trim().slice(0, 80),
+      done: !!item.done,
       deleted: !!item.deleted,
       createdAt: String(item.createdAt || ''),
       updatedAt: String(item.updatedAt || item.createdAt || '')

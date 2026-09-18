@@ -856,6 +856,7 @@
       date: date,
       period: String(raw.period || '').trim(),
       note: String(raw.note || '').trim().slice(0, 80),
+      done: !!raw.done,
       deleted: !!raw.deleted,
       createdAt: String(raw.createdAt || nowIso()),
       updatedAt: String(raw.updatedAt || raw.createdAt || nowIso())
