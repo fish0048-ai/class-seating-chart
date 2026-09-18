@@ -431,15 +431,18 @@
             </div>
             <p class="hint" id="statsHint">上課加扣、平時考試、段考分開統計。上面可切類型，不會混在一起。</p>
             <div class="stats-kind-switch" role="tablist" aria-label="成績類型">
-              <button type="button" class="tool tab-on" data-stats-kind="all">全部</button>
+              <button type="button" class="tool tab-on" data-stats-kind="all">總覽</button>
               <button type="button" class="tool" data-stats-kind="plusminus">上課加扣</button>
               <button type="button" class="tool" data-stats-kind="quiz">平時考試</button>
               <button type="button" class="tool" data-stats-kind="exam">段考</button>
+              <button type="button" class="tool" data-stats-kind="work">實作／作業</button>
             </div>
 
             <div id="statsClassView">
+            <div id="statsInventory" class="stats-inventory" data-stats-kind-block="all"></div>
             <div id="statsCards" class="stat-cards stats-hero" data-stats-kind-block="all"></div>
             <div id="statsWatch" class="stats-watch" data-stats-kind-block="all"></div>
+            <div id="statsExtra" class="stats-extra" data-stats-kind-block="all"></div>
             <div id="statsInsights" class="insight-list" data-stats-kind-block="all"></div>
 
             <section class="stats-block" id="statsGroupDeductBlock" data-stats-kind-block="plusminus">
@@ -517,8 +520,9 @@
               </div>
             </section>
 
-            <section class="stats-block" id="statsGradeBlock" data-stats-kind-block="all">
+            <section class="stats-block" id="statsGradeBlock" data-stats-kind-block="work">
               <h3>實作與作業</h3>
+              <p class="hint">含實驗室實作評量、回家實作、成績簿作業繳交；缺交作業登錄見總覽關注卡。</p>
               <div id="statsAssess" class="assess-wrap"></div>
               <div class="chart-grid">
                 <figure class="chart-card">
@@ -604,7 +608,9 @@
                     <th>加分</th>
                     <th>扣分</th>
                     <th>有紀錄天數</th>
+                    <th>加分次數</th>
                     <th>未繳作業</th>
+                    <th>缺交登錄</th>
                     <th>請假</th>
                   </tr>
                 </thead>
