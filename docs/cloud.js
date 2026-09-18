@@ -65,7 +65,7 @@
       var script = document.createElement('script');
       var timer = setTimeout(function () {
         cleanup();
-        reject(new Error('雲端連線逾時。請確認 /exec 網址正確、部署對象是「任何人」，並用教師帳號登入後再按連上雲端。'));
+        reject(new Error('雲端連線逾時。請確認 /exec 網址正確、後端 Code.gs 可執行，並用教師帳號登入後再試。'));
       }, 90000);
       function cleanup() {
         clearTimeout(timer);
@@ -87,7 +87,7 @@
       script.src = joinQuery(url, query);
       script.onerror = function () {
         cleanup();
-        reject(new Error('無法連到雲端資料庫，請確認 Apps Script 已部署成「任何人」可執行'));
+        reject(new Error('無法連到雲端資料庫。常見原因：後端 Code.gs 有錯、/exec 網址不對，或部署對象不是「任何人」。請先用瀏覽器直接打開 /exec 看是否顯示錯誤頁。'));
       };
       document.head.appendChild(script);
     });
