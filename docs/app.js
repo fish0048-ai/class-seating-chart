@@ -1217,7 +1217,7 @@
       if (finished || App.classroom || seq !== bootstrapSeq) return;
       if (els.syncMeta) els.syncMeta.textContent = '載入時間較久，仍在連雲端…';
     }, 8000);
-    var failAt = attempt === 1 ? 45000 : 55000;
+    var failAt = attempt === 1 ? 70000 : 90000;
     var failTimer = setTimeout(function () {
       if (finished || App.classroom || seq !== bootstrapSeq) return;
       if (attempt < 3) {
@@ -1276,7 +1276,7 @@
   }
 
   setInterval(syncScoreDay, 30000);
-  setInterval(pullCloudQuiet, 12000);
+  setInterval(pullCloudQuiet, 25000);
   document.addEventListener('visibilitychange', function () {
     if (document.hidden) {
       if (typeof SeatDB !== 'undefined' && SeatDB.flushCloud) {

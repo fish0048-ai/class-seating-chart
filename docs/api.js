@@ -1075,26 +1075,11 @@
     attempt = attempt || 1;
     cloudSaving = true;
     notifyCloud_('saving');
-    return CloudStore.getStore().then(function (data) {
-      var remote = data && data.store ? normalizeLoadedStore_(data.store) : null;
-      var remoteAt = (remote && remote.updatedAt) || '';
-      if (remoteAt && lastSyncedAt_ && remoteAt > lastSyncedAt_) {
-        if (remote) {
-          mergeProtectStore_(store, remote);
-          lastSyncedAt_ = remoteAt;
-        } else {
-          cloudSaving = false;
-          cloudError = '另一台已有較新資料，這台沒有覆蓋雲端。請重新載入後再加扣。';
-          notifyCloud_('conflict');
-          return Promise.reject(new Error(cloudError));
-        }
-      } else if (remote) {
-        mergeProtectStore_(store, remote);
-      }
-      lastPushAt = nowIso();
-      store.updatedAt = lastPushAt;
-      return CloudStore.putStore(store);
-    }).then(function (data) {
+    // 後端 putCloudStore 會讀舊資料並 mergeProtect，這裡不再先 getStore
+    // （先前 get+put 兩次往返，冷啟動常逾時／404）
+    lastPushAt = nowIso();
+    store.updatedAt = lastPushAt;
+    return CloudStore.putStore(store).then(function (data) {
       if (!data) return data;
       cloudSaving = false;
       cloudError = '';
@@ -1103,7 +1088,7 @@
       }
       markSynced_(store);
       notifyCloud_('ok');
-    return data;
+      return data;
     }).catch(function (err) {
       var msg = err && err.message ? err.message : '雲端存檔失敗';
       if (/另一台已有較新/.test(msg)) {
@@ -1114,7 +1099,7 @@
         return new Promise(function (resolve, reject) {
           setTimeout(function () {
             pushCloud_(store, attempt + 1).then(resolve, reject);
-          }, 700 * attempt);
+          }, 900 * attempt);
         });
       }
       cloudSaving = false;

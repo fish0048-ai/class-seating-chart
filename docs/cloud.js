@@ -1,5 +1,8 @@
 (function (global) {
   var URL_KEY = 'class-seating-cloud-url';
+  var cloudChain_ = Promise.resolve();
+  var inflightGet_ = null;
+  var lastGetCache_ = { at: 0, data: null };
 
   function configUrl() {
     return String((global.SEAT_CONFIG && global.SEAT_CONFIG.apiUrl) || '').trim();
@@ -24,10 +27,32 @@
       else localStorage.removeItem(URL_KEY);
     } catch (err) {}
     if (global.SEAT_CONFIG) global.SEAT_CONFIG.apiUrl = url;
+    invalidateGetCache_();
   }
 
   function joinQuery(url, query) {
     return url + (url.indexOf('?') >= 0 ? '&' : '?') + query;
+  }
+
+  function wait_(ms) {
+    return new Promise(function (resolve) {
+      setTimeout(resolve, ms);
+    });
+  }
+
+  function authToken_() {
+    return (global.GoogleAuth && GoogleAuth.getIdToken && GoogleAuth.getIdToken()) || '';
+  }
+
+  function invalidateGetCache_() {
+    lastGetCache_ = { at: 0, data: null };
+  }
+
+  /** 雲端請求串行，避免讀寫互相踩、冷啟動被打爆。 */
+  function enqueueCloud_(fn) {
+    var run = cloudChain_.then(fn, fn);
+    cloudChain_ = run.then(function () {}, function () {});
+    return run;
   }
 
   function jsonpGet(action) {
@@ -41,7 +66,7 @@
       var timer = setTimeout(function () {
         cleanup();
         reject(new Error('雲端連線逾時。請確認 /exec 網址正確、部署對象是「任何人」，並用教師帳號登入後再按連上雲端。'));
-      }, 45000);
+      }, 90000);
       function cleanup() {
         clearTimeout(timer);
         try { delete global[cb]; } catch (err) { global[cb] = undefined; }
@@ -121,84 +146,51 @@
     }
     var ext = externalRequestError_(msg);
     if (ext) return ext;
-    if (/Failed to fetch|NetworkError|Load failed|雲端回應不是資料/i.test(msg)) {
+    if (/Failed to fetch|NetworkError|Load failed|雲端回應不是資料|HTTP\s*[45]/i.test(msg)) {
       return '連不上作業 API。請確認已用教師帳號登入，並用同一個 /exec 更新部署。';
     }
     return msg;
   }
 
-  function wait_(ms) {
-    return new Promise(function (resolve) {
-      setTimeout(resolve, ms);
-    });
-  }
-
-  function authToken_() {
-    return (global.GoogleAuth && GoogleAuth.getIdToken && GoogleAuth.getIdToken()) || '';
-  }
-
   function isFatalCloudError_(err) {
     var msg = err && err.message ? err.message : String(err || '');
+    if (err && err.retryable) return false;
+    if (/HTTP\s*(404|408|429|500|502|503|504)/i.test(msg)) return false;
+    if (/雲端暫時|讀取逾時|連線逾時|Failed to fetch|NetworkError|Load failed|AbortError/i.test(msg)) return false;
     return /沒有開放權限|打開該網址|請先用 Google|登入已過期|登入憑證|未知的操作|沒有權限|只有教師|UrlFetchApp|external_request|連線至外部|Apps Script 後端程式/.test(msg);
   }
 
-  function postAction(action, body) {
+  function postOnce_(action, body, timeoutMs) {
     var url = apiUrl();
     if (!url) {
       return Promise.reject(new Error('尚未連上雲端資料庫'));
     }
     var payload = Object.assign({ action: action, idToken: authToken_() }, body || {});
     var raw = JSON.stringify(payload);
-    return fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: raw,
-      redirect: 'follow'
-    }).then(function (res) {
-      return res.text();
-    }).then(parseCloudText_).catch(function (err) {
-      if (isFatalCloudError_(err)) throw err;
-      return fetch(url, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: raw
-      }).then(function () {
-        return wait_(2500).then(function () {
-          return jsonpGet('getStore');
-        }).then(function (data) {
-          var remoteAt = data && data.store && data.store.updatedAt;
-          var expected = payload.store && payload.store.updatedAt;
-          if (!remoteAt) throw new Error('雲端存檔後讀不到資料，請再試一次');
-          if (expected && remoteAt < expected) {
-            throw new Error('雲端還沒收到這次名單，請再按一次匯入');
-          }
-          return { ok: true, updatedAt: remoteAt };
-        });
-      });
-    });
-  }
-
-  function fetchStoreOnce_() {
-    var url = apiUrl();
-    if (!url) {
-      return Promise.reject(new Error('尚未連上雲端資料庫'));
-    }
     var ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
     var timer = null;
     var req = fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: 'getStore', idToken: authToken_() }),
+      body: raw,
       redirect: 'follow',
       signal: ctrl ? ctrl.signal : undefined
     }).then(function (res) {
-      return res.text();
-    }).then(parseCloudText_);
+      return res.text().then(function (text) {
+        // Apps Script 冷啟動常先回 404／5xx，屬可重試
+        if (!res.ok) {
+          throw Object.assign(
+            new Error('雲端暫時連不上（HTTP ' + res.status + '），請再試一次'),
+            { retryable: true, status: res.status }
+          );
+        }
+        return parseCloudText_(text);
+      });
+    });
     if (ctrl) {
       timer = setTimeout(function () {
         try { ctrl.abort(); } catch (err) {}
-      }, 40000);
+      }, timeoutMs || 90000);
       req = req.then(function (data) {
         clearTimeout(timer);
         return data;
@@ -209,28 +201,86 @@
     }
     return req.then(null, function (err) {
       if (err && err.name === 'AbortError') {
-        throw new Error('雲端讀取逾時，請再試一次');
+        throw Object.assign(new Error('雲端讀取逾時，請再試一次'), { retryable: true });
       }
       throw err;
     });
   }
 
-  function getStoreWithRetry_() {
+  function withRetry_(fn, maxTries) {
     var tries = 0;
     function attempt() {
       tries += 1;
-      return fetchStoreOnce_().catch(function (err) {
-        if (isFatalCloudError_(err)) throw err;
-        if (tries >= 3) {
-          var token = authToken_();
-          // JWT 放進網址很容易超長而失敗；太長就不要再用 JSONP
-          if (token && token.length > 1400) throw err;
-          return jsonpGet('getStore');
-        }
-        return wait_(700 * tries).then(attempt);
+      return fn(tries).catch(function (err) {
+        if (isFatalCloudError_(err) || tries >= maxTries) throw err;
+        return wait_(900 * tries).then(attempt);
       });
     }
     return attempt();
+  }
+
+  function postAction(action, body) {
+    return enqueueCloud_(function () {
+      return withRetry_(function () {
+        return postOnce_(action, body, 90000);
+      }, 3).catch(function (err) {
+        if (isFatalCloudError_(err)) throw err;
+        if (action !== 'putStore' && action !== 'verifyAuth') throw err;
+        // put 最後手段：no-cors 送出後再讀一次確認
+        if (action !== 'putStore') throw err;
+        var url = apiUrl();
+        var payload = Object.assign({ action: action, idToken: authToken_() }, body || {});
+        var raw = JSON.stringify(payload);
+        return fetch(url, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: raw
+        }).then(function () {
+          return wait_(2500).then(function () {
+            return jsonpGet('getStore');
+          }).then(function (data) {
+            var remoteAt = data && data.store && data.store.updatedAt;
+            var expected = payload.store && payload.store.updatedAt;
+            if (!remoteAt) throw new Error('雲端存檔後讀不到資料，請再試一次');
+            if (expected && remoteAt < expected) {
+              throw new Error('雲端還沒收到這次資料，請再按一次同步');
+            }
+            return { ok: true, updatedAt: remoteAt };
+          });
+        });
+      });
+    });
+  }
+
+  function fetchStoreOnce_() {
+    return postOnce_('getStore', {}, 90000);
+  }
+
+  function getStoreWithRetry_() {
+    var now = Date.now();
+    if (lastGetCache_.data && now - lastGetCache_.at < 3000) {
+      return Promise.resolve(lastGetCache_.data);
+    }
+    if (inflightGet_) return inflightGet_;
+    inflightGet_ = enqueueCloud_(function () {
+      return withRetry_(function () {
+        return fetchStoreOnce_();
+      }, 3).catch(function (err) {
+        if (isFatalCloudError_(err)) throw err;
+        var token = authToken_();
+        if (token && token.length > 1400) throw err;
+        return jsonpGet('getStore');
+      });
+    }).then(function (data) {
+      lastGetCache_ = { at: Date.now(), data: data };
+      inflightGet_ = null;
+      return data;
+    }, function (err) {
+      inflightGet_ = null;
+      throw err;
+    });
+    return inflightGet_;
   }
 
   global.CloudStore = {
@@ -249,23 +299,19 @@
       return getStoreWithRetry_();
     },
     putStore: function (store) {
-      return postAction('putStore', { store: store });
+      invalidateGetCache_();
+      return postAction('putStore', { store: store }).then(function (data) {
+        invalidateGetCache_();
+        return data;
+      });
     },
     request: function (action, body) {
-      var url = apiUrl();
-      if (!url) {
-        return Promise.reject(new Error('尚未連上雲端資料庫'));
-      }
-      var payload = Object.assign({ action: action, idToken: authToken_() }, body || {});
-      return fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(payload),
-        redirect: 'follow'
-      }).then(function (res) {
-        return res.text();
-      }).then(parseCloudText_).catch(function (err) {
-        throw new Error(hwFriendlyCloudError_(err));
+      return enqueueCloud_(function () {
+        return withRetry_(function () {
+          return postOnce_(action, body || {}, 90000);
+        }, 3).catch(function (err) {
+          throw new Error(hwFriendlyCloudError_(err));
+        });
       });
     }
   };
