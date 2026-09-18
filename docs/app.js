@@ -3221,8 +3221,17 @@
   }
 
   function openDatabase() {
-    var start = function () {
-      run('listRecords', [], function (data) {
+    if (!canEdit()) {
+      toast('檢視模式沒有教師功能');
+      return;
+    }
+    // 立刻切畫面；不要等雲端 pull／也不要被 App.busy 擋住
+    showTeacherView();
+    switchTeacherTab(App.pendingTeacherTab || App.teacherTab || 'roster');
+    App.pendingTeacherTab = null;
+
+    function paintTeacherLocal() {
+      return api('listRecords', []).then(function (data) {
         noteScoreRoll(data);
         App.dbRows = data.rows || [];
         App.dbFilter = (App.classroom && App.classroom.className) || '__all__';
@@ -3230,20 +3239,21 @@
         if (els.dbClassFilter) els.dbClassFilter.value = App.dbFilter;
         if (!App.viewDate && App.activeDate) App.viewDate = App.activeDate;
         renderDatabaseTable(App.dbRows);
-        switchTeacherTab(App.pendingTeacherTab || App.teacherTab || 'roster');
-        App.pendingTeacherTab = null;
         refreshTeacherExtras();
-        showTeacherView();
+      }).catch(function () {
+        refreshTeacherExtras();
       });
-    };
+    }
+
+    paintTeacherLocal();
+
     if (typeof SeatDB !== 'undefined' && SeatDB.pullIfNewer && !App.dirty) {
       SeatDB.pullIfNewer(App.classroom && App.classroom.className).then(function (data) {
-        if (data && data.changed) applyPayload(data, true);
-        start();
-      }).catch(start);
-      return;
+        if (!(data && data.changed)) return;
+        applyPayload(data, true);
+        if (App.appView === 'teacher') paintTeacherLocal();
+      }).catch(function () {});
     }
-    start();
   }
 
   function teacherTargetClass() {
@@ -10333,7 +10343,10 @@
   }
 
   function run(fnName, args, onSuccess, silent) {
-    if (App.busy && !silent) return;
+    if (App.busy && !silent) {
+      toast('正在載入或同步，請稍候再試');
+      return;
+    }
     if (!silent) App.busy = true;
     api(fnName, args)
       .then(function (result) {
