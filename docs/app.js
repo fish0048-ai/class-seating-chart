@@ -36,6 +36,8 @@
     statsKind: 'all',
     statsSeatNo: '',
     schoolBusy: false,
+    gradesSub: 'summary',
+    teacherTab: 'roster',
     timetableSheet: 0,
     scheduleChanges: [],
     scheduleWeek: '',
@@ -447,6 +449,12 @@
       switchTeacherTab(btn.getAttribute('data-teacher-tab'));
     });
   });
+  document.querySelectorAll('[data-grades-sub]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      if (App.teacherTab !== 'grades') switchTeacherTab('grades');
+      setGradesSub(btn.getAttribute('data-grades-sub'));
+    });
+  });
   bindHomework();
   if (els.timetableSheets) {
     els.timetableSheets.addEventListener('click', function (event) {
@@ -519,12 +527,6 @@
       App.dbFilter = els.dbClassFilter.value;
       renderDatabaseTable(App.dbRows || []);
       refreshTeacherExtras();
-      if (App.teacherTab === 'homework') {
-        var hwClass = document.getElementById('hwClassName');
-        if (hwClass) hwClass.value = teacherTargetClass();
-        loadHomeworkTab();
-      }
-      if (App.teacherTab === 'exam') renderMockExamTable();
       if (App.teacherTab === 'journal') {
         api('getLessonLog', []).then(function (data) {
           if (data && data.lessonLog) {
@@ -536,6 +538,9 @@
         });
       }
       if (App.teacherTab === 'missing') renderHwMissingTab();
+      if (App.teacherTab === 'grades' && App.gradesSub === 'stats' && App.statsView === 'school') {
+        ensureSchoolStats();
+      }
     });
   }
   if (els.dbDateFilter) {
@@ -1328,7 +1333,8 @@
     var info = SeatDB.cloudStatus ? SeatDB.cloudStatus() : {};
     if (info.scoreHold) return;
     if (gradeSaveTimer || ruleSaveTimer) return;
-    if (App.appView === 'teacher' && (App.teacherTab === 'summary' || App.teacherTab === 'settings')) return;
+    if (App.appView === 'teacher' && (App.teacherTab === 'settings' ||
+      (App.teacherTab === 'grades' && App.gradesSub === 'summary'))) return;
     var className = App.classroom && App.classroom.className;
     SeatDB.pullIfNewer(className).then(function (data) {
       fillCloudSettings();
@@ -1813,7 +1819,6 @@
     renderGroupRoster();
     renderMode();
     renderDelta();
-    if (App.appView === 'teacher' && App.teacherTab === 'exam') renderMockExamTable();
     if (App.appView === 'teacher' && App.teacherTab === 'journal') renderLessonJournal();
     if (App.appView === 'teacher' && App.teacherTab === 'missing') renderHwMissingTab();
     renderHwMissingBanner();
@@ -2286,8 +2291,9 @@
             fillMockExamMeta();
             renderMockExamTable();
             showTeacherView();
-            switchTeacherTab('exam');
-            toast('已匯入模擬考 ' + pack.count + ' 人。請在教師模式「模擬考」查看', 5000);
+            switchTeacherTab('grades');
+            setGradesSub('summary');
+            toast('已匯入模擬考 ' + pack.count + ' 人（模擬考分頁已移除，資料仍保留在雲端）', 5000);
           }).catch(function (err) {
             toast(err && err.message ? err.message : '匯入失敗');
           });
@@ -3262,8 +3268,39 @@
     return (App.classroom && App.classroom.className) || '';
   }
 
-  function switchTeacherTab(tab) {
+  function normalizeTeacherTab(tab) {
     var next = tab || 'roster';
+    if (next === 'daily' || next === 'summary' || next === 'stats') {
+      App.gradesSub = next;
+      return 'grades';
+    }
+    if (next === 'exam' || next === 'homework') return 'grades';
+    return next;
+  }
+
+  function setGradesSub(sub, quiet) {
+    var next = sub === 'daily' || sub === 'stats' ? sub : 'summary';
+    App.gradesSub = next;
+    document.querySelectorAll('[data-grades-sub]').forEach(function (btn) {
+      btn.classList.toggle('tab-on', btn.getAttribute('data-grades-sub') === next);
+    });
+    document.querySelectorAll('[data-grades-action]').forEach(function (btn) {
+      btn.hidden = App.teacherTab !== 'grades' || btn.getAttribute('data-grades-action') !== next;
+    });
+    var daily = document.getElementById('tabDaily');
+    var summary = document.getElementById('tabSummary');
+    var stats = document.getElementById('tabStats');
+    if (daily) daily.hidden = App.teacherTab !== 'grades' || next !== 'daily';
+    if (summary) summary.hidden = App.teacherTab !== 'grades' || next !== 'summary';
+    if (stats) stats.hidden = App.teacherTab !== 'grades' || next !== 'stats';
+    if (!quiet && App.teacherTab === 'grades') {
+      if (next === 'stats' && App.statsView === 'school') ensureSchoolStats();
+      if (next === 'daily' || next === 'summary') refreshTeacherExtras();
+    }
+  }
+
+  function switchTeacherTab(tab) {
+    var next = normalizeTeacherTab(tab);
     var changed = App.teacherTab !== next;
     App.teacherTab = next;
     document.querySelectorAll('[data-teacher-tab]').forEach(function (btn) {
@@ -3271,26 +3308,29 @@
     });
     var roster = document.getElementById('tabRoster');
     var timetable = document.getElementById('tabTimetable');
-    var daily = document.getElementById('tabDaily');
-    var summary = document.getElementById('tabSummary');
-    var stats = document.getElementById('tabStats');
     var homework = document.getElementById('tabHomework');
     var exam = document.getElementById('tabExam');
     var journal = document.getElementById('tabJournal');
     var missing = document.getElementById('tabMissing');
     var settings = document.getElementById('tabSettings');
+    var gradesSubnav = document.getElementById('gradesSubnav');
     if (roster) roster.hidden = App.teacherTab !== 'roster';
     if (timetable) timetable.hidden = App.teacherTab !== 'timetable';
-    if (daily) daily.hidden = App.teacherTab !== 'daily';
-    if (summary) summary.hidden = App.teacherTab !== 'summary';
-    if (stats) stats.hidden = App.teacherTab !== 'stats';
-    if (exam) exam.hidden = App.teacherTab !== 'exam';
+    if (exam) exam.hidden = true;
     if (journal) journal.hidden = App.teacherTab !== 'journal';
     if (missing) missing.hidden = App.teacherTab !== 'missing';
-    if (homework) homework.hidden = App.teacherTab !== 'homework';
+    if (homework) homework.hidden = true;
     if (settings) settings.hidden = App.teacherTab !== 'settings';
+    if (gradesSubnav) gradesSubnav.hidden = App.teacherTab !== 'grades';
+    setGradesSub(App.gradesSub || 'summary', true);
     document.querySelectorAll('.teacher-tab-only').forEach(function (btn) {
-      btn.hidden = btn.getAttribute('data-for-tab') !== App.teacherTab;
+      var forTab = btn.getAttribute('data-for-tab');
+      var action = btn.getAttribute('data-grades-action');
+      if (forTab === 'grades') {
+        btn.hidden = App.teacherTab !== 'grades' || (action && action !== App.gradesSub);
+      } else {
+        btn.hidden = forTab !== App.teacherTab;
+      }
     });
     var saveBtn = document.getElementById('btnDatabaseSave');
     if (saveBtn) saveBtn.hidden = App.teacherTab !== 'roster' || !viewingLiveScores();
@@ -3300,11 +3340,10 @@
       els.dbClassFilter.parentElement.hidden = App.teacherTab === 'settings' || App.teacherTab === 'timetable';
     }
     document.querySelectorAll('.teacher-date-only').forEach(function (el) {
-      el.hidden = App.teacherTab === 'settings' || App.teacherTab === 'stats' || App.teacherTab === 'summary' || App.teacherTab === 'timetable' || App.teacherTab === 'homework' || App.teacherTab === 'exam' || App.teacherTab === 'journal' || App.teacherTab === 'missing';
+      el.hidden = App.teacherTab !== 'grades' || App.gradesSub !== 'daily';
     });
     updateScoreDayLabel();
     if (App.teacherTab === 'settings' && changed) openSettings();
-    if (App.teacherTab === 'exam') renderMockExamTable();
     if (App.teacherTab === 'journal') {
       api('getLessonLog', []).then(function (data) {
         if (data && data.lessonLog) {
@@ -3318,7 +3357,6 @@
     if (App.teacherTab === 'missing') {
       loadHwMissingTab();
     }
-    if (App.teacherTab === 'homework') loadHomeworkTab();
     if (App.teacherTab === 'timetable') {
       App.ttFocusKey = '';
       loadTimetable();
@@ -3327,8 +3365,10 @@
     } else {
       stopTimetableClock();
     }
-    if (App.teacherTab === 'stats' && App.statsView === 'school') ensureSchoolStats();
-    if (App.teacherTab !== 'roster' && App.teacherTab !== 'settings' && App.teacherTab !== 'timetable' && App.teacherTab !== 'homework' && App.teacherTab !== 'exam' && App.teacherTab !== 'journal' && App.teacherTab !== 'missing') refreshTeacherExtras();
+    if (App.teacherTab === 'grades') {
+      if (App.gradesSub === 'stats' && App.statsView === 'school') ensureSchoolStats();
+      refreshTeacherExtras();
+    }
   }
 
   function normalizeDisplaySeat_(seat) {
@@ -3592,10 +3632,25 @@
     if (!events || !events.length) return '';
     return '<div class="tt-event-tags">' + events.map(function (ev) {
       var kind = ev.type === 'lab' ? 'lab' : 'exam';
-      var tip = escapeHtml(ev.className + ' ' + lessonEventLabel(ev.type) + (ev.note ? '｜' + ev.note : ''));
+      var kindLabel = kind === 'lab' ? '實驗' : '考試';
+      var tip = escapeHtml(ev.className + ' ' + kindLabel + (ev.note ? '｜' + ev.note : ''));
       return '<span class="tt-event-tag ' + kind + '" title="' + tip + '">' +
-        escapeHtml(ev.className + '·' + lessonEventLabel(ev.type)) + '</span>';
+        '<strong>' + kindLabel + '</strong>' +
+        '<span>' + escapeHtml(ev.className) + (ev.note ? '·' + escapeHtml(ev.note) : '') + '</span></span>';
     }).join('') + '</div>';
+  }
+
+  function eventCellKindClass(events) {
+    if (!events || !events.length) return '';
+    var hasExam = false;
+    var hasLab = false;
+    events.forEach(function (ev) {
+      if (ev && ev.type === 'lab') hasLab = true;
+      else hasExam = true;
+    });
+    if (hasExam && hasLab) return 'tt-has-event tt-has-event-both';
+    if (hasLab) return 'tt-has-event tt-has-event-lab';
+    return 'tt-has-event tt-has-event-exam';
   }
 
   function fillJournalEventForm(className) {
@@ -5207,7 +5262,7 @@
               (row.isBreak ? escapeHtml(cell || '') : ('放假｜' + escapeHtml(holiday.name))) +
               '</td>';
           }
-          if (events.length) cls.push('tt-has-event');
+          if (events.length) cls.push(eventCellKindClass(events));
           if (swapMark) {
             cls.push('tt-swapped');
             badge = '調課';

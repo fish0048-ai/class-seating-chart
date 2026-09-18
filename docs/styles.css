@@ -1144,38 +1144,74 @@
   .tt-event-tags {
     display: flex;
     flex-wrap: wrap;
-    gap: 4px;
-    margin-top: 4px;
+    gap: 5px;
+    margin-top: 6px;
     justify-content: center;
   }
 
   .tt-event-tag {
-    display: inline-block;
-    padding: 1px 6px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 9px;
     border-radius: 999px;
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 800;
-    line-height: 1.4;
+    line-height: 1.35;
     white-space: nowrap;
+    letter-spacing: 0.02em;
+    box-shadow: 0 1px 0 rgba(22, 48, 60, 0.12);
+  }
+
+  .tt-event-tag strong {
+    font-size: 12px;
   }
 
   .tt-event-tag.exam {
-    background: #f6d6d6;
-    color: #8a1f1f;
+    background: #c62828;
+    color: #fff;
   }
 
   .tt-event-tag.lab {
-    background: #d7ecf5;
-    color: #125a78;
+    background: #0277bd;
+    color: #fff;
   }
 
   .tt-table td.tt-has-event {
-    box-shadow: inset 0 0 0 2px #c56a00;
+    position: relative;
+  }
+
+  .tt-table td.tt-has-event-exam {
+    background: #ffe8e8;
+    box-shadow: inset 0 0 0 2px #c62828;
+  }
+
+  .tt-table td.tt-has-event-lab {
+    background: #e3f4fb;
+    box-shadow: inset 0 0 0 2px #0277bd;
+  }
+
+  .tt-table td.tt-has-event-both {
+    background: linear-gradient(135deg, #ffe8e8 0 50%, #e3f4fb 50% 100%);
+    box-shadow: inset 0 0 0 2px #8e24aa;
   }
 
   .tt-focus-body .tt-event-tags {
     margin-top: 0;
     margin-left: 4px;
+  }
+
+  .grades-subnav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+  }
+
+  .grades-subnav .tool.tab-on {
+    background: var(--primary);
+    color: #fff;
+    border-color: var(--primary);
   }
 
   #tabDaily.teacher-panel {

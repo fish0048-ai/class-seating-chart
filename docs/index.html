@@ -174,7 +174,7 @@
           <span class="brand-mark">師</span>
           <div>
             <h1>教師模式</h1>
-            <p>名單、結算、統計、設定都在這一頁。</p>
+            <p>名單、課表、成績、日誌都在這一頁。</p>
           </div>
         </div>
         <div class="topbar-actions">
@@ -193,13 +193,9 @@
       <nav class="toolbar teacher-tabs" role="tablist" aria-label="教師功能">
         <button type="button" class="tool tab-on" data-teacher-tab="roster">名單</button>
         <button type="button" class="tool" data-teacher-tab="timetable">課表</button>
-        <button type="button" class="tool" data-teacher-tab="daily">成績表</button>
-        <button type="button" class="tool" data-teacher-tab="summary">成績統計表</button>
-        <button type="button" class="tool" data-teacher-tab="stats">統計圖表</button>
-        <button type="button" class="tool" data-teacher-tab="exam">模擬考</button>
+        <button type="button" class="tool" data-teacher-tab="grades">成績</button>
         <button type="button" class="tool" data-teacher-tab="journal">教學日誌</button>
         <button type="button" class="tool" data-teacher-tab="missing">缺交作業</button>
-        <button type="button" class="tool" data-teacher-tab="homework">作業檢核</button>
         <button type="button" class="tool" data-teacher-tab="settings">設定與上傳</button>
         <button type="button" class="tool" id="btnExport">下載備份</button>
         <button type="button" class="tool" id="btnImport">還原備份</button>
@@ -222,9 +218,14 @@
           </div>
           <p id="scoreDayLabel" class="score-day-label teacher-date-only">正在看今天的加扣分</p>
           <button type="button" class="tool teacher-tab-only" data-for-tab="roster" id="btnDbAdd">新增一列</button>
-          <button type="button" class="tool teacher-tab-only" data-for-tab="daily" id="btnExportSheet" hidden>下載成績表</button>
-          <button type="button" class="tool teacher-tab-only" data-for-tab="summary" id="btnExportReport" hidden>下載 Excel</button>
-          <button type="button" class="tool teacher-tab-only" data-for-tab="summary" id="btnImportGrades" hidden>從 Excel 匯入</button>
+          <div id="gradesSubnav" class="grades-subnav" hidden role="tablist" aria-label="成績子頁">
+            <button type="button" class="tool tab-on" data-grades-sub="daily">每日加扣</button>
+            <button type="button" class="tool" data-grades-sub="summary">學期成績</button>
+            <button type="button" class="tool" data-grades-sub="stats">圖表分析</button>
+          </div>
+          <button type="button" class="tool teacher-tab-only" data-for-tab="grades" data-grades-action="daily" id="btnExportSheet" hidden>下載成績表</button>
+          <button type="button" class="tool teacher-tab-only" data-for-tab="grades" data-grades-action="summary" id="btnExportReport" hidden>下載 Excel</button>
+          <button type="button" class="tool teacher-tab-only" data-for-tab="grades" data-grades-action="summary" id="btnImportGrades" hidden>從 Excel 匯入</button>
           <input id="gradeExcelFile" type="file" accept=".xlsx,.xls,.csv" hidden />
           <button type="button" class="tool teacher-tab-only" data-for-tab="settings" id="btnUpload" hidden>選擇名單檔</button>
         </div>
@@ -1056,14 +1057,6 @@
                 <p id="cloudReloginHint" class="hint" hidden></p>
               </div>
             </div>
-            <h3 class="subhead">模擬考能力等級</h3>
-            <p class="hint">匯入學力診斷「學校能力等級成績統計表」（國英數社自＋寫作）。依班級與座號對上（041 等於 41），不會改名單或加扣。標註只出現在教師模式「模擬考」分頁，上課座位卡不會顯示。</p>
-            <div class="modal-actions">
-              <button type="button" class="tool" id="btnPickMockExam">選擇模擬考 Excel</button>
-              <button type="button" class="tool" id="btnClearMockExam">清除標註</button>
-            </div>
-            <input id="mockExamFile" type="file" accept=".xlsx,.xls" hidden />
-            <p id="mockExamMeta" class="hint"></p>
             <h3 class="subhead">新增班級與學生</h3>
             <p class="hint">用 Excel 一次匯入一個班或多個班。第一列請用：班級、座號、姓名。匯入成功後會寫進成績資料庫的「學生」與「班級設定」工作表。</p>
             <div class="form-grid">
