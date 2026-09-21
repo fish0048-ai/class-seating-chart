@@ -43,6 +43,7 @@
     scheduleWeek: '',
     hwMissing: {},
     missingPick: {},
+    missingSeatSaving: false,
     groupPanel: false,
     groupAssign: false,
     groupPick: 1,
@@ -792,10 +793,21 @@
   var missingList = document.getElementById('missingList');
   if (missingList) {
     missingList.addEventListener('click', function (event) {
-      var btn = event.target.closest('[data-missing-del]');
-      if (!btn) return;
+      var del = event.target.closest('[data-missing-del]');
+      if (del) {
+        requireTeacher(function () {
+          deleteHwMissingItem(del.getAttribute('data-missing-class'), del.getAttribute('data-missing-del'));
+        });
+        return;
+      }
+      var seatBtn = event.target.closest('[data-missing-edit-seat]');
+      if (!seatBtn || seatBtn.disabled) return;
+      var itemId = seatBtn.getAttribute('data-missing-edit-id');
+      var seat = seatBtn.getAttribute('data-missing-edit-seat');
+      var className = seatBtn.getAttribute('data-missing-edit-class') || teacherTargetClass();
+      if (!itemId || !seat || !className) return;
       requireTeacher(function () {
-        deleteHwMissingItem(btn.getAttribute('data-missing-class'), btn.getAttribute('data-missing-del'));
+        toggleHwMissingItemSeat(className, itemId, seat);
       });
     });
   }
@@ -3455,56 +3467,140 @@
       list.innerHTML = '<p class="hint">這班還沒有缺交名單。點座號或輸入座號後按「儲存缺交名單」。</p>';
       return;
     }
+    var roster = studentsForMissingClass_(className);
     list.innerHTML = items.map(function (item) {
-      return '<div class="missing-item">' +
-        '<strong>' + escapeHtml(item.title || '缺交作業') + '</strong>' +
-        '<span class="missing-seats">缺交座號：' + escapeHtml((item.seats || []).join('、')) + '</span>' +
+      var selected = {};
+      (item.seats || []).forEach(function (seat) {
+        selected[normalizeDisplaySeat_(seat)] = true;
+      });
+      var seatHtml = roster.length
+        ? roster.map(function (s) {
+            var seat = normalizeDisplaySeat_(s.seatNo);
+            var on = selected[seat] ? ' tab-on' : '';
+            return '<button type="button" class="tool missing-seat-btn' + on +
+              '" data-missing-edit-seat="' + escapeHtml(seat) +
+              '" data-missing-edit-id="' + escapeHtml(item.id) +
+              '" data-missing-edit-class="' + escapeHtml(className) +
+              '" title="' + escapeHtml(s.name || '') + '">' + escapeHtml(seat) + '</button>';
+          }).join('')
+        : '<span class="missing-seats">缺交座號：' + escapeHtml((item.seats || []).join('、')) +
+          '</span><p class="hint">這班名單未載入，請先到上課模式選此班，或上方新建時用輸入框改。</p>';
+      return '<div class="missing-item" data-missing-item="' + escapeHtml(item.id) + '">' +
+        '<div class="missing-item-head">' +
+          '<strong>' + escapeHtml(item.title || '缺交作業') + '</strong>' +
+          '<button type="button" class="tool danger" data-missing-del="' + escapeHtml(item.id) +
+            '" data-missing-class="' + escapeHtml(className) + '">刪除</button>' +
+        '</div>' +
         (item.note ? '<span class="missing-note">' + escapeHtml(item.note) + '</span>' : '') +
-        '<button type="button" class="tool danger" data-missing-del="' + escapeHtml(item.id) +
-          '" data-missing-class="' + escapeHtml(className) + '">刪除</button>' +
+        '<p class="hint missing-edit-hint">點座號即可增減缺交（會立刻儲存）</p>' +
+        '<div class="missing-seat-pick missing-item-seats" role="group" aria-label="' +
+          escapeHtml((item.title || '缺交') + ' 座號') + '">' + seatHtml + '</div>' +
         '</div>';
     }).join('');
+  }
+
+  function studentsForMissingClass_(className) {
+    className = String(className || '').trim();
+    if (!className) return [];
+    if (App.classroom && App.classroom.className === className && (App.classroom.students || []).length) {
+      return (App.classroom.students || []).slice().sort(seatOrder);
+    }
+    var rows = [];
+    (App.dbRows || []).forEach(function (row) {
+      if (String(row.className) === String(className) && row.seatNo) rows.push(row);
+    });
+    if (rows.length) {
+      return rows.sort(function (a, b) {
+        return (parseInt(a.seatNo, 10) || 0) - (parseInt(b.seatNo, 10) || 0);
+      }).map(function (row) {
+        return { seatNo: row.seatNo, name: row.name || '' };
+      });
+    }
+    return [];
   }
 
   function renderHwMissingSeatPick() {
     var wrap = document.getElementById('missingSeatPick');
     if (!wrap) return;
     var className = teacherTargetClass();
-    var room = null;
-    if (App.classroom && App.classroom.className === className) room = App.classroom;
-    if (!room && className) {
-      // seats from current db rows if available
-      var seats = [];
-      (App.dbRows || []).forEach(function (row) {
-        if (String(row.className) === String(className) && row.seatNo) seats.push(row);
-      });
-      if (seats.length) {
-        wrap.innerHTML = seats.sort(function (a, b) {
-          return (parseInt(a.seatNo, 10) || 0) - (parseInt(b.seatNo, 10) || 0);
-        }).map(function (row) {
-          var seat = normalizeDisplaySeat_(row.seatNo);
-          var on = App.missingPick[seat] ? ' tab-on' : '';
-          return '<button type="button" class="tool missing-seat-btn' + on + '" data-missing-seat="' +
-            escapeHtml(seat) + '">' + escapeHtml(seat) + '</button>';
-        }).join('');
-        return;
-      }
-    }
-    var students = (room && room.students) || (App.classroom && App.classroom.className === className ? App.classroom.students : []);
     if (!className) {
       wrap.innerHTML = '<p class="hint">請先選班級。</p>';
       return;
     }
-    if (!(students || []).length) {
+    var students = studentsForMissingClass_(className);
+    if (!students.length) {
       wrap.innerHTML = '<p class="hint">這班還沒有名單，也可直接在上方輸入座號。</p>';
       return;
     }
-    wrap.innerHTML = (students || []).slice().sort(seatOrder).map(function (s) {
+    wrap.innerHTML = students.map(function (s) {
       var seat = normalizeDisplaySeat_(s.seatNo);
       var on = App.missingPick[seat] ? ' tab-on' : '';
       return '<button type="button" class="tool missing-seat-btn' + on + '" data-missing-seat="' +
         escapeHtml(seat) + '" title="' + escapeHtml(s.name || '') + '">' + escapeHtml(seat) + '</button>';
     }).join('');
+  }
+
+  function findHwMissingItem_(className, id) {
+    return ((App.hwMissing && App.hwMissing[className]) || []).filter(function (item) {
+      return item && item.id === id && !item.deleted;
+    })[0] || null;
+  }
+
+  function toggleHwMissingItemSeat(className, itemId, seat) {
+    className = String(className || '').trim();
+    itemId = String(itemId || '').trim();
+    seat = normalizeDisplaySeat_(seat);
+    if (!className || !itemId || !seat) return;
+    if (App.missingSeatSaving) {
+      toast('正在儲存，請稍候');
+      return;
+    }
+    var item = findHwMissingItem_(className, itemId);
+    if (!item) {
+      toast('找不到這筆缺交名單');
+      return;
+    }
+    var seats = (item.seats || []).map(normalizeDisplaySeat_).filter(Boolean);
+    var has = seats.indexOf(seat) >= 0;
+    var next = has
+      ? seats.filter(function (s) { return s !== seat; })
+      : seats.concat([seat]);
+    if (!next.length) {
+      toast('至少要留一位缺交座號；若要清空請刪除整筆');
+      return;
+    }
+    App.missingSeatSaving = true;
+    var list = document.getElementById('missingList');
+    if (list) {
+      list.querySelectorAll('[data-missing-edit-seat]').forEach(function (btn) {
+        if (btn.getAttribute('data-missing-edit-id') === itemId) btn.disabled = true;
+      });
+    }
+    api('saveHwMissing', [{
+      id: item.id,
+      className: className,
+      title: item.title || '',
+      note: item.note || '',
+      seats: next,
+      createdAt: item.createdAt || ''
+    }]).then(function (data) {
+      if (data && data.hwMissing) {
+        App.hwMissing = mergeHwMissingClient_(App.hwMissing, data.hwMissing);
+      }
+      renderHwMissingTab();
+      renderHwMissingBanner();
+      if (App.classroom && App.classroom.className === className) renderBoard();
+      if (data && data.synced === false) {
+        toast((data.cloudError || '已更新，但還沒同步到雲端') + '。請按「立即同步」', 7000);
+      } else {
+        toast(has ? ('已移除座號 ' + seat) : ('已加入座號 ' + seat));
+      }
+    }).catch(function (err) {
+      toast(err && err.message ? err.message : '更新失敗');
+      renderHwMissingTab();
+    }).then(function () {
+      App.missingSeatSaving = false;
+    });
   }
 
   function saveHwMissingFromForm() {
