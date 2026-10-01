@@ -436,6 +436,7 @@
               <button type="button" class="tool" data-stats-kind="quiz">平時考試</button>
               <button type="button" class="tool" data-stats-kind="exam">段考</button>
               <button type="button" class="tool" data-stats-kind="work">實作／作業</button>
+              <button type="button" class="tool" data-stats-kind="paper">單張考卷</button>
             </div>
 
             <div id="statsClassView">
@@ -517,6 +518,48 @@
                   <figcaption>段考排行（前 10 名）</figcaption>
                   <div id="chartExamRank"></div>
                 </figure>
+              </div>
+            </section>
+
+            <section class="stats-block" id="statsPaperBlock" data-stats-kind-block="paper">
+              <h3>單張考卷統計</h3>
+              <p class="hint">選一張考卷（黃卷、早自習、段考、實作），看這一次的平均、分布、每位同學分數，並和同類型上一次比較。平時考試、段考表格的列也可以直接點進來。</p>
+              <div class="paper-picker">
+                <button type="button" class="tool" id="btnPaperPrev" aria-label="上一張考卷">‹ 上一張</button>
+                <select id="statsPaperSelect" aria-label="選擇考卷"></select>
+                <button type="button" class="tool" id="btnPaperNext" aria-label="下一張考卷">下一張 ›</button>
+              </div>
+              <div id="statsPaperCards" class="stat-cards"></div>
+              <div id="statsPaperWatch" class="stats-watch"></div>
+              <div class="chart-grid">
+                <figure class="chart-card">
+                  <figcaption>這張考卷分數分布</figcaption>
+                  <div id="chartPaperDist"></div>
+                </figure>
+                <figure class="chart-card">
+                  <figcaption>和同類型上一次比較（進步／退步最多）</figcaption>
+                  <div id="chartPaperDelta"></div>
+                </figure>
+                <figure class="chart-card chart-wide">
+                  <figcaption>全班分數（由高到低，換算百分制）</figcaption>
+                  <div id="chartPaperRank"></div>
+                </figure>
+              </div>
+              <div class="db-table-wrap stats-table-wrap">
+                <table class="db-table">
+                  <thead>
+                    <tr>
+                      <th>名次</th>
+                      <th>座號</th>
+                      <th>姓名</th>
+                      <th>原始分數</th>
+                      <th>百分制</th>
+                      <th>與班平均差</th>
+                      <th>比上一次</th>
+                    </tr>
+                  </thead>
+                  <tbody id="statsPaperBody"></tbody>
+                </table>
               </div>
             </section>
 

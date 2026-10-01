@@ -2114,6 +2114,34 @@
     gap: 10px;
   }
 
+  .paper-picker {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 12px;
+  }
+
+  .paper-picker select {
+    flex: 1 1 260px;
+    min-width: 0;
+    padding: 8px 10px;
+    font-size: 15px;
+  }
+
+  #statsPaperBlock .stat-cards,
+  #statsPaperBlock .stats-watch {
+    margin-bottom: 12px;
+  }
+
+  .assess-table tr.paper-link {
+    cursor: pointer;
+  }
+
+  .assess-table tr.paper-link:hover td {
+    background: #f3f8fb;
+  }
+
   .stats-inventory {
     margin: 0 0 12px;
     padding: 12px 14px;

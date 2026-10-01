@@ -34,6 +34,7 @@
     weekKey: '',
     statsView: 'class',
     statsKind: 'all',
+    statsPaperKey: '',
     statsSeatNo: '',
     schoolBusy: false,
     gradesSub: 'summary',
@@ -406,6 +407,26 @@
   document.querySelectorAll('[data-stats-kind]').forEach(function (btn) {
     btn.addEventListener('click', function () {
       setStatsKind(btn.getAttribute('data-stats-kind'));
+    });
+  });
+  var paperSelect = document.getElementById('statsPaperSelect');
+  if (paperSelect) {
+    paperSelect.addEventListener('change', function () {
+      App.statsPaperKey = paperSelect.value;
+      renderPaperStats(App.statsPeople || []);
+    });
+  }
+  var paperPrev = document.getElementById('btnPaperPrev');
+  var paperNext = document.getElementById('btnPaperNext');
+  if (paperPrev) paperPrev.addEventListener('click', function () { shiftStatsPaper(-1); });
+  if (paperNext) paperNext.addEventListener('click', function () { shiftStatsPaper(1); });
+  ['statsQuizAssess', 'statsExamAssess'].forEach(function (id) {
+    var box = document.getElementById(id);
+    if (!box) return;
+    box.addEventListener('click', function (event) {
+      var row = event.target.closest('[data-paper-key]');
+      if (!row) return;
+      openStatsPaper(row.getAttribute('data-paper-key'));
     });
   });
   if (els.statsPersonSelect) {
@@ -7152,6 +7173,7 @@
 
     renderQuizStats(people);
     renderExamStats(people);
+    renderPaperStats(people);
     renderAssessStats(people);
     if (els.statsBody) {
       if (!people.length) {
@@ -7392,10 +7414,10 @@
     if (kindSwitch) kindSwitch.hidden = mode === 'person';
   }
 
+  var STATS_KINDS = ['all', 'plusminus', 'quiz', 'exam', 'work', 'paper'];
+
   function applyStatsKind() {
-    var kind = App.statsKind === 'plusminus' || App.statsKind === 'quiz' || App.statsKind === 'exam'
-      ? App.statsKind
-      : 'all';
+    var kind = STATS_KINDS.indexOf(App.statsKind) >= 0 ? App.statsKind : 'all';
     App.statsKind = kind;
     document.querySelectorAll('[data-stats-kind]').forEach(function (btn) {
       btn.classList.toggle('tab-on', btn.getAttribute('data-stats-kind') === kind);
@@ -7414,9 +7436,7 @@
   }
 
   function setStatsKind(kind) {
-    App.statsKind = kind === 'plusminus' || kind === 'quiz' || kind === 'exam' || kind === 'work'
-      ? kind
-      : 'all';
+    App.statsKind = STATS_KINDS.indexOf(kind) >= 0 ? kind : 'all';
     applyStatsKind();
   }
 
@@ -8030,9 +8050,12 @@
     var chartLabels = [];
     var chartValues = [];
     (groups || []).forEach(function (group) {
-      (group.cols || []).forEach(function (col) {
+      (group.cols || []).forEach(function (col, index) {
         var info = analyzeScoreColumn(col, people);
-        rows.push('<tr><td>' + escapeHtml(group.label) + '</td><td>' + escapeHtml(info.title) + '</td><td>' +
+        var paperKey = group.kind ? paperKeyOf(group.kind, col, index) : '';
+        rows.push('<tr' + (paperKey
+          ? ' class="paper-link" data-paper-key="' + escapeHtml(paperKey) + '" title="點一下看這張考卷的個別統計"'
+          : '') + '><td>' + escapeHtml(group.label) + '</td><td>' + escapeHtml(info.title) + '</td><td>' +
           escapeHtml(shortDate(info.date)) + '</td><td>' + fmtMaybe(info.avg) + '</td><td>' +
           fmtMaybe(info.passRate, '%') + '</td><td>請假 ' + info.leave + '　未填 ' + info.missing +
           '　低於60分 ' + info.below + '</td></tr>');
@@ -8100,8 +8123,8 @@
       scoreKey: 'quiz',
       avgLabel: '平時考試平均',
       groups: [
-        { label: '黃卷', cols: book.yellow || [] },
-        { label: '早自習', cols: book.morning || [] }
+        { label: '黃卷', kind: 'yellow', cols: book.yellow || [] },
+        { label: '早自習', kind: 'morning', cols: book.morning || [] }
       ],
       cardsEl: els.statsQuizCards,
       tableEl: els.statsQuizAssess,
@@ -8121,7 +8144,7 @@
       scoreKey: 'exam',
       avgLabel: '段考平均',
       groups: [
-        { label: '段考', cols: book.exams || [] }
+        { label: '段考', kind: 'exams', cols: book.exams || [] }
       ],
       cardsEl: els.statsExamCards,
       tableEl: els.statsExamAssess,
@@ -8132,6 +8155,210 @@
       emptyDist: '有段考成績後，這裡會出現 90／80／70／60 分段人數',
       emptyRank: '有段考成績後，這裡會出現排行'
     });
+  }
+
+  var PAPER_KINDS = [
+    { kind: 'yellow', label: '黃卷' },
+    { kind: 'morning', label: '早自習' },
+    { kind: 'exams', label: '段考' },
+    { kind: 'labs', label: '實作評量' },
+    { kind: 'practicals', label: '實作成績' }
+  ];
+
+  function paperKeyOf(kind, col, index) {
+    return kind + ':' + (col && col.id ? col.id : '#' + index);
+  }
+
+  function listStatsPapers() {
+    var book = App.gradebook || emptyGradebook();
+    var out = [];
+    PAPER_KINDS.forEach(function (meta) {
+      var cols = book[meta.kind] || [];
+      cols.forEach(function (col, index) {
+        out.push({
+          key: paperKeyOf(meta.kind, col, index),
+          kind: meta.kind,
+          kindLabel: meta.label,
+          col: col,
+          prev: index > 0 ? cols[index - 1] : null
+        });
+      });
+    });
+    return out;
+  }
+
+  function openStatsPaper(key) {
+    if (!key) return;
+    App.statsPaperKey = key;
+    setStatsKind('paper');
+    renderPaperStats(App.statsPeople || []);
+    var block = document.getElementById('statsPaperBlock');
+    if (block && block.scrollIntoView) block.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function shiftStatsPaper(step) {
+    var papers = listStatsPapers();
+    if (!papers.length) return;
+    var idx = -1;
+    papers.forEach(function (p, i) { if (p.key === App.statsPaperKey) idx = i; });
+    idx = idx < 0 ? 0 : (idx + step + papers.length) % papers.length;
+    App.statsPaperKey = papers[idx].key;
+    renderPaperStats(App.statsPeople || []);
+  }
+
+  function rawScoreText(col, seatNo) {
+    var v = col && col.scores ? col.scores[seatNo] : null;
+    if (isLeaveScore(v)) return '請假';
+    if (v === '' || v == null) return '—';
+    return String(v) + ' / ' + (Number(col.max) || 100);
+  }
+
+  function renderPaperStats(people) {
+    people = people || [];
+    var select = document.getElementById('statsPaperSelect');
+    var cardsEl = document.getElementById('statsPaperCards');
+    var watchEl = document.getElementById('statsPaperWatch');
+    var distEl = document.getElementById('chartPaperDist');
+    var deltaEl = document.getElementById('chartPaperDelta');
+    var rankEl = document.getElementById('chartPaperRank');
+    var bodyEl = document.getElementById('statsPaperBody');
+    var papers = listStatsPapers();
+    var navBtns = [document.getElementById('btnPaperPrev'), document.getElementById('btnPaperNext')];
+    navBtns.forEach(function (btn) { if (btn) btn.disabled = papers.length < 2; });
+    if (!papers.length) {
+      if (select) select.innerHTML = '<option value="">尚無考卷</option>';
+      if (cardsEl) cardsEl.innerHTML = '';
+      if (watchEl) watchEl.innerHTML = '';
+      if (distEl) distEl.innerHTML = chartEmpty('到「學期成績」新增黃卷、早自習、段考或實作欄位後，這裡可以逐張看');
+      if (deltaEl) deltaEl.innerHTML = '';
+      if (rankEl) rankEl.innerHTML = '';
+      if (bodyEl) bodyEl.innerHTML = '<tr><td colspan="7">尚無考卷</td></tr>';
+      return;
+    }
+    var current = null;
+    papers.forEach(function (p) { if (p.key === App.statsPaperKey) current = p; });
+    if (!current) {
+      current = papers[papers.length - 1];
+      App.statsPaperKey = current.key;
+    }
+    if (select) {
+      select.innerHTML = papers.map(function (p) {
+        var title = p.col.title || '未命名';
+        var date = p.col.date ? '（' + shortDate(p.col.date) + '）' : '';
+        return '<option value="' + escapeHtml(p.key) + '"' + (p.key === current.key ? ' selected' : '') + '>' +
+          escapeHtml(p.kindLabel + '｜' + title + date) + '</option>';
+      }).join('');
+    }
+
+    var col = current.col;
+    var info = analyzeScoreColumn(col, people);
+    var rows = people.map(function (row) {
+      var v = columnScore100(col, row.seatNo);
+      var prevV = current.prev ? columnScore100(current.prev, row.seatNo) : null;
+      var raw = col.scores ? col.scores[row.seatNo] : null;
+      return {
+        seatNo: row.seatNo,
+        name: row.name,
+        score: v,
+        leave: isLeaveScore(raw),
+        prev: prevV,
+        delta: v != null && prevV != null ? round1(v - prevV) : null
+      };
+    });
+    var scored = rows.filter(function (r) { return r.score != null; })
+      .sort(function (a, b) { return b.score - a.score; });
+    var scores = scored.map(function (r) { return r.score; });
+    var avg = info.avg;
+    var prevInfo = current.prev ? analyzeScoreColumn(current.prev, people) : null;
+    var avgDelta = prevInfo && prevInfo.avg != null && avg != null ? round1(avg - prevInfo.avg) : null;
+    var full = scored.filter(function (r) { return r.score >= 100; });
+    var low = scored.filter(function (r) { return r.score < 60; }).sort(function (a, b) { return a.score - b.score; });
+    var leaves = rows.filter(function (r) { return r.leave; });
+    var blanks = rows.filter(function (r) { return r.score == null && !r.leave; });
+
+    if (cardsEl) {
+      cardsEl.innerHTML = scores.length
+        ? statCard('全班平均', fmtMaybe(avg)) +
+          statCard('中位數', fmtMaybe(medianOf(scores))) +
+          statCard('標準差', stdevOf(scores)) +
+          statCard('最高／最低', info.max + '／' + info.min) +
+          statCard('及格率', fmtMaybe(info.passRate, '%')) +
+          statCard('有成績', info.n + ' / ' + people.length) +
+          statCard('比上一次平均', avgDelta == null ? '—' : (avgDelta > 0 ? '+' : '') + avgDelta) +
+          statCard('滿分', Number(col.max) || 100)
+        : statCard('這張考卷', '還沒有輸入分數');
+    }
+
+    if (watchEl) {
+      var cards = [];
+      cards.push(watchCard('good', '最高分', scored.length
+        ? scored.slice(0, 3).map(function (r) { return r.seatNo + ' ' + r.name + '（' + r.score + '）'; }).join('、')
+        : '尚無'));
+      if (full.length) cards.push(watchCard('good', '滿分', peopleText(full, 5)));
+      cards.push(watchCard(low.length ? 'alert' : 'good', '未滿 60 分', low.length
+        ? low.slice(0, 5).map(function (r) { return r.seatNo + ' ' + r.name + '（' + r.score + '）'; }).join('、') +
+          (low.length > 5 ? ' 等 ' + low.length + ' 人' : '')
+        : '全部及格'));
+      if (leaves.length || blanks.length) {
+        var bits = [];
+        if (leaves.length) bits.push('請假 ' + peopleText(leaves, 4));
+        if (blanks.length) bits.push('未填 ' + peopleText(blanks, 4));
+        cards.push(watchCard('warn', '請假／未填', bits.join('；')));
+      }
+      if (current.prev) {
+        cards.push(watchCard('info', '比較對象', current.kindLabel + '上一次：' + (current.prev.title || '未命名') +
+          (prevInfo && prevInfo.avg != null ? '（平均 ' + prevInfo.avg + '）' : '')));
+      }
+      watchEl.innerHTML = cards.join('');
+    }
+
+    if (distEl) {
+      var dist = scoreBands(scores);
+      distEl.innerHTML = dist.n
+        ? svgBars(dist.bands.map(function (b) { return b.label; }), dist.bands.map(function (b) { return b.count; }), {
+          zeroLine: false,
+          barColors: ['#2c7a4b', '#5aa576', '#d9a441', '#d9852b', '#b4413c']
+        })
+        : chartEmpty('這張考卷還沒有分數');
+    }
+
+    if (deltaEl) {
+      var movers = rows.filter(function (r) { return r.delta != null && r.delta !== 0; })
+        .sort(function (a, b) { return b.delta - a.delta; });
+      var pick = movers.slice(0, 5).concat(movers.length > 5 ? movers.slice(-5).filter(function (r) {
+        return movers.indexOf(r) >= 5;
+      }) : []);
+      deltaEl.innerHTML = !current.prev
+        ? chartEmpty('這是' + current.kindLabel + '第一次，還沒有上一次可以比')
+        : (pick.length
+          ? svgHBars(pick.map(function (r) { return r.seatNo + ' ' + r.name; }), pick.map(function (r) { return r.delta; }))
+          : chartEmpty('和上一次相比沒有變化'));
+    }
+
+    if (rankEl) {
+      rankEl.innerHTML = scored.length
+        ? svgHBars(scored.map(function (r) { return r.seatNo + ' ' + r.name; }), scored.map(function (r) { return r.score; }))
+        : chartEmpty('這張考卷還沒有分數');
+    }
+
+    if (bodyEl) {
+      var ordered = scored.concat(rows.filter(function (r) { return r.score == null; }));
+      bodyEl.innerHTML = ordered.length ? ordered.map(function (r) {
+        var rank = r.score != null ? scored.indexOf(r) + 1 : '—';
+        var diff = r.score != null && avg != null ? round1(r.score - avg) : null;
+        var diffCls = diff == null ? '' : (diff >= 0 ? 'day-plus' : 'day-minus');
+        var deltaCls = r.delta == null ? '' : (r.delta >= 0 ? 'day-plus' : 'day-minus');
+        return '<tr data-seat="' + escapeHtml(String(r.seatNo)) + '">' +
+          '<td>' + rank + '</td>' +
+          '<td>' + escapeHtml(r.seatNo) + '</td>' +
+          '<td>' + escapeHtml(r.name) + '</td>' +
+          '<td>' + escapeHtml(rawScoreText(col, r.seatNo)) + '</td>' +
+          '<td>' + fmtMaybe(r.score) + '</td>' +
+          '<td class="' + diffCls + '">' + (diff == null ? '—' : (diff > 0 ? '+' : '') + diff) + '</td>' +
+          '<td class="' + deltaCls + '">' + (r.delta == null ? '—' : (r.delta > 0 ? '+' : '') + r.delta) + '</td>' +
+          '</tr>';
+      }).join('') : '<tr><td colspan="7">尚無學生</td></tr>';
+    }
   }
 
   function chartEmpty(text) {
