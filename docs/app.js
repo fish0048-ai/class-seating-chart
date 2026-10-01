@@ -4708,13 +4708,29 @@
     el.textContent = '本週國定假日／補假：' + items.join('、') + '。假日欄位已標示，課表格子改顯示放假。';
   }
 
+  function termLastWeekKey(now) {
+    now = now || new Date();
+    var y = now.getFullYear();
+    var m = now.getMonth() + 1;
+    var end;
+    // 上學期（8 月～隔年 2 月）列到 2 月底；下學期（3～7 月）列到 7 月底
+    if (m >= 8) end = new Date(y + 1, 2, 0, 12, 0, 0);
+    else if (m <= 2) end = new Date(y, 2, 0, 12, 0, 0);
+    else end = new Date(y, 7, 0, 12, 0, 0);
+    return mondayKeyOf(end);
+  }
+
   function weekSelectOptionsHtml(selected, extraKeys) {
     var thisMon = mondayKeyOf(new Date());
+    var lastMon = termLastWeekKey(new Date());
     var keys = {};
-    var offsets = [-2, -1, 0, 1, 2, 3, 4, 5, 6];
-    offsets.forEach(function (offset) {
-      keys[shiftMondayKey(thisMon, offset)] = true;
-    });
+    var cursor = shiftMondayKey(thisMon, -2);
+    var guard = 0;
+    while (cursor <= lastMon && guard < 60) {
+      keys[cursor] = true;
+      cursor = shiftMondayKey(cursor, 1);
+      guard += 1;
+    }
     (extraKeys || []).forEach(function (k) {
       if (k) keys[k] = true;
     });
