@@ -298,6 +298,11 @@
     getStore: function () {
       return getStoreWithRetry_();
     },
+    getStoreMeta: function () {
+      return enqueueCloud_(function () {
+        return postOnce_('getStoreMeta', {}, 30000);
+      });
+    },
     putStore: function (store) {
       invalidateGetCache_();
       return postAction('putStore', { store: store }).then(function (data) {

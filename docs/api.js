@@ -1137,6 +1137,55 @@
     });
   }
 
+  var storeMetaUnsupported_ = false;
+
+  /** 只問雲端更新時間；後端還沒部署 getStoreMeta 時退回整包比對。 */
+  function peekCloudChanged_() {
+    if (storeMetaUnsupported_ || typeof CloudStore.getStoreMeta !== 'function') {
+      return Promise.resolve(true);
+    }
+    return CloudStore.getStoreMeta().then(function (data) {
+      var remoteAt = String((data && data.updatedAt) || '');
+      if (!remoteAt) return !(data && data.empty);
+      if (remoteAt === lastPushAt) return false;
+      var localAt = lastSyncedAt_ || (memStore && memStore.updatedAt) || '';
+      return !localAt || remoteAt > localAt;
+    }, function (err) {
+      var msg = err && err.message ? err.message : String(err || '');
+      if (msg.indexOf('未知的操作') >= 0) {
+        storeMetaUnsupported_ = true;
+        return true;
+      }
+      throw err;
+    });
+  }
+
+  function pullFullIfNewer_(className) {
+    return CloudStore.getStore().then(function (data) {
+      var remote = data && data.store ? normalizeLoadedStore_(data.store) : null;
+      if (!remote || !remote.updatedAt) {
+        return { changed: false, cloud: cloudStatusPayload_() };
+      }
+      var localAt = lastSyncedAt_ || (memStore && memStore.updatedAt) || '';
+      if (!localAt || remote.updatedAt > localAt) {
+        if (remote.updatedAt === lastPushAt) {
+          return { changed: false, cloud: cloudStatusPayload_() };
+        }
+        memStore = remote;
+        lastSyncedAt_ = remote.updatedAt;
+        lastPushAt = remote.updatedAt;
+        cloudError = '';
+        var names = classNames(memStore);
+        var target = className && memStore.classes[className] ? className : (names[0] || '範例班');
+        return Object.assign(payload(memStore, target), {
+          changed: true,
+          cloud: cloudStatusPayload_()
+        });
+      }
+      return { changed: false, cloud: cloudStatusPayload_() };
+    });
+  }
+
   function healGroupsFromHistoryLocal_(store) {
     if (!store || !store.classes) return false;
     var changed = false;
@@ -1619,28 +1668,9 @@
       if (!cloudOn() || !hydrated || cloudSaving || scoreHold_) {
         return wrap({ changed: false, cloud: cloudStatusPayload_() });
       }
-      return CloudStore.getStore().then(function (data) {
-        var remote = data && data.store ? normalizeLoadedStore_(data.store) : null;
-        if (!remote || !remote.updatedAt) {
-          return { changed: false, cloud: cloudStatusPayload_() };
-        }
-        var localAt = lastSyncedAt_ || (memStore && memStore.updatedAt) || '';
-        if (!localAt || remote.updatedAt > localAt) {
-          if (remote.updatedAt === lastPushAt) {
-            return { changed: false, cloud: cloudStatusPayload_() };
-          }
-          memStore = remote;
-          lastSyncedAt_ = remote.updatedAt;
-          lastPushAt = remote.updatedAt;
-          cloudError = '';
-          var names = classNames(memStore);
-          var target = className && memStore.classes[className] ? className : (names[0] || '範例班');
-          return Object.assign(payload(memStore, target), {
-            changed: true,
-            cloud: cloudStatusPayload_()
-          });
-        }
-        return { changed: false, cloud: cloudStatusPayload_() };
+      return peekCloudChanged_().then(function (maybeChanged) {
+        if (!maybeChanged) return { changed: false, cloud: cloudStatusPayload_() };
+        return pullFullIfNewer_(className);
       });
     },
     loadClassroom: function (className) {

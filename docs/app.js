@@ -1373,6 +1373,7 @@
   }
 
   function pullCloudQuiet() {
+    if (document.hidden) return;
     if (App.busy || App.dirty || App.lotteryBusy) return;
     if (typeof SeatDB === 'undefined' || !SeatDB.pullIfNewer) return;
     var info = SeatDB.cloudStatus ? SeatDB.cloudStatus() : {};

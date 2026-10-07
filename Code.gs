@@ -329,6 +329,8 @@ function handleRequest_(req) {
         return logLottery(req);
       case 'getStore':
         return getCloudStore();
+      case 'getStoreMeta':
+        return getCloudStoreMeta();
       case 'getTimetable':
         if (!user) throw new Error('請先用 Google 帳號登入');
         return getTimetableApi_();
@@ -766,6 +768,25 @@ function getCloudStore() {
   return { ok: true, empty: true, store: null };
 }
 
+function getCloudStoreMeta() {
+  var ss = getSs_();
+  var sheet = ss.getSheetByName(SHEETS.CLOUD);
+  if (!sheet) return { ok: true, empty: true, updatedAt: '' };
+  var at = String(sheet.getRange(2, 3).getValue() || '').trim();
+  if (at) return { ok: true, empty: false, updatedAt: at };
+  var json = readCloudChunks_(sheet);
+  if (!json) return { ok: true, empty: true, updatedAt: '' };
+  try {
+    at = String((JSON.parse(json) || {}).updatedAt || '');
+  } catch (err) {
+    at = '';
+  }
+  if (at) {
+    try { sheet.getRange(2, 3).setValue(at); } catch (ignore) {}
+  }
+  return { ok: true, empty: false, updatedAt: at };
+}
+
 function putCloudStore(store) {
   if (!store || typeof store !== 'object') {
     throw new Error('沒有可儲存的資料');
@@ -787,7 +808,7 @@ function putCloudStore(store) {
     healStoreGroupsInPlace_(ss, store);
     healStoreGroupsFromHistory_(store);
     store.updatedAt = new Date().toISOString();
-    writeCloudChunks_(sheet, JSON.stringify(store));
+    writeCloudChunks_(sheet, JSON.stringify(store), store.updatedAt);
     syncVisibleRoster_(ss, store);
     try {
       syncReadableGrades_(ss, store);
@@ -823,7 +844,7 @@ function repairGroupsApi_() {
       };
     }
     store.updatedAt = new Date().toISOString();
-    writeCloudChunks_(sheet, JSON.stringify(store));
+    writeCloudChunks_(sheet, JSON.stringify(store), store.updatedAt);
     syncVisibleRoster_(ss, store);
     return {
       ok: true,
@@ -842,6 +863,15 @@ function countAssignMap_(assign) {
 
 function healStoreGroupsInPlace_(ss, store) {
   if (!store || !store.classes) return false;
+  var needsHeal = Object.keys(store.classes).some(function (cn) {
+    var room = store.classes[cn];
+    if (!room || !(room.students || []).length) return false;
+    var groups = room.groups || {};
+    if (groups.clearedAt) return false;
+    return countAssignMap_(groups.assign || {}) === 0;
+  });
+  // 讀整張「學生」工作表很慢；分組都在時就不必讀
+  if (!needsHeal) return false;
   var sheet = ss.getSheetByName(SHEETS.STUDENTS);
   if (!sheet || sheet.getLastRow() < 2) return false;
   var values = sheet.getRange(2, 1, sheet.getLastRow() - 1, HEADERS.STUDENTS.length).getValues();
@@ -1304,13 +1334,14 @@ function ensureCloudSheet_(ss) {
   return sheet;
 }
 
-function writeCloudChunks_(sheet, json) {
+function writeCloudChunks_(sheet, json, updatedAt) {
   var n = Math.max(1, Math.ceil(String(json).length / CLOUD_CHUNK));
   var last = sheet.getLastRow();
   if (last > 2) {
     sheet.getRange(3, 1, last - 2, 1).clearContent();
   }
-  sheet.getRange(2, 1, 1, 2).setValues([['chunkCount', n]]);
+  // C2 存更新時間，讓 getStoreMeta 不必下載整包就能判斷有沒有新資料
+  sheet.getRange(2, 1, 1, 3).setValues([['chunkCount', n, String(updatedAt || '')]]);
   var rows = [];
   var i;
   for (i = 0; i < n; i++) {
