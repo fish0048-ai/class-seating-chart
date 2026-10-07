@@ -44,7 +44,7 @@ Vercel → **Deployments**：每次 push 後應出現新的 Deployment。
 
 - 學校／平板請開 **正式 Vercel 網址**
 - 資料仍是同一份試算表與 Apps Script，不必重設
-- 教師帳號：`chunhsinkuo@kcis.hc.edu.tw`
+- 教師帳號：`chunhsinkuo@kcis.hc.edu.tw`、`chiajungtu@kcis.hc.edu.tw`
 
 ## 自訂網域（可選）
 

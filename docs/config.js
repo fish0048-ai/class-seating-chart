@@ -12,5 +12,5 @@ window.SEAT_CONFIG = {
   // 詳見 docs/部署到Vercel.md
   googleClientId: '556988999591-tc3b8orn6ov3guinfiq5p0c9u6g0n802.apps.googleusercontent.com',
   // 這些帳號登入後才是教師（可改資料、進教師模式）。其餘帳號只能看。
-  teacherEmails: ['chunhsinkuo@kcis.hc.edu.tw']
+  teacherEmails: ['chunhsinkuo@kcis.hc.edu.tw', 'chiajungtu@kcis.hc.edu.tw']
 };

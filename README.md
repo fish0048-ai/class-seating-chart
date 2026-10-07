@@ -25,7 +25,7 @@
 
 打開網頁後請用 Google 登入。
 
-- **教師**（目前只有 `chunhsinkuo@kcis.hc.edu.tw`）可加扣分、調座位、抽籤、分組，並進入教師模式
+- **教師**（`chunhsinkuo@kcis.hc.edu.tw`、`chiajungtu@kcis.hc.edu.tw`）可加扣分、調座位、抽籤、分組，並進入教師模式
 - **其他 Google 帳號**只能看座位表，看不到教師模式，也不能改資料
 
 第一次請先建立 Google 登入（只要做一次）：

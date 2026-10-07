@@ -70,7 +70,7 @@ const SPREADSHEET_ID = '1AES93Jv8l65YI2LQ-scVRPqYSLFxtVOD-UqIU99gQSA';
 const TIMETABLE_SPREADSHEET_ID = '13VrWBx6hoKpUON_JNxIrynH_gyRV8HnhUt0MMscjkWg';
 
 /** 只有這些 Google 帳號能改資料、進教師模式。其餘登入只能看。 */
-const TEACHER_EMAILS = ['chunhsinkuo@kcis.hc.edu.tw'];
+const TEACHER_EMAILS = ['chunhsinkuo@kcis.hc.edu.tw', 'chiajungtu@kcis.hc.edu.tw'];
 
 /**
  * Google Cloud「網頁應用程式」OAuth 用戶端 ID（結尾 .apps.googleusercontent.com）。
