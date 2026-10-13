@@ -9423,6 +9423,10 @@
       return;
     }
     var headers = (rows[0] || []).map(function (h) { return String(h || '').trim(); });
+    if (isReadCardSheet(headers)) {
+      importReadCardRows(rows, headers);
+      return;
+    }
     var seatIdx = headers.indexOf('座號');
     var nameIdx = headers.indexOf('姓名');
     if (seatIdx < 0) {
@@ -9562,6 +9566,98 @@
       if (created) msg += '，並新增 ' + created + ' 欄';
       if (updated) msg += '，更新 ' + updated + ' 格';
       toast(msg);
+    }).catch(function (error) {
+      toast(error && error.message ? error.message : '匯入失敗');
+    });
+  }
+
+  function isReadCardSheet(headers) {
+    return headers.indexOf('班級名稱') >= 0 && headers.indexOf('座號') >= 0 && headers.indexOf('成績') >= 0;
+  }
+
+  function readCardExamTitle(category) {
+    var s = String(category || '').trim();
+    var m = s.match(/第\s*0*(\d+)\s*次\s*(.+)$/);
+    if (m) return '第' + Number(m[1]) + '次' + m[2].trim();
+    return s;
+  }
+
+  function shortList(items, limit) {
+    if (items.length <= limit) return items.join('、');
+    return items.slice(0, limit).join('、') + ' 等 ' + items.length + ' 筆';
+  }
+
+  function importReadCardRows(rows, headers) {
+    var classIdx = headers.indexOf('班級名稱');
+    var seatIdx = headers.indexOf('座號');
+    var scoreIdx = headers.indexOf('成績');
+    var nameIdx = headers.indexOf('學生姓名');
+    var catIdx = headers.indexOf('試卷分類');
+    var paperIdx = headers.indexOf('試卷名稱');
+    var groups = {};
+    var order = [];
+    var title = '';
+    rows.slice(1).forEach(function (row) {
+      var code = String(row[classIdx] || '').trim();
+      var seat = String(row[seatIdx] || '').trim();
+      var cell = parseLeaveOrScore(row[scoreIdx]);
+      if (!code || !seat || cell.empty) return;
+      if (!title) {
+        title = readCardExamTitle(catIdx >= 0 ? row[catIdx] : '') ||
+          String(paperIdx >= 0 ? row[paperIdx] || '' : '').trim();
+      }
+      if (!groups[code]) {
+        groups[code] = [];
+        order.push(code);
+      }
+      groups[code].push({
+        seatNo: seat,
+        name: nameIdx >= 0 ? String(row[nameIdx] || '').trim() : '',
+        score: cell.leave ? 'leave' : cell.score
+      });
+    });
+    if (!order.length) {
+      toast('檔案裡沒有可匯入的成績');
+      return;
+    }
+    var payload = {
+      type: 'exam',
+      title: title || '學科競試',
+      date: App.activeDate || formatDateKey(new Date()),
+      groups: order.map(function (code) { return { classCode: code, rows: groups[code] }; })
+    };
+    api('importReadCardScores', [Object.assign({ dryRun: true }, payload)]).then(function (report) {
+      if (!report.classes.length) {
+        toast('檔案裡的班級（' + order.join('、') + '）對不到網頁上的班級', 7000);
+        return;
+      }
+      var lines = ['要把「' + report.title + '」匯入「段考」嗎？', ''];
+      report.classes.forEach(function (c) { lines.push(c.className + '：' + c.count + ' 人'); });
+      if (report.unmatchedClasses.length) lines.push('', '對不到網頁班級，會略過：' + report.unmatchedClasses.join('、'));
+      if (report.missingSeats.length) lines.push('', '名單裡沒有這個座號，會略過：' + shortList(report.missingSeats, 8));
+      if (report.nameMismatch.length) lines.push('', '座號對得到但姓名不同（仍依座號匯入，請確認）：' + shortList(report.nameMismatch, 8));
+      lines.push('', '各班共用同一個段考欄；同名欄位已存在時，會覆蓋檔案裡這些座號的分數。');
+      if (!window.confirm(lines.join('\n'))) return;
+      var className = teacherTargetClass();
+      clearTimeout(gradeSaveTimer);
+      gradeSaveTimer = null;
+      var flush = App.gradeDirty && Object.keys(App.gradeDirty).length
+        ? api('saveGradebook', [collectGradebookFromTable({ dirtyOnly: true })])
+        : Promise.resolve();
+      return flush.then(function () {
+        return api('importReadCardScores', [payload]);
+      }).then(function (done) {
+        var refresh = className ? api('getGradebook', [className]) : Promise.resolve(null);
+        return refresh.then(function (book) {
+          if (book && teacherTargetClass() === className) {
+            applyGradebook(book);
+            renderGradebook();
+          }
+          toast('已匯入「' + done.title + '」：' + done.classes.map(function (c) {
+            return c.className + ' ' + c.count + ' 人';
+          }).join('、'), 7000);
+        });
+      });
     }).catch(function (error) {
       toast(error && error.message ? error.message : '匯入失敗');
     });

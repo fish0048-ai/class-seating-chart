@@ -1272,6 +1272,19 @@
     return Object.keys(store.classes).sort();
   }
 
+  /** 讀卡檔的班級代碼（01）對網頁班級（801）；只有唯一一班尾碼相符才算。 */
+  function matchReadCardClass_(names, code) {
+    var raw = String(code == null ? '' : code).trim();
+    if (!raw) return '';
+    if (names.indexOf(raw) >= 0) return raw;
+    if (!/^\d+$/.test(raw)) return '';
+    var n = Number(raw);
+    var hits = names.filter(function (cn) {
+      return /^\d{3,}$/.test(cn) && Number(cn.slice(-2)) === n;
+    });
+    return hits.length === 1 ? hits[0] : '';
+  }
+
   function emptyGroups(size) {
     return { size: clampInt(size, 2, 12, 4), assign: {}, scores: {} };
   }
@@ -2312,6 +2325,75 @@
       if (body.homeworks) book.homeworks = replaceHomeworkListIfSafe_(body.homeworks, book.homeworks);
       saveStore(store);
       return gradebookResult_(className, book);
+    },
+    importReadCardScores: function (body) {
+      body = body || {};
+      var type = GRADE_LISTS_[body.type] && body.type !== 'homework' ? body.type : 'exam';
+      var key = GRADE_LISTS_[type].key;
+      var title = String(body.title || '').trim();
+      if (!title) throw new Error('缺少成績欄名稱');
+      var store = loadStore();
+      var names = classNames(store).filter(function (cn) { return cn && cn.indexOf('範例') < 0; });
+      var report = { ok: true, type: type, title: title, classes: [], unmatchedClasses: [], missingSeats: [], nameMismatch: [], written: 0 };
+      var plan = [];
+      (body.groups || []).forEach(function (group) {
+        var cn = matchReadCardClass_(names, group && group.classCode);
+        if (!cn) {
+          report.unmatchedClasses.push(String((group && group.classCode) || ''));
+          return;
+        }
+        var students = (store.classes[cn] && store.classes[cn].students) || [];
+        var entries = [];
+        (group.rows || []).forEach(function (row) {
+          var aliases = seatAliasKeys_(row && row.seatNo);
+          var stu = students.filter(function (s) { return aliases.indexOf(String(s.seatNo)) >= 0; })[0];
+          if (!stu) {
+            report.missingSeats.push(cn + ' ' + String(row && row.seatNo) + ' 號');
+            return;
+          }
+          var fileName = String((row && row.name) || '').replace(/\s+/g, '');
+          var rosterName = String(stu.name || '').replace(/\s+/g, '');
+          if (fileName && rosterName && fileName !== rosterName) report.nameMismatch.push(cn + ' ' + stu.seatNo + ' 號');
+          var score = row.score === 'leave' ? 'leave' : Number(row.score);
+          if (score !== 'leave' && !isFinite(score)) return;
+          entries.push({ seatNo: String(stu.seatNo), score: score });
+        });
+        plan.push({ className: cn, entries: entries });
+        report.classes.push({ className: cn, count: entries.length });
+      });
+      if (body.dryRun) return wrap(report);
+      if (!plan.length) throw new Error('檔案裡的班級對不到網頁上的班級');
+      var date = String(body.date || todayKey_());
+      var max = clampInt(body.max || 100, 1, 200, 100);
+      var sharedId = '';
+      names.forEach(function (cn) {
+        if (sharedId) return;
+        var hit = (ensureGrades_(store, cn)[key] || []).filter(function (col) { return col && String(col.title || '') === title; })[0];
+        if (hit && hit.id) sharedId = String(hit.id);
+      });
+      if (!sharedId) sharedId = 'g' + Date.now() + Math.floor(Math.random() * 1000);
+      function columnFor(cn) {
+        var list = ensureGrades_(store, cn)[key];
+        var col = list.filter(function (c) { return c && String(c.id) === sharedId; })[0] ||
+          list.filter(function (c) { return c && String(c.title || '') === title; })[0];
+        if (!col) {
+          col = { id: sharedId, title: title, date: date, max: max, scores: {} };
+          list.push(col);
+        }
+        if (!col.scores) col.scores = {};
+        return col;
+      }
+      names.forEach(columnFor);
+      plan.forEach(function (item) {
+        var col = columnFor(item.className);
+        item.entries.forEach(function (entry) {
+          seatAliasKeys_(entry.seatNo).forEach(function (k) { delete col.scores[k]; });
+          col.scores[entry.seatNo] = entry.score;
+          report.written += 1;
+        });
+      });
+      saveStore(store);
+      return wrap(report);
     },
     importMockExam: function (pack) {
       var store = loadStore();
