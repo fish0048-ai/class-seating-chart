@@ -61,12 +61,6 @@
       done: false
     },
     appView: 'class',
-    hwAssignmentId: '',
-    hwAssignments: [],
-    hwRows: [],
-    hwPickedSeat: '',
-    hwStudentUrl: '',
-    mockExam: null,
     lessonLog: {}
   };
 
@@ -90,7 +84,6 @@
     groupRankWrap: document.getElementById('groupRankWrap'),
     groupRoster: document.getElementById('groupRoster'),
     labBar: document.getElementById('labBar'),
-    blackboard: document.getElementById('blackboard'),
     boardHint: document.getElementById('boardHint'),
     btnLayoutSeatNo: document.getElementById('btnLayoutSeatNo'),
     btnLayoutGroup: document.getElementById('btnLayoutGroup'),
@@ -144,30 +137,14 @@
     sheetBody: document.getElementById('sheetBody'),
     sheetFoot: document.getElementById('sheetFoot'),
     statsCards: document.getElementById('statsCards'),
-    statsInventory: document.getElementById('statsInventory'),
-    statsWatch: document.getElementById('statsWatch'),
     statsInsights: document.getElementById('statsInsights'),
     statsPlusCards: document.getElementById('statsPlusCards'),
-    statsQuizCards: document.getElementById('statsQuizCards'),
-    statsExamCards: document.getElementById('statsExamCards'),
     statsGroupDeduct: document.getElementById('statsGroupDeduct'),
     personGroupDeduct: document.getElementById('personGroupDeduct'),
-    statsQuizAssess: document.getElementById('statsQuizAssess'),
-    statsExamAssess: document.getElementById('statsExamAssess'),
-    statsAssess: document.getElementById('statsAssess'),
     chartTrend: document.getElementById('chartTrend'),
-    chartAssess: document.getElementById('chartAssess'),
-    chartQuizAssess: document.getElementById('chartQuizAssess'),
-    chartQuizDist: document.getElementById('chartQuizDist'),
-    chartQuizRank: document.getElementById('chartQuizRank'),
-    chartExamAssess: document.getElementById('chartExamAssess'),
-    chartExamDist: document.getElementById('chartExamDist'),
-    chartExamRank: document.getElementById('chartExamRank'),
     chartTerm: document.getElementById('chartTerm'),
     statsBody: document.getElementById('statsBody'),
-    chartDaily: document.getElementById('chartDaily'),
     chartRank: document.getElementById('chartRank'),
-    chartPlusMinus: document.getElementById('chartPlusMinus'),
     chartDist: document.getElementById('chartDist'),
     statsPersonSelect: document.getElementById('statsPersonSelect'),
     personCards: document.getElementById('personCards'),
@@ -179,36 +156,17 @@
     chartPersonHw: document.getElementById('chartPersonHw'),
     chartPersonAssess: document.getElementById('chartPersonAssess'),
     personAssessTable: document.getElementById('personAssessTable'),
-    chartBox: document.getElementById('chartBox'),
-    chartKindAvg: document.getElementById('chartKindAvg'),
-    chartScatterExam: document.getElementById('chartScatterExam'),
-    chartScatterQuiz: document.getElementById('chartScatterQuiz'),
-    chartScatterClass: document.getElementById('chartScatterClass'),
-    chartScatterHw: document.getElementById('chartScatterHw'),
-    chartQuartile: document.getElementById('chartQuartile'),
-    chartGrowth: document.getElementById('chartGrowth'),
-    chartMovers: document.getElementById('chartMovers'),
-    chartHeat: document.getElementById('chartHeat'),
     chartPersonPct: document.getElementById('chartPersonPct'),
     chartPersonBand: document.getElementById('chartPersonBand'),
     chartPersonSeries: document.getElementById('chartPersonSeries'),
     schoolCards: document.getElementById('schoolCards'),
-    schoolWatch: document.getElementById('schoolWatch'),
-    schoolInsights: document.getElementById('schoolInsights'),
     chartSchoolTermAvg: document.getElementById('chartSchoolTermAvg'),
     chartSchoolPass: document.getElementById('chartSchoolPass'),
     chartSchoolClassRaw: document.getElementById('chartSchoolClassRaw'),
-    chartSchoolHw: document.getElementById('chartSchoolHw'),
     chartSchoolQuizAvg: document.getElementById('chartSchoolQuizAvg'),
-    chartSchoolQuizPass: document.getElementById('chartSchoolQuizPass'),
     chartSchoolExamAvg: document.getElementById('chartSchoolExamAvg'),
-    chartSchoolExamPass: document.getElementById('chartSchoolExamPass'),
-    chartSchoolTermDist: document.getElementById('chartSchoolTermDist'),
-    chartSchoolKind: document.getElementById('chartSchoolKind'),
-    chartSchoolTop: document.getElementById('chartSchoolTop'),
     schoolClassBody: document.getElementById('schoolClassBody'),
     schoolTopBody: document.getElementById('schoolTopBody'),
-    schoolNeedBody: document.getElementById('schoolNeedBody'),
     timetableSheets: document.getElementById('timetableSheets'),
     timetableStatus: document.getElementById('timetableStatus'),
     timetableClock: document.getElementById('timetableClock'),
@@ -231,12 +189,6 @@
     ruleQuizW: document.getElementById('ruleQuizW'),
     ruleExamW: document.getElementById('ruleExamW'),
     ruleHolidays: document.getElementById('ruleHolidays'),
-    authModal: document.getElementById('authModal'),
-    authTitle: document.getElementById('authTitle'),
-    authHint: document.getElementById('authHint'),
-    authPassword: document.getElementById('authPassword'),
-    authPassword2: document.getElementById('authPassword2'),
-    authPassword2Wrap: document.getElementById('authPassword2Wrap')
   };
 
   document.getElementById('btnPlus').addEventListener('click', function () {
@@ -487,7 +439,6 @@
       setGradesSub(btn.getAttribute('data-grades-sub'));
     });
   });
-  bindHomework();
   if (els.timetableSheets) {
     els.timetableSheets.addEventListener('click', function (event) {
       var btn = event.target.closest('[data-tt-sheet]');
@@ -740,25 +691,6 @@
   }
   var importRosterBtn = document.getElementById('btnImportRoster');
   if (importRosterBtn) importRosterBtn.addEventListener('click', importPendingRoster);
-  var pickMock = document.getElementById('btnPickMockExam');
-  var mockFile = document.getElementById('mockExamFile');
-  if (pickMock && mockFile) {
-    pickMock.addEventListener('click', function () {
-      requireTeacher(function () { mockFile.click(); });
-    });
-    mockFile.addEventListener('change', function () {
-      if (mockFile.files && mockFile.files[0]) {
-        importMockExamFile(mockFile.files[0]);
-        mockFile.value = '';
-      }
-    });
-  }
-  var clearMock = document.getElementById('btnClearMockExam');
-  if (clearMock) {
-    clearMock.addEventListener('click', function () {
-      requireTeacher(clearMockExamTags);
-    });
-  }
   var journalSave = document.getElementById('btnJournalSave');
   if (journalSave) {
     journalSave.addEventListener('click', function () {
@@ -879,32 +811,6 @@
       renderDelta();
     });
   });
-
-  applyTeacherUi();
-  restoreLayoutMode();
-  initAnswerTimer();
-  if (window.GoogleAuth) {
-    GoogleAuth.start({
-      onSignedIn: function (account, alreadyBooted) {
-        var reconnecting = !!(readResume() && readResume().retryConnect);
-        if (!account.teacher) {
-          applyTeacherUi({ keepSettings: reconnecting || App.appView === 'teacher' });
-          showCloudRelogin(true);
-          toast('這個帳號沒有教師權限：' + (account.email || '') + '。請改選 ' + teacherEmailHint(), 8000);
-          return;
-        }
-        applyTeacherUi();
-        if (resumeAfterSignIn(account, alreadyBooted)) return;
-        if (alreadyBooted) {
-          renderAll();
-          return;
-        }
-        bootstrap();
-      }
-    });
-  } else {
-    bootstrap();
-  }
 
   function canEdit() {
     return !!(window.GoogleAuth && GoogleAuth.isTeacher());
@@ -1241,12 +1147,6 @@
     if (window.GoogleAuth) GoogleAuth.signOut();
   }
 
-  function finishTeacherNext() {
-    var next = App.teacherNext;
-    App.teacherNext = null;
-    if (typeof next === 'function') next();
-  }
-
   function showLoadingBoard(text, canRetry) {
     if (!els.board || App.classroom) return;
     els.board.innerHTML = '<div class="empty-state"><div>' + escapeHtml(text) + '</div>' +
@@ -1309,7 +1209,10 @@
       if (!settle()) return;
       applyPayload(data, true);
       fillCloudSettings();
-      if (!cloudConnected()) {
+      var merged = typeof SeatDB !== 'undefined' && SeatDB.takeHoldMerged ? SeatDB.takeHoldMerged() : 0;
+      if (merged) {
+        toast('雲端已有別台的新資料，已把這台還沒同步的 ' + merged + ' 筆加扣分合併進去。確認後請按「立即同步」', 9000);
+      } else if (!cloudConnected()) {
         toast('資料還沒上雲端。請切到教師模式 → 設定，連上 Google 試算表，平板和筆電才能共用');
       } else if (App.classroom && !App.classroom.students.length) {
         toast('這個班還沒有學生，請切到「教師模式」輸入名單');
@@ -1334,7 +1237,27 @@
   }
 
   setInterval(syncScoreDay, 30000);
-  setInterval(pullCloudQuiet, 25000);
+  var PULL_BASE_MS = 25000;
+  var PULL_MAX_MS = 120000;
+  var pullDelay = PULL_BASE_MS;
+  var pullInFlight = false;
+  var pullTimer = null;
+
+  function schedulePull(ms) {
+    clearTimeout(pullTimer);
+    pullTimer = setTimeout(function () {
+      pullCloudQuiet();
+      schedulePull(pullDelay);
+    }, ms);
+  }
+  schedulePull(PULL_BASE_MS);
+
+  window.addEventListener('beforeunload', function (event) {
+    var info = typeof SeatDB !== 'undefined' && SeatDB.cloudStatus ? SeatDB.cloudStatus() : {};
+    if (!info.scoreHold && !info.saving) return;
+    event.preventDefault();
+    event.returnValue = '';
+  });
   document.addEventListener('visibilitychange', function () {
     if (document.hidden) {
       if (typeof SeatDB !== 'undefined' && SeatDB.flushCloud) {
@@ -1389,8 +1312,12 @@
     if (gradeSaveTimer || ruleSaveTimer) return;
     if (App.appView === 'teacher' && (App.teacherTab === 'settings' ||
       (App.teacherTab === 'grades' && App.gradesSub === 'summary'))) return;
+    if (pullInFlight) return;
     var className = App.classroom && App.classroom.className;
+    pullInFlight = true;
     SeatDB.pullIfNewer(className).then(function (data) {
+      pullInFlight = false;
+      pullDelay = PULL_BASE_MS;
       fillCloudSettings();
       renderMeta();
       if (!data || !data.changed) return;
@@ -1398,6 +1325,8 @@
       if (App.appView === 'teacher') refreshTeacherExtras();
       toast('已從雲端同步（另一台裝置剛更新）');
     }).catch(function () {
+      pullInFlight = false;
+      pullDelay = Math.min(PULL_MAX_MS, pullDelay * 2);
       fillCloudSettings();
       renderMeta();
     });
@@ -1607,25 +1536,6 @@
     return (App.statsBySeat && (App.statsBySeat[key] || App.statsBySeat[seatLookupKey(key)])) || null;
   }
 
-  function totalActivityScore(student) {
-    var row = statsRowFor(student);
-    if (row) {
-      if (row.grand != null && isFinite(Number(row.grand))) return Number(row.grand);
-      return (Number(row.settledTotal) || 0) + (Number(student.score) || 0);
-    }
-    var live = Number(student && student.score) || 0;
-    var seat = seatLookupKey(student && student.seatNo);
-    var past = 0;
-    (App.dailyDays || []).forEach(function (day) {
-      if (!day) return;
-      if (App.activeDate && day.date === App.activeDate) return;
-      (day.students || []).forEach(function (s) {
-        if (seatLookupKey(s.seatNo) === seat) past += Number(s.score) || 0;
-      });
-    });
-    return past + live;
-  }
-
   function buildRankIndex(list, scoreFn) {
     var ranked = (list || []).slice().sort(function (a, b) {
       var diff = Number(scoreFn(b)) - Number(scoreFn(a));
@@ -1705,7 +1615,6 @@
       App.plusHits = App.plusHits || {};
       App.plusHits[data.classroom.className] = Object.assign({}, data.plusHits);
     }
-    if (data.mockExam) App.mockExam = data.mockExam;
     if (data.lessonLog) {
       App.lessonLog = mergeLessonLogClient_(App.lessonLog, data.lessonLog);
     }
@@ -1852,7 +1761,7 @@
   }
 
   function syncScoreDay() {
-    if (!App.classroom) return;
+    if (!App.classroom || document.hidden || App.busy) return;
     api('loadClassroom', [App.classroom.className]).then(function (data) {
       if (!data || !data.rolled) {
         if (data && data.activeDate) noteScoreRoll(data);
@@ -2058,344 +1967,6 @@
       var saved = localStorage.getItem('class-layout-mode');
       if (saved === 'group' || saved === 'seatNo') App.layoutMode = saved;
     } catch (err) {}
-  }
-
-  function headerCellText(value) {
-    return String(value == null ? '' : value).replace(/\s+/g, '');
-  }
-
-  function normExamClass(value) {
-    var t = String(value || '').replace(/\s/g, '');
-    var m = t.match(/(\d{3,4})/);
-    return m ? m[1] : t;
-  }
-
-  function normExamSeat(value) {
-    var n = String(value || '').replace(/\D/g, '');
-    if (!n) return '';
-    return String(parseInt(n, 10));
-  }
-
-  function parseAbilityLevel(raw) {
-    var t = String(raw == null ? '' : raw).replace(/\s+/g, '');
-    if (!t || t === '-' || t === '—') return { mark: '', band: '', raw: '' };
-    var mark = '';
-    if (/A\+\+/.test(t)) mark = 'A++';
-    else if (/A\+/.test(t)) mark = 'A+';
-    else if (/A/.test(t)) mark = 'A';
-    else if (/B\+\+/.test(t)) mark = 'B++';
-    else if (/B\+/.test(t)) mark = 'B+';
-    else if (/B/.test(t)) mark = 'B';
-    else if (/C/.test(t)) mark = 'C';
-    var band = /精熟/.test(t) || /^A/.test(mark) ? '精熟'
-      : (/待加強/.test(t) || mark === 'C') ? '待加強'
-      : (/基礎/.test(t) || /^B/.test(mark)) ? '基礎'
-      : '';
-    return { mark: mark, band: band, raw: t };
-  }
-
-  function levelTone(level) {
-    var mark = level && level.mark ? level.mark : '';
-    if (/^A/.test(mark) || (level && level.band === '精熟')) return 'a';
-    if (mark === 'C' || (level && level.band === '待加強')) return 'c';
-    if (/^B/.test(mark) || (level && level.band === '基礎')) return 'b';
-    return '';
-  }
-
-  function examRowFor(className, seatNo) {
-    var pack = App.mockExam;
-    if (!pack || !pack.byClass) return null;
-    var cn = normExamClass(className);
-    var bucket = pack.byClass[cn] || pack.byClass[className];
-    if (!bucket) return null;
-    return bucket[normExamSeat(seatNo)] || null;
-  }
-
-  function examLevelChip(row, key) {
-    var lv = row && row.levels && row.levels[key];
-    if (!lv || !lv.mark) return '—';
-    return '<span class="exam-chip tone-' + levelTone(lv) + '">' + escapeHtml(lv.mark) + '</span>';
-  }
-
-  function hasMockExam() {
-    var pack = App.mockExam;
-    return !!(pack && pack.byClass && Object.keys(pack.byClass).length);
-  }
-
-  function mockExamCount() {
-    var pack = App.mockExam;
-    var n = 0;
-    if (!pack || !pack.byClass) return 0;
-    Object.keys(pack.byClass).forEach(function (cn) {
-      n += Object.keys(pack.byClass[cn] || {}).length;
-    });
-    return n;
-  }
-
-  function fillMockExamMeta() {
-    var line = document.getElementById('mockExamMeta');
-    if (!line) return;
-    if (!hasMockExam()) {
-      line.textContent = '還沒有匯入模擬考。請選學力診斷的「學校能力等級成績統計表」。';
-      return;
-    }
-    var title = (App.mockExam.meta && (App.mockExam.meta.code || App.mockExam.meta.title)) || '模擬考';
-    line.textContent = '已匯入 ' + title + '，共 ' + mockExamCount() + ' 人。請到教師模式「模擬考」分頁查看。';
-  }
-
-  function collectExamTableRows() {
-    var filter = els.dbClassFilter ? els.dbClassFilter.value : '__all__';
-    var list = [];
-    var seen = {};
-    (App.dbRows || []).forEach(function (s) {
-      if (filter !== '__all__' && String(s.className) !== String(filter)) return;
-      var key = normExamClass(s.className) + ':' + normExamSeat(s.seatNo);
-      if (seen[key]) return;
-      seen[key] = true;
-      list.push({
-        className: s.className,
-        seatNo: s.seatNo,
-        name: s.name,
-        exam: examRowFor(s.className, s.seatNo)
-      });
-    });
-    var pack = App.mockExam;
-    if (pack && pack.byClass) {
-      Object.keys(pack.byClass).forEach(function (cn) {
-        if (filter !== '__all__' && normExamClass(filter) !== cn && String(filter) !== cn) return;
-        Object.keys(pack.byClass[cn] || {}).forEach(function (seat) {
-          var key = cn + ':' + seat;
-          if (seen[key]) return;
-          seen[key] = true;
-          var row = pack.byClass[cn][seat] || {};
-          list.push({
-            className: row.className || cn,
-            seatNo: row.seatNo || seat,
-            name: row.name || '',
-            exam: row
-          });
-        });
-      });
-    }
-    list.sort(function (a, b) {
-      var ra = parseInt(String((a.exam && a.exam.schoolRank) || '').replace(/\D/g, ''), 10);
-      var rb = parseInt(String((b.exam && b.exam.schoolRank) || '').replace(/\D/g, ''), 10);
-      if (!ra) ra = 9999;
-      if (!rb) rb = 9999;
-      if (ra !== rb) return ra - rb;
-      if (String(a.className) !== String(b.className)) {
-        return String(a.className).localeCompare(String(b.className), 'zh-Hant');
-      }
-      return (parseInt(normExamSeat(a.seatNo), 10) || 0) - (parseInt(normExamSeat(b.seatNo), 10) || 0);
-    });
-    return list;
-  }
-
-  function renderMockExamTable() {
-    var body = document.getElementById('examBody');
-    var hint = document.getElementById('examTabHint');
-    if (!body) return;
-    if (!hasMockExam()) {
-      body.innerHTML = '<tr><td colspan="12">還沒有匯入模擬考。請到「設定與上傳」選擇學力診斷統計表。</td></tr>';
-      if (hint) hint.textContent = '這裡才看得到模擬考能力等級。上課與實驗室座位卡不會標，避免學生看見校排。';
-      return;
-    }
-    var rows = collectExamTableRows();
-    var title = (App.mockExam.meta && (App.mockExam.meta.code || App.mockExam.meta.title)) || '模擬考';
-    if (hint) {
-      hint.textContent = title + '，共 ' + mockExamCount() + ' 人。上方可改班級。預設依校排。上課座位卡不會顯示這些標註。';
-    }
-    if (!rows.length) {
-      body.innerHTML = '<tr><td colspan="12">這個班沒有對上的模擬考資料。</td></tr>';
-      return;
-    }
-    body.innerHTML = rows.map(function (item) {
-      var ex = item.exam;
-      return '<tr>' +
-        '<td>' + escapeHtml(item.className) + '</td>' +
-        '<td>' + escapeHtml(item.seatNo) + '</td>' +
-        '<td>' + escapeHtml(item.name) + '</td>' +
-        '<td>' + examLevelChip(ex, '國') + '</td>' +
-        '<td>' + examLevelChip(ex, '英') + '</td>' +
-        '<td>' + examLevelChip(ex, '數') + '</td>' +
-        '<td>' + examLevelChip(ex, '社') + '</td>' +
-        '<td>' + examLevelChip(ex, '自') + '</td>' +
-        '<td>' + (ex && ex.writing ? escapeHtml(ex.writing) : '—') + '</td>' +
-        '<td>' + (ex && ex.combo ? escapeHtml(ex.combo) : '—') + '</td>' +
-        '<td>' + (ex && ex.classRank ? escapeHtml(ex.classRank) : '—') + '</td>' +
-        '<td>' + (ex && ex.schoolRank ? escapeHtml(ex.schoolRank) : '—') + '</td>' +
-        '</tr>';
-    }).join('');
-  }
-
-  function findHeaderCol(rows, start, end, test) {
-    for (var r = start; r <= end && r < rows.length; r++) {
-      var row = rows[r] || [];
-      for (var c = 0; c < row.length; c++) {
-        if (test(headerCellText(row[c]), r, c)) return { row: r, col: c };
-      }
-    }
-    return null;
-  }
-
-  function parseAbilityWorkbook(X, workbook) {
-    var sheet = workbook.Sheets[workbook.SheetNames[0]];
-    if (!sheet) throw new Error('Excel 沒有工作表');
-    var rows = X.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '' });
-    var classHit = findHeaderCol(rows, 0, 10, function (t) { return t === '班級'; });
-    var seatHit = findHeaderCol(rows, 0, 10, function (t) { return t === '座號'; });
-    var nameHit = findHeaderCol(rows, 0, 10, function (t) { return t === '姓名'; });
-    if (!classHit || !seatHit || !nameHit) {
-      throw new Error('找不到班級、座號、姓名欄，請用學校能力等級成績統計表');
-    }
-    var head = Math.min(classHit.row, seatHit.row, nameHit.row);
-    var comboHit = findHeaderCol(rows, head, head + 3, function (t) {
-      return t.indexOf('五科') >= 0 && t.indexOf('標示') >= 0;
-    });
-    var writeHit = findHeaderCol(rows, head, head + 3, function (t) { return t.indexOf('寫作') >= 0; });
-    var classRankHit = findHeaderCol(rows, head, head + 3, function (t) { return t === '班排名'; });
-    var schoolRankHit = findHeaderCol(rows, head, head + 3, function (t) { return t === '校排名'; });
-    var subjects = [
-      { id: '國', keys: ['國文'] },
-      { id: '英', keys: ['英語', '英文'] },
-      { id: '數', keys: ['數學'] },
-      { id: '社', keys: ['社會'] },
-      { id: '自', keys: ['自然'] }
-    ];
-    var starts = [];
-    subjects.forEach(function (spec) {
-      var hit = findHeaderCol(rows, head, head + 2, function (t) {
-        return spec.keys.some(function (k) { return t.indexOf(k) === 0 || t === k; });
-      });
-      if (hit) starts.push({ id: spec.id, col: hit.col });
-    });
-    starts.sort(function (a, b) { return a.col - b.col; });
-    var levelCols = {};
-    starts.forEach(function (item, i) {
-      var end = i + 1 < starts.length ? starts[i + 1].col : (writeHit ? writeHit.col : (rows[head] || []).length);
-      var last = -1;
-      for (var r = head; r <= head + 3 && r < rows.length; r++) {
-        var row = rows[r] || [];
-        for (var c = item.col; c < end; c++) {
-          var t = headerCellText(row[c]);
-          if (t.indexOf('能力') >= 0 || t === '能力等級') last = c;
-        }
-      }
-      if (last >= 0) levelCols[item.id] = last;
-    });
-    var writeCol = -1;
-    if (writeHit) {
-      var wEnd = classRankHit ? classRankHit.col : writeHit.col + 3;
-      for (var wr = writeHit.row; wr <= writeHit.row + 3 && wr < rows.length; wr++) {
-        var wrow = rows[wr] || [];
-        for (var wc = writeHit.col; wc < wEnd; wc++) {
-          if (headerCellText(wrow[wc]).indexOf('級分') >= 0) writeCol = wc;
-        }
-      }
-      if (writeCol < 0) writeCol = writeHit.col;
-    }
-    var byClass = {};
-    var count = 0;
-    for (var i = head + 1; i < rows.length; i++) {
-      var row = rows[i] || [];
-      var className = normExamClass(row[classHit.col]);
-      var seatNo = String(row[seatHit.col] || '').trim();
-      var name = String(row[nameHit.col] || '').trim();
-      if (!className || className === '班級' || !/^\d{3,4}$/.test(className)) continue;
-      if (!seatNo || !name) continue;
-      var key = normExamSeat(seatNo);
-      if (!key) continue;
-      var levels = {};
-      Object.keys(levelCols).forEach(function (id) {
-        levels[id] = parseAbilityLevel(row[levelCols[id]]);
-      });
-      if (!byClass[className]) byClass[className] = {};
-      byClass[className][key] = {
-        className: className,
-        seatNo: seatNo,
-        name: name,
-        combo: comboHit ? String(row[comboHit.col] || '').trim() : '',
-        writing: writeCol >= 0 ? String(row[writeCol] || '').trim() : '',
-        classRank: classRankHit ? String(row[classRankHit.col] || '').trim() : '',
-        schoolRank: schoolRankHit ? String(row[schoolRankHit.col] || '').trim() : '',
-        levels: levels
-      };
-      count += 1;
-    }
-    if (!count) throw new Error('表裡沒有讀到學生列');
-    var title = headerCellText((rows[0] || []).join(' '));
-    var code = '';
-    var joined = rows.slice(0, 4).map(function (r) { return (r || []).join(' '); }).join(' ');
-    var codeHit = joined.match(/RK\d+[A-Z]?/i);
-    if (codeHit) code = codeHit[0].toUpperCase();
-    return {
-      meta: { title: title || '學校能力等級成績統計表', code: code },
-      byClass: byClass,
-      count: count
-    };
-  }
-
-  function importMockExamFile(file) {
-    if (!file) return;
-    withXlsx(function (X) {
-      var reader = new FileReader();
-      reader.onload = function (event) {
-        try {
-          var wb = X.read(event.target.result, { type: 'array' });
-          var pack = parseAbilityWorkbook(X, wb);
-          api('importMockExam', [pack]).then(function (data) {
-            App.mockExam = data.mockExam || pack;
-            fillMockExamMeta();
-            renderMockExamTable();
-            showTeacherView();
-            switchTeacherTab('grades');
-            setGradesSub('summary');
-            toast('已匯入模擬考 ' + pack.count + ' 人（模擬考分頁已移除，資料仍保留在雲端）', 5000);
-          }).catch(function (err) {
-            toast(err && err.message ? err.message : '匯入失敗');
-          });
-        } catch (err) {
-          toast(err && err.message ? err.message : '這個 Excel 不是能力等級統計表');
-        }
-      };
-      reader.readAsArrayBuffer(file);
-    });
-  }
-
-  function clearMockExamTags() {
-    if (!hasMockExam()) {
-      toast('目前沒有模擬考標註');
-      return;
-    }
-    if (!window.confirm('清除模擬考能力等級標註？名單與加扣不會動。')) return;
-    api('clearMockExam', []).then(function (data) {
-      App.mockExam = data.mockExam || { meta: {}, byClass: {} };
-      fillMockExamMeta();
-      renderMockExamTable();
-      toast('已清除模擬考標註');
-    }).catch(function (err) {
-      toast(err && err.message ? err.message : '清除失敗');
-    });
-  }
-
-  function seatCell(row, col) {
-    const student = studentAt(row, col);
-    const selected = student && student.seatNo === App.selectedSeatNo ? ' selected' : '';
-    const helper = student && App.peerHelperSeatNo && String(student.seatNo) === String(App.peerHelperSeatNo) ? ' peer-helper' : '';
-    const gid = student ? studentGroupId(student.seatNo) : 0;
-    const groupCls = gid ? ' has-group' : '';
-    const pickedCls = (App.groupAssign && gid === App.groupPick) ? ' group-picked' : '';
-    const groupStyle = gid ? ' style="--group-color:' + groupColor(gid) + '"' : '';
-    const groupBadge = gid ? '<span class="seat-group">第' + gid + '組</span>' : '';
-    const card = student ? (
-      '<article class="seat-card' + selected + helper + groupCls + pickedCls + '" data-seat="' + escapeHtml(student.seatNo) + '"' + groupStyle + '>' +
-        groupBadge +
-        '<span class="seat-no">' + escapeHtml(student.seatNo) + '</span>' +
-        '<span class="seat-name">' + escapeHtml(student.name) + '</span>' +
-        seatScoreBlockHtml(student) +
-      '</article>'
-    ) : '';
-    return '<div class="seat" data-row="' + row + '" data-col="' + col + '">' + card + '</div>';
   }
 
   function bindSeatEvents() {
@@ -2635,7 +2206,6 @@
 
   function renderClassChrome() {
     if (els.classModeTitle) els.classModeTitle.textContent = isLabView() ? '實驗室模式' : '上課模式';
-    if (els.blackboard) els.blackboard.textContent = isLabView() ? '講台／實驗桌' : '講台／黑板';
     if (els.groupRankTitle) els.groupRankTitle.textContent = isLabView() ? '實驗小組' : '小組分數';
     if (els.btnLayoutSeatNo) els.btnLayoutSeatNo.hidden = !!isLabView();
     if (els.btnLayoutGroup) els.btnLayoutGroup.hidden = !!isLabView();
@@ -3365,21 +2935,20 @@
     });
     var roster = document.getElementById('tabRoster');
     var timetable = document.getElementById('tabTimetable');
-    var homework = document.getElementById('tabHomework');
-    var exam = document.getElementById('tabExam');
     var journal = document.getElementById('tabJournal');
     var missing = document.getElementById('tabMissing');
     var settings = document.getElementById('tabSettings');
     var gradesSubnav = document.getElementById('gradesSubnav');
     if (roster) roster.hidden = App.teacherTab !== 'roster';
     if (timetable) timetable.hidden = App.teacherTab !== 'timetable';
-    if (exam) exam.hidden = true;
     if (journal) journal.hidden = App.teacherTab !== 'journal';
     if (missing) missing.hidden = App.teacherTab !== 'missing';
-    if (homework) homework.hidden = true;
     if (settings) settings.hidden = App.teacherTab !== 'settings';
     if (gradesSubnav) gradesSubnav.hidden = App.teacherTab !== 'grades';
     setGradesSub(App.gradesSub || 'summary', true);
+    if (changed && App.teacherTab === 'grades' && App.gradesSub === 'stats' && App.sheetModel) {
+      renderStatsDashboard(App.sheetModel);
+    }
     document.querySelectorAll('.teacher-tab-only').forEach(function (btn) {
       var forTab = btn.getAttribute('data-for-tab');
       var action = btn.getAttribute('data-grades-action');
@@ -4126,429 +3695,6 @@
       renderDailyPanel(dailyData);
       renderDatabaseTable(App.dbRows || []);
     }).catch(function () {});
-  }
-
-  function hwApi(action, body) {
-    if (!window.CloudStore || !CloudStore.request) {
-      return Promise.reject(new Error('尚未連上雲端資料庫'));
-    }
-    return CloudStore.request(action, body || {});
-  }
-
-  function hwEsc(s) {
-    return String(s == null ? '' : s).replace(/[&<>"']/g, function (ch) {
-      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch];
-    });
-  }
-
-  function hwPad(n) {
-    return (n < 10 ? '0' : '') + n;
-  }
-
-  function toDatetimeLocal(iso) {
-    if (!iso) return '';
-    var d = new Date(iso);
-    if (isNaN(d.getTime())) return '';
-    return d.getFullYear() + '-' + hwPad(d.getMonth() + 1) + '-' + hwPad(d.getDate()) +
-      'T' + hwPad(d.getHours()) + ':' + hwPad(d.getMinutes());
-  }
-
-  function fromDatetimeLocal(value) {
-    var raw = String(value || '').trim();
-    var m = raw.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
-    if (m) {
-      var parsed = new Date(
-        Number(m[1]), Number(m[2]) - 1, Number(m[3]),
-        Number(m[4]), Number(m[5]), 0, 0
-      );
-      return isNaN(parsed.getTime()) ? '' : parsed.toISOString();
-    }
-    if (!raw) return '';
-    var d = new Date(raw);
-    return isNaN(d.getTime()) ? '' : d.toISOString();
-  }
-
-  function hwFriendlyError(err) {
-    var msg = err && err.message ? err.message : String(err || '操作失敗');
-    if (msg.indexOf('未知的操作') >= 0) {
-      return '後端還沒更新作業檢核。請把最新 Code.gs 與 HwStudent.html 貼進 Apps Script，再「部署 → 管理部署 → 編輯」同一個 /exec（不要另外產生新網址）。';
-    }
-    return msg;
-  }
-
-  function homeworkClassName() {
-    var typed = document.getElementById('hwClassName');
-    var value = typed ? String(typed.value || '').trim() : '';
-    return value || teacherTargetClass();
-  }
-
-  function fillHomeworkClass() {
-    var input = document.getElementById('hwClassName');
-    if (!input) return;
-    if (!input.value) input.value = teacherTargetClass();
-  }
-
-  function defaultHwTimes() {
-    var start = document.getElementById('hwStartAt');
-    var due = document.getElementById('hwDueAt');
-    if (start && !start.value) start.value = toDatetimeLocal(new Date().toISOString());
-    if (due && !due.value) {
-      var d = new Date();
-      d.setDate(d.getDate() + 1);
-      d.setHours(23, 59, 0, 0);
-      due.value = toDatetimeLocal(d.toISOString());
-    }
-  }
-
-  function copyText(text) {
-    text = String(text || '');
-    if (!text) return Promise.reject(new Error('沒有可複製的內容'));
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      return navigator.clipboard.writeText(text);
-    }
-    return new Promise(function (resolve, reject) {
-      var area = document.createElement('textarea');
-      area.value = text;
-      document.body.appendChild(area);
-      area.select();
-      try {
-        document.execCommand('copy');
-        resolve();
-      } catch (err) {
-        reject(err);
-      }
-      document.body.removeChild(area);
-    });
-  }
-
-  function downloadText(filename, text) {
-    var blob = new Blob([text], { type: 'text/csv;charset=utf-8' });
-    var url = URL.createObjectURL(blob);
-    var a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    setTimeout(function () { URL.revokeObjectURL(url); }, 1000);
-  }
-
-  function currentHwAssignment() {
-    var id = App.hwAssignmentId;
-    var list = App.hwAssignments || [];
-    for (var i = 0; i < list.length; i++) {
-      if (list[i].assignmentId === id) return list[i];
-    }
-    return null;
-  }
-
-  function loadHomeworkTab() {
-    defaultHwTimes();
-    fillHomeworkClass();
-    var className = homeworkClassName();
-    var note = document.getElementById('hwApiNote');
-    if (!className) {
-      if (note) note.textContent = '請先填班級，或在上方選一個班（不要選「全部班級」）。';
-      return;
-    }
-    hwApi('hwListAssignments', { className: className }).then(function (data) {
-      App.hwAssignments = (data && data.assignments) || [];
-      if (note) {
-        note.textContent = (data && data.classroomApiEnabled)
-          ? 'Classroom 成績回寫：開啟。'
-          : 'Classroom 成績回寫：關閉（第一版）。學生連結請手動貼到 Classroom。';
-      }
-      var sel = document.getElementById('hwAssignmentSelect');
-      if (sel) {
-        var keep = App.hwAssignmentId;
-        sel.innerHTML = App.hwAssignments.length
-          ? App.hwAssignments.map(function (a) {
-            return '<option value="' + hwEsc(a.assignmentId) + '">' + hwEsc(a.assignmentId + '　' + a.title) + '</option>';
-          }).join('')
-          : '<option value="">尚未建立作業</option>';
-        if (keep && App.hwAssignments.some(function (a) { return a.assignmentId === keep; })) {
-          sel.value = keep;
-        }
-        App.hwAssignmentId = sel.value || '';
-      }
-      return App.hwAssignmentId ? loadHwDashboard() : Promise.resolve();
-    }).catch(function (err) {
-      toast(hwFriendlyError(err));
-    });
-  }
-
-  function loadHwDashboard() {
-    var id = App.hwAssignmentId || (document.getElementById('hwAssignmentSelect') || {}).value;
-    App.hwAssignmentId = id || '';
-    var asg = currentHwAssignment();
-    App.hwStudentUrl = (asg && asg.studentUrl) || '';
-    var urlLine = document.getElementById('hwStudentUrl');
-    if (urlLine) urlLine.textContent = App.hwStudentUrl ? ('學生連結：' + App.hwStudentUrl) : '建立作業後會出現學生連結。';
-    if (!id) {
-      App.hwRows = [];
-      renderHwDashboard();
-      return Promise.resolve();
-    }
-    return hwApi('hwDashboard', { assignmentId: id }).then(function (data) {
-      if (data.assignment && data.assignment.studentUrl) App.hwStudentUrl = data.assignment.studentUrl;
-      if (urlLine && App.hwStudentUrl) urlLine.textContent = '學生連結：' + App.hwStudentUrl;
-      App.hwRows = data.rows || [];
-      renderHwDashboard();
-    });
-  }
-
-  function renderHwDashboard() {
-    var body = document.getElementById('hwDashBody');
-    var paste = document.getElementById('hwPasteScores');
-    if (!body) return;
-    var rows = App.hwRows || [];
-    if (!rows.length) {
-      body.innerHTML = App.hwAssignmentId
-        ? '<tr><td colspan="10">作業已建立，但這個班還沒有作業名單。請按「從座位表匯入本班名單」。</td></tr>'
-        : '<tr><td colspan="10">還沒有作業。填名稱後按「建立作業」（會一併匯入本班名單）。</td></tr>';
-      if (paste) paste.value = '';
-      return;
-    }
-    body.innerHTML = rows.map(function (row) {
-      var done = row.done ? '是' : '否';
-      var submitted = row.submittedAt ? new Date(row.submittedAt).toLocaleString('zh-TW', { hour12: false }) : '—';
-      var on = App.hwPickedSeat === row.seatNo ? ' class="is-picked"' : '';
-      return '<tr data-hw-seat="' + hwEsc(row.seatNo) + '"' + on + '>' +
-        '<td>' + hwEsc(row.seatNo) + '</td>' +
-        '<td>' + hwEsc(row.name) + '</td>' +
-        '<td>' + done + '</td>' +
-        '<td>' + hwEsc(submitted) + '</td>' +
-        '<td>' + (row.wrongCount || 0) + '</td>' +
-        '<td>' + hwEsc(row.wrongNos || '—') + '</td>' +
-        '<td>' + hwEsc(row.spotNos || '—') + '</td>' +
-        '<td>' + (row.lateWorkdays === '' || row.lateWorkdays == null ? '—' : row.lateWorkdays) + '</td>' +
-        '<td>' + (row.penalty === '' || row.penalty == null ? '—' : row.penalty) + '</td>' +
-        '<td>' + (row.finalScore === '' || row.finalScore == null ? '—' : row.finalScore) + '</td>' +
-        '</tr>';
-    }).join('');
-    if (paste) {
-      paste.value = rows.map(function (row) {
-        var score = row.finalScore === '' || row.finalScore == null ? '' : row.finalScore;
-        return row.seatNo + ' | ' + row.name + ' | ' + score;
-      }).join('\n');
-    }
-    if (App.hwPickedSeat) showHwPicked();
-  }
-
-  function pickedHwRow() {
-    var seat = App.hwPickedSeat;
-    var rows = App.hwRows || [];
-    for (var i = 0; i < rows.length; i++) {
-      if (String(rows[i].seatNo) === String(seat)) return rows[i];
-    }
-    return null;
-  }
-
-  function showHwPicked() {
-    var box = document.getElementById('hwStudentActions');
-    var label = document.getElementById('hwPickedLabel');
-    var row = pickedHwRow();
-    if (!box) return;
-    if (!row) {
-      box.hidden = true;
-      return;
-    }
-    box.hidden = false;
-    if (label) label.textContent = '座號 ' + row.seatNo + '　' + row.name;
-    var adj = document.getElementById('hwAdj');
-    var reason = document.getElementById('hwAdjReason');
-    if (adj) adj.value = row.adjustment || 0;
-    if (reason) reason.value = row.adjustmentReason || '';
-  }
-
-  function bindHomework() {
-    var createBtn = document.getElementById('btnHwCreate');
-    if (createBtn) createBtn.addEventListener('click', function () {
-      var className = homeworkClassName();
-      var title = String((document.getElementById('hwTitle') || {}).value || '').trim();
-      var dueAt = fromDatetimeLocal((document.getElementById('hwDueAt') || {}).value);
-      if (!className) {
-        toast('請先填班級，不要選「全部班級」');
-        return;
-      }
-      if (!title) {
-        toast('請先填作業名稱');
-        return;
-      }
-      if (!dueAt) {
-        toast('請填截止時間');
-        return;
-      }
-      createBtn.disabled = true;
-      hwApi('hwCreateAssignment', {
-        className: className,
-        title: title,
-        questionCount: (document.getElementById('hwQuestionCount') || {}).value,
-        spotCount: (document.getElementById('hwSpotCount') || {}).value,
-        startAt: fromDatetimeLocal((document.getElementById('hwStartAt') || {}).value),
-        dueAt: dueAt,
-        maxScore: (document.getElementById('hwMaxScore') || {}).value,
-        latePenalty: (document.getElementById('hwLatePenalty') || {}).value,
-        minScore: 0
-      }).then(function (data) {
-        App.hwAssignmentId = data.assignment && data.assignment.assignmentId;
-        App.hwStudentUrl = data.studentUrl || (data.assignment && data.assignment.studentUrl) || '';
-        var imported = Number(data.imported) || 0;
-        toast('已建立 ' + App.hwAssignmentId + (imported ? '，並匯入 ' + imported + ' 人' : '') + '，可複製學生連結');
-        return loadHomeworkTab();
-      }).catch(function (err) {
-        toast(hwFriendlyError(err));
-      }).then(function () {
-        createBtn.disabled = false;
-      });
-    });
-    var importBtn = document.getElementById('btnHwImportStudents');
-    if (importBtn) importBtn.addEventListener('click', function () {
-      var className = homeworkClassName();
-      if (!className) {
-        toast('請先填班級');
-        return;
-      }
-      hwApi('hwImportStudents', { className: className }).then(function (data) {
-        toast('已匯入 ' + (data.added || 0) + ' 人到作業名單（Email 請在試算表 HW_Students 補上）');
-        loadHwDashboard();
-      }).catch(function (err) {
-        toast(hwFriendlyError(err));
-      });
-    });
-    var sel = document.getElementById('hwAssignmentSelect');
-    if (sel) sel.addEventListener('change', function () {
-      App.hwAssignmentId = sel.value;
-      App.hwPickedSeat = '';
-      loadHwDashboard();
-    });
-    var copyLink = document.getElementById('btnHwCopyLink');
-    if (copyLink) copyLink.addEventListener('click', function () {
-      copyText(App.hwStudentUrl).then(function () {
-        toast('已複製學生作業連結，可貼到 Classroom');
-      }).catch(function (err) {
-        toast(err.message || '複製失敗');
-      });
-    });
-    var copyScores = document.getElementById('btnHwCopyScores');
-    if (copyScores) copyScores.addEventListener('click', function () {
-      var text = (document.getElementById('hwPasteScores') || {}).value || '';
-      copyText(text).then(function () {
-        toast('已複製座號、姓名、分數');
-      }).catch(function (err) {
-        toast(err.message || '複製失敗');
-      });
-    });
-    var csvBtn = document.getElementById('btnHwCsv');
-    if (csvBtn) csvBtn.addEventListener('click', function () {
-      if (!App.hwAssignmentId) {
-        toast('請先選作業');
-        return;
-      }
-      hwApi('hwExportCsv', { assignmentId: App.hwAssignmentId }).then(function (data) {
-        downloadText(App.hwAssignmentId + '-classroom.csv', data.csv || '');
-      }).catch(function (err) {
-        toast(err.message || '匯出失敗');
-      });
-    });
-    var csvFull = document.getElementById('btnHwCsvFull');
-    if (csvFull) csvFull.addEventListener('click', function () {
-      if (!App.hwAssignmentId) {
-        toast('請先選作業');
-        return;
-      }
-      hwApi('hwExportCsv', { assignmentId: App.hwAssignmentId }).then(function (data) {
-        downloadText(App.hwAssignmentId + '-full.csv', data.csvFull || data.csv || '');
-      }).catch(function (err) {
-        toast(err.message || '匯出失敗');
-      });
-    });
-    var refresh = document.getElementById('btnHwRefresh');
-    if (refresh) refresh.addEventListener('click', loadHomeworkTab);
-    var dashBody = document.getElementById('hwDashBody');
-    if (dashBody) dashBody.addEventListener('click', function (event) {
-      var tr = event.target.closest('tr[data-hw-seat]');
-      if (!tr) return;
-      App.hwPickedSeat = tr.getAttribute('data-hw-seat');
-      renderHwDashboard();
-    });
-    var adjBtn = document.getElementById('btnHwAdjust');
-    if (adjBtn) adjBtn.addEventListener('click', function () {
-      var row = pickedHwRow();
-      if (!row || !App.hwAssignmentId) {
-        toast('請先點表格中的學生');
-        return;
-      }
-      hwApi('hwAdjust', {
-        assignmentId: App.hwAssignmentId,
-        seatNo: row.seatNo,
-        adjustment: (document.getElementById('hwAdj') || {}).value,
-        reason: (document.getElementById('hwAdjReason') || {}).value
-      }).then(function () {
-        toast('已儲存調分');
-        return loadHwDashboard();
-      }).catch(function (err) {
-        toast(err.message || '調分失敗');
-      });
-    });
-    var ovBtn = document.getElementById('btnHwOverride');
-    if (ovBtn) ovBtn.addEventListener('click', function () {
-      var row = pickedHwRow();
-      if (!row || !App.hwAssignmentId) {
-        toast('請先點表格中的學生');
-        return;
-      }
-      var due = fromDatetimeLocal((document.getElementById('hwCustomDue') || {}).value);
-      if (!due) {
-        toast('請填個別截止時間');
-        return;
-      }
-      hwApi('hwOverride', {
-        assignmentId: App.hwAssignmentId,
-        seatNo: row.seatNo,
-        customDueAt: due,
-        reason: (document.getElementById('hwOverrideReason') || {}).value
-      }).then(function () {
-        toast('已延長這位學生的截止時間');
-      }).catch(function (err) {
-        toast(err.message || '延長失敗');
-      });
-    });
-    var zeroBtn = document.getElementById('btnHwZero');
-    if (zeroBtn) zeroBtn.addEventListener('click', function () {
-      var row = pickedHwRow();
-      if (!row || !App.hwAssignmentId) {
-        toast('請先點表格中的學生');
-        return;
-      }
-      hwApi('hwSetMissing', {
-        assignmentId: App.hwAssignmentId,
-        seatNo: row.seatNo,
-        mode: 'zero',
-        reason: '教師給 0 分'
-      }).then(function () {
-        toast('已將這位學生設為 0 分');
-        return loadHwDashboard();
-      }).catch(function (err) {
-        toast(err.message || '設定失敗');
-      });
-    });
-    var makeupBtn = document.getElementById('btnHwMakeup');
-    if (makeupBtn) makeupBtn.addEventListener('click', function () {
-      var row = pickedHwRow();
-      if (!row || !App.hwAssignmentId) {
-        toast('請先點表格中的學生');
-        return;
-      }
-      hwApi('hwSetMissing', {
-        assignmentId: App.hwAssignmentId,
-        seatNo: row.seatNo,
-        mode: 'allowMakeup'
-      }).then(function () {
-        toast('已允許這位學生補交');
-        return loadHwDashboard();
-      }).catch(function (err) {
-        toast(err.message || '設定失敗');
-      });
-    });
   }
 
   var TT_DAYS = ['週一', '週二', '週三', '週四', '週五'];
@@ -5328,21 +4474,6 @@
       '" style="background:' + classTone(cls) + '">' + escapeHtml(text) + '</button>';
   }
 
-  function ttJournalSnippet(className) {
-    var cls = matchClassName(className) || String(className || '').trim();
-    if (!cls) return '';
-    var latest = latestLessonEntry(lessonPackFor(cls));
-    if (!latest || !latest.progress) {
-      return '<p class="tt-journal-empty">尚未登記教學日誌</p>';
-    }
-    var note = latest.note ? '　' + latest.note : '';
-    return '<p class="tt-journal">' +
-      '<span class="tt-journal-date">' + escapeHtml(formatZhDate(latest.date)) + '</span>' +
-      '<span class="tt-journal-progress">' + escapeHtml(latest.progress) + '</span>' +
-      (note ? '<span class="tt-journal-note">' + escapeHtml(note) + '</span>' : '') +
-      '</p>';
-  }
-
   function slotText(row, today) {
     if (!row || today < 0) return '';
     return String(row.cells[today] || '').trim();
@@ -5760,7 +4891,7 @@
     var model = buildSheetModel();
     App.sheetModel = model;
     renderScoreSheet(model);
-    renderStatsDashboard(model);
+    if (App.teacherTab === 'grades' && App.gradesSub === 'stats') renderStatsDashboard(model);
     renderGradebook();
   }
 
@@ -6200,14 +5331,6 @@
     if (els.ruleQuizW) els.ruleQuizW.value = rules.quizWeight;
     if (els.ruleExamW) els.ruleExamW.value = rules.examWeight;
     if (els.ruleHolidays) els.ruleHolidays.value = (rules.holidays || []).join(', ');
-  }
-
-  function switchGradeView(view) {
-    App.gradeView = view === 'week' ? 'week' : 'term';
-    var term = document.getElementById('gradeTermView');
-    var week = document.getElementById('gradeWeekView');
-    if (term) term.open = App.gradeView === 'term';
-    if (week) week.open = App.gradeView === 'week';
   }
 
   function rememberOpenBoards() {
@@ -7076,19 +6199,38 @@
     });
     App.statsPeople = people;
     App.statsModel = model;
+    App.statsCols = cols;
+    App.statsRendered = {};
 
-    renderCheckPanel(people, cols);
-    renderClassPanel(model, people);
-    renderCharts(model, people);
-    renderPaperStats(people);
-    renderPaperTrend(people);
-    renderSchoolPaper();
-    renderCarePanel();
     fillPersonSelect(people);
-    renderPersonStats();
     applyStatsView();
-    renderGroupDeductStats();
     if (statsNeedsSchool()) ensureSchoolStats();
+  }
+
+  /** 只畫看得到的統計分頁；其他分頁切過去時才畫。 */
+  function renderStatsView(view) {
+    var people = App.statsPeople;
+    var model = App.statsModel;
+    if (!people || !model) return;
+    App.statsRendered = App.statsRendered || {};
+    if (App.statsRendered[view]) return;
+    App.statsRendered[view] = true;
+    if (view === 'check') {
+      renderCheckPanel(people, App.statsCols || scoreColumnsForCheck());
+      renderCharts(model, people);
+    } else if (view === 'paper') {
+      renderPaperStats(people);
+      renderPaperTrend(people);
+      renderSchoolPaper();
+    } else if (view === 'care') {
+      renderCarePanel();
+    } else if (view === 'class') {
+      renderClassPanel(model, people);
+      renderCharts(model, people);
+      renderGroupDeductStats();
+    } else if (view === 'person') {
+      renderPersonStats();
+    }
   }
 
   /** 考卷欄（不含作業）依日期排，並標出整欄還沒輸入的欄。 */
@@ -7595,6 +6737,7 @@
     });
     var hint = document.getElementById('statsHint');
     if (hint) hint.textContent = statsHint(view);
+    renderStatsView(view);
   }
 
   function setStatsView(mode) {
@@ -8239,7 +7382,6 @@
     var watchEl = document.getElementById('statsPaperWatch');
     var distEl = document.getElementById('chartPaperDist');
     var deltaEl = document.getElementById('chartPaperDelta');
-    var rankEl = document.getElementById('chartPaperRank');
     var bodyEl = document.getElementById('statsPaperBody');
     var papers = listStatsPapers();
     var navBtns = [document.getElementById('btnPaperPrev'), document.getElementById('btnPaperNext')];
@@ -8250,7 +7392,6 @@
       if (watchEl) watchEl.innerHTML = '';
       if (distEl) distEl.innerHTML = chartEmpty('到「學期成績」新增黃卷、早自習、段考或實作欄位後，這裡可以逐張看');
       if (deltaEl) deltaEl.innerHTML = '';
-      if (rankEl) rankEl.innerHTML = '';
       if (bodyEl) bodyEl.innerHTML = '<tr><td colspan="7">尚無考卷</td></tr>';
       return;
     }
@@ -8352,12 +7493,6 @@
           : chartEmpty('和上一次相比沒有變化'));
     }
 
-    if (rankEl) {
-      rankEl.innerHTML = scored.length
-        ? svgHBars(scored.map(function (r) { return r.seatNo + ' ' + r.name; }), scored.map(function (r) { return r.score; }))
-        : chartEmpty('這張考卷還沒有分數');
-    }
-
     if (bodyEl) {
       var ordered = scored.concat(rows.filter(function (r) { return r.score == null; }));
       bodyEl.innerHTML = ordered.length ? ordered.map(function (r) {
@@ -8417,19 +7552,6 @@
       els.chartDist.innerHTML = model.rows.length
         ? svgBars(buckets.map(function (b) { return b.label; }), buckets.map(function (b) { return b.count; }), { zeroLine: false })
         : chartEmpty('有學生之後，這裡會出現分布圖');
-    }
-    if (els.chartDaily) {
-      els.chartDaily.innerHTML = model.rows.length
-        ? svgBars(['正分', '零分', '負分'], [model.plusPeople || 0, model.zeroPeople || 0, model.minusPeople || 0], {
-          zeroLine: false,
-          barColors: ['#2c7a4b', '#9aa8b0', '#b4413c']
-        })
-        : chartEmpty('有學生之後，這裡會出現正負分人數');
-    }
-    if (els.chartPlusMinus) {
-      els.chartPlusMinus.innerHTML = model.rows.length
-        ? svgBars(['加分總和', '扣分總和'], [model.plusTotal || 0, model.minusTotal || 0], { zeroLine: true })
-        : chartEmpty('有加扣分之後，這裡會出現加扣分總和');
     }
     if (els.chartTerm) {
       var bands = [
@@ -9386,10 +8508,6 @@
     });
   }
 
-  function downloadScoreReport() {
-    exportGradeExcel();
-  }
-
   function mergeVisibleDatabaseRows() {
     if (!viewingLiveScores()) return;
     var visible = collectDatabaseRows();
@@ -10221,10 +9339,6 @@
     toast('已下載備份。平時請用雲端同步，這份是保險用');
   }
 
-  function downloadClassCsv() {
-    downloadClassExcel();
-  }
-
   function downloadRosterExcel() {
     withXlsx(function (X) {
       var wb = X.utils.book_new();
@@ -10342,7 +9456,6 @@
     App.pendingImport = null;
     renderUploadPreview(null);
     fillCloudSettings();
-    fillMockExamMeta();
   }
 
   function saveSettings() {
@@ -10633,10 +9746,6 @@
     return /^-?\d+(\.\d+)?$/.test(String(value || '').trim());
   }
 
-  function parseStudentText(text) {
-    return parseRosterText(text, (App.classroom && App.classroom.className) || '');
-  }
-
   function serializeClassroom() {
     return {
       className: App.classroom.className,
@@ -10857,5 +9966,33 @@
 
   function cssEscape(value) {
     return String(value).replace(/"/g, '\\"');
+  }
+
+  // 啟動要放在最後：上方的 var 常數（計時器、bootstrapSeq、seatIndex…）此時才已賦值
+  applyTeacherUi();
+  restoreLayoutMode();
+  initAnswerTimer();
+  if (window.GoogleAuth) {
+    GoogleAuth.start({
+      onSignedIn: function (account, alreadyBooted) {
+        var resume = readResume();
+        var reconnecting = !!(resume && resume.retryConnect);
+        if (!account.teacher) {
+          applyTeacherUi({ keepSettings: reconnecting || App.appView === 'teacher' });
+          showCloudRelogin(true);
+          toast('這個帳號沒有教師權限：' + (account.email || '') + '。請改選 ' + teacherEmailHint(), 8000);
+          return;
+        }
+        applyTeacherUi();
+        if (resumeAfterSignIn(account, alreadyBooted)) return;
+        if (alreadyBooted) {
+          renderAll();
+          return;
+        }
+        bootstrap();
+      }
+    });
+  } else {
+    bootstrap();
   }
 })();

@@ -625,6 +625,7 @@
   var lastPushAt = '';
   var lastSyncedAt_ = '';
   var scoreHold_ = false;
+  var holdMerged_ = 0;
   var cloudError = '';
   var cloudSaving = false;
   var SCORE_HOLD_KEY = 'class-seating-score-hold';
@@ -1026,21 +1027,78 @@
   }
 
   function clearScoreHold_() {
+    try { localStorage.removeItem(SCORE_HOLD_KEY); } catch (err) {}
     try { sessionStorage.removeItem(SCORE_HOLD_KEY); } catch (err) {}
   }
 
   function persistScoreHold_(store) {
     try {
-      sessionStorage.setItem(SCORE_HOLD_KEY, JSON.stringify({
+      localStorage.setItem(SCORE_HOLD_KEY, JSON.stringify({
         baseUpdatedAt: lastSyncedAt_,
         store: store
       }));
     } catch (err) {}
   }
 
+  function readScoreHoldRaw_() {
+    try {
+      return localStorage.getItem(SCORE_HOLD_KEY) || sessionStorage.getItem(SCORE_HOLD_KEY);
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function historyKey_(item) {
+    return [item.time, item.className, item.type, item.seatNo, item.delta].join('|');
+  }
+
+  /** 把暫存裡雲端還沒有的加扣分紀錄，重播到較新的雲端資料上。 */
+  function replayHeldScores_(remote, held) {
+    var seen = {};
+    (remote.history || []).forEach(function (item) {
+      if (item) seen[historyKey_(item)] = item;
+    });
+    var replayed = 0;
+    (held.history || []).forEach(function (item) {
+      if (!item) return;
+      var key = historyKey_(item);
+      var existing = seen[key];
+      if (existing) {
+        if (item.undone && !existing.undone) existing.undone = true;
+        return;
+      }
+      var room = remote.classes[String(item.className || '')];
+      if (!room) return;
+      if (item.type === '重製加扣分') {
+        room.students.forEach(function (s) { s.score = 0; });
+        ensureGroups(room).scores = {};
+        ensureLab(room).scores = {};
+      } else if (item.undoable || item.type === '復原') {
+        var delta = Number(item.delta) || 0;
+        if (!delta) return;
+        var seats = (item.seatNos && item.seatNos.length) ? item.seatNos.map(String) : [String(item.seatNo || '')];
+        room.students.forEach(function (s) {
+          if (seats.indexOf(String(s.seatNo)) >= 0) s.score = (Number(s.score) || 0) + delta;
+        });
+        if (item.groupId) {
+          var pack = item.lab ? ensureLab(room) : ensureGroups(room);
+          var gid = String(item.groupId);
+          pack.scores[gid] = (Number(pack.scores[gid]) || 0) + delta;
+        }
+      } else {
+        return;
+      }
+      remote.history.push(item);
+      seen[key] = item;
+      replayed++;
+    });
+    if (remote.history.length > 800) remote.history = remote.history.slice(-800);
+    return replayed;
+  }
+
   function restoreScoreHold_(remote) {
     try {
-      var raw = sessionStorage.getItem(SCORE_HOLD_KEY);
+      var raw = readScoreHoldRaw_();
       if (!raw) return remote;
       var hold = JSON.parse(raw);
       var held = hold && hold.store ? normalizeLoadedStore_(hold.store) : null;
@@ -1050,11 +1108,19 @@
       }
       var remoteAt = (remote && remote.updatedAt) || '';
       if (hold.baseUpdatedAt && remoteAt && hold.baseUpdatedAt !== remoteAt) {
-        scoreHold_ = false;
-        clearScoreHold_();
+        var count = replayHeldScores_(remote, held);
+        if (!count) {
+          scoreHold_ = false;
+          clearScoreHold_();
+          return remote;
+        }
+        scoreHold_ = true;
+        persistScoreHold_(remote);
+        holdMerged_ = count;
         return remote;
       }
       scoreHold_ = true;
+      persistScoreHold_(held);
       return held;
     } catch (err) {
       return remote;
@@ -1614,6 +1680,11 @@
     },
     cloudStatus: function () {
       return cloudStatusPayload_();
+    },
+    takeHoldMerged: function () {
+      var n = holdMerged_;
+      holdMerged_ = 0;
+      return n;
     },
     connectCloud: function (url, className) {
       if (typeof CloudStore === 'undefined') {

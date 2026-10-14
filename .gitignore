@@ -4,3 +4,11 @@ Thumbs.db
 .env
 .env.*
 node_modules/
+.vercel
+
+# 學生個資（讀卡成績、名單）不要進 git
+*.xls
+*.xlsx
+SCORE.*
+*.csv
+!docs/學生名單範本.csv
