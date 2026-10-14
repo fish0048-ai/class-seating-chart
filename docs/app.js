@@ -9803,7 +9803,25 @@
     });
   }
 
+  /** 抽籤只能用「上課中班級」的加扣與成績；教師模式可能正開著別班。 */
   function usualScoreForDraw(student) {
+    var cn = App.classroom && App.classroom.className;
+    var draw = App.drawData && App.drawData.className === cn ? App.drawData : null;
+    var days = draw ? draw.days : (!App.dailyDaysClass || App.dailyDaysClass === cn ? App.dailyDays : []);
+    var book = draw ? draw.book : (!App.gradebookClass || App.gradebookClass === cn ? App.gradebook : null);
+    var prevDays = App.dailyDays;
+    var prevBook = App.gradebook;
+    App.dailyDays = days || [];
+    App.gradebook = book || emptyGradebook();
+    try {
+      return usualScoreForDrawNow_(student);
+    } finally {
+      App.dailyDays = prevDays;
+      App.gradebook = prevBook;
+    }
+  }
+
+  function usualScoreForDrawNow_(student) {
     var act = classActivity(student.seatNo, '');
     var live = Number(student.score) || 0;
     var today = App.activeDate || '';
@@ -10302,27 +10320,22 @@
       done();
       return;
     }
-    var needDaily = !(App.dailyDays && App.dailyDays.length);
-    var needBook = !App.gradebook;
-    if (!needDaily && !needBook) {
-      done();
-      return;
-    }
-    var jobs = [];
-    if (needDaily) {
-      jobs.push(api('listDaily', [className]).then(function (data) {
-        if (data && data.days) {
-          App.dailyDays = data.days;
-          App.dailyDaysClass = String(data.className || className);
-        }
-      }));
-    }
-    if (needBook) {
-      jobs.push(api('getGradebook', [className]).then(function (data) {
-        applyGradebook(data);
-      }));
-    }
-    Promise.all(jobs).then(done).catch(function () { done(); });
+    Promise.all([
+      api('listDaily', [className]),
+      api('getGradebook', [className])
+    ]).then(function (results) {
+      var book = results[1] || {};
+      App.drawData = {
+        className: className,
+        days: (results[0] && results[0].days) || [],
+        book: Object.assign(emptyGradebook(), {
+          labs: book.labs || [],
+          practicals: book.practicals || [],
+          homeworks: book.homeworks || [],
+          rules: Object.assign(defaultGradeRules(), book.rules || {})
+        })
+      };
+    }).catch(function () {}).then(done);
   }
 
   function openLottery(fromButton) {
