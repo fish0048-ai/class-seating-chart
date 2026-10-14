@@ -9053,7 +9053,7 @@
     }).join('');
     var axis = '<line x1="' + l + '" y1="' + zeroY + '" x2="' + (w - r) + '" y2="' + zeroY + '" stroke="#d9d0c1"/>';
     var maxLabel = '<text x="8" y="' + (t + 10) + '" font-size="11" fill="#5b7380">' + max + '</text>';
-    return '<svg viewBox="0 0 ' + w + ' ' + h + '" class="chart-svg" role="img">' + axis + bars + xlabels + maxLabel + '</svg>';
+    return '<svg viewBox="0 0 ' + w + ' ' + h + '" class="chart-svg chart-fixed" role="img">' + axis + bars + xlabels + maxLabel + '</svg>';
   }
 
   function svgHBars(labels, values) {
@@ -9142,7 +9142,7 @@
       return '<text x="' + xOf(i, labels.length) + '" y="' + (h - 16) + '" text-anchor="middle" font-size="11" fill="#5b7380">' +
         escapeHtml(lb) + '</text>';
     }).join('');
-    return '<svg viewBox="0 0 ' + w + ' ' + h + '" class="chart-svg" role="img">' +
+    return '<svg viewBox="0 0 ' + w + ' ' + h + '" class="chart-svg chart-fixed" role="img">' +
       '<line x1="' + l + '" y1="' + zeroY + '" x2="' + (w - r) + '" y2="' + zeroY + '" stroke="#d9d0c1"/>' +
       series(compare, opts.compareColor || '#9aa8b0', false) +
       series(values, '#2f6f8f', true) +
@@ -9187,7 +9187,7 @@
       return '<rect x="' + x + '" y="' + (h - 22) + '" width="12" height="12" fill="' + (item.color || '#2f6f8f') + '"/>' +
         '<text x="' + (x + 18) + '" y="' + (h - 12) + '" font-size="12" fill="#5b7380">' + escapeHtml(item.label || '') + '</text>';
     }).join('');
-    return '<svg viewBox="0 0 ' + w + ' ' + h + '" class="chart-svg" role="img">' + rings + spokes + shapes + legend + '</svg>';
+    return '<svg viewBox="0 0 ' + w + ' ' + h + '" class="chart-svg chart-fixed" role="img">' + rings + spokes + shapes + legend + '</svg>';
   }
 
   function svgPairBars(labels, mine, klass, legends) {
@@ -9294,7 +9294,7 @@
         '<title>' + escapeHtml((p.name || '') + '　' + xLabel + ' ' + p.x + '／' + yLabel + ' ' + p.y) + '</title></circle>';
     }).join('');
     var cap = r == null || r === '' ? '' : String(r);
-    return '<svg viewBox="0 0 ' + w + ' ' + h + '" class="chart-svg" role="img">' +
+    return '<svg viewBox="0 0 ' + w + ' ' + h + '" class="chart-svg chart-fixed" role="img">' +
       '<line x1="' + l + '" y1="' + (t + ih) + '" x2="' + (w - right) + '" y2="' + (t + ih) + '" stroke="#d9d0c1"/>' +
       '<line x1="' + l + '" y1="' + t + '" x2="' + l + '" y2="' + (t + ih) + '" stroke="#d9d0c1"/>' +
       dots +
@@ -9331,7 +9331,7 @@
           '</title></rect>';
       });
     });
-    return '<svg viewBox="0 0 ' + w + ' ' + h + '" class="chart-svg heat-svg" role="img">' +
+    return '<svg viewBox="0 0 ' + w + ' ' + h + '" width="' + w + '" height="' + h + '" class="chart-svg heat-svg" role="img">' +
       '<rect x="8" y="8" width="14" height="10" fill="rgb(180,70,60)"/>' +
       '<text x="26" y="17" font-size="10" fill="#5b7380">低</text>' +
       '<rect x="48" y="8" width="14" height="10" fill="rgb(110,115,80)"/>' +
