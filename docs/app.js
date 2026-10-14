@@ -1578,7 +1578,10 @@
         if (data && data.activeDate) App.activeDate = data.activeDate;
       }),
       api('listDaily', [className]).then(function (data) {
-        if (data && data.days) App.dailyDays = data.days;
+        if (data && data.days) {
+          App.dailyDays = data.days;
+          App.dailyDaysClass = String(data.className || className);
+        }
         if (data && data.activeDate) App.activeDate = data.activeDate;
       }).catch(function () {})
     ]).then(function () {
@@ -3341,7 +3344,7 @@
     if (stats) stats.hidden = App.teacherTab !== 'grades' || next !== 'stats';
     if (!quiet && App.teacherTab === 'grades') {
       if (next === 'stats' && App.statsView === 'school') ensureSchoolStats();
-      if (next === 'daily' || next === 'summary') refreshTeacherExtras();
+      if (next === 'daily' || next === 'summary' || next === 'stats') refreshTeacherExtras();
     }
   }
 
@@ -4099,6 +4102,7 @@
   function refreshTeacherExtras() {
     var className = teacherTargetClass();
     if (!className) return;
+    if (gradeSaveTimer && App.gradebookClass === className) saveGradebookFromTable(false);
     App.gradebookReady = false;
     clearTimeout(gradeSaveTimer);
     gradeSaveTimer = null;
@@ -4110,10 +4114,9 @@
       var dailyData = results[0];
       var bookData = results[1];
       noteScoreRoll(dailyData);
+      applyGradebook(bookData);
       renderDailyPanel(dailyData);
       renderDatabaseTable(App.dbRows || []);
-      applyGradebook(bookData);
-      renderGradebook();
     }).catch(function () {});
   }
 
@@ -5727,7 +5730,8 @@
 
   function buildSheetModel() {
     var className = teacherTargetClass();
-    var dates = (App.dailyDays || []).slice().sort(function (a, b) {
+    var sameClassDays = !App.dailyDaysClass || App.dailyDaysClass === className;
+    var dates = (sameClassDays ? (App.dailyDays || []) : []).slice().sort(function (a, b) {
       return String(a.date).localeCompare(String(b.date));
     });
     var students = (App.dbRows || []).filter(function (row) {
@@ -5744,6 +5748,7 @@
   function renderDailyPanel(data) {
     data = data || {};
     if (data.days) App.dailyDays = data.days;
+    if (data.className) App.dailyDaysClass = String(data.className);
     var model = buildSheetModel();
     App.sheetModel = model;
     renderScoreSheet(model);
@@ -5880,7 +5885,7 @@
 
   function columnScore100(col, seatNo) {
     if (!col || !col.scores) return null;
-    var v = col.scores[seatNo];
+    var v = readSeatScore(col.scores, seatNo);
     if (isLeaveScore(v) || v === '' || v == null) return null;
     var n = Number(v);
     if (!isFinite(n)) return null;
@@ -6174,6 +6179,7 @@
       homeworks: data.homeworks || [],
       rules: Object.assign(defaultGradeRules(), data.rules || {})
     };
+    App.gradebookClass = String(data.className || '');
     App.gradebookReady = true;
     clearGradeDirty();
     fillRuleInputs();
@@ -6776,7 +6782,7 @@
     var n = 0;
     [book.yellow, book.morning, book.exams].forEach(function (cols) {
       (cols || []).forEach(function (col) {
-        if (isLeaveScore(col.scores && col.scores[seatNo])) n += 1;
+        if (isLeaveScore(readSeatScore(col.scores, seatNo))) n += 1;
       });
     });
     return n;
@@ -6816,7 +6822,7 @@
     var leave = 0;
     var missing = 0;
     (students || []).forEach(function (stu) {
-      var raw = col.scores && col.scores[stu.seatNo];
+      var raw = readSeatScore(col.scores, stu.seatNo);
       if (isLeaveScore(raw)) {
         leave += 1;
         return;
@@ -7042,6 +7048,14 @@
 
   function renderStatsDashboard(model) {
     model = model || App.sheetModel || buildSheetModel();
+    if (model.className && App.gradebookClass && App.gradebookClass !== model.className) {
+      withGradebook(emptyGradebook(), function () { renderStatsDashboardFor_(model); });
+      return;
+    }
+    renderStatsDashboardFor_(model);
+  }
+
+  function renderStatsDashboardFor_(model) {
     var people = enrichStatsRows(model);
     var rankedTerm = people.slice().sort(function (a, b) {
       var av = a.total == null ? -999 : a.total;
@@ -7818,7 +7832,7 @@
     var items = [];
     function addScore(group, cols) {
       (cols || []).forEach(function (col) {
-        var leave = isLeaveScore(col.scores && col.scores[person.seatNo]);
+        var leave = isLeaveScore(readSeatScore(col.scores, person.seatNo));
         var mine = leave ? null : columnScore100(col, person.seatNo);
         var info = analyzeScoreColumn(col, people);
         items.push({
@@ -8208,7 +8222,7 @@
   }
 
   function rawScoreText(col, seatNo) {
-    var v = col && col.scores ? col.scores[seatNo] : null;
+    var v = col && col.scores ? readSeatScore(col.scores, seatNo) : null;
     if (isLeaveScore(v)) return '請假';
     if (v === '' || v == null) return '—';
     return String(v) + ' / ' + (Number(col.max) || 100);
@@ -8256,7 +8270,7 @@
     var rows = people.map(function (row) {
       var v = columnScore100(col, row.seatNo);
       var prevV = current.prev ? columnScore100(current.prev, row.seatNo) : null;
-      var raw = col.scores ? col.scores[row.seatNo] : null;
+      var raw = col.scores ? readSeatScore(col.scores, row.seatNo) : null;
       return {
         seatNo: row.seatNo,
         name: row.name,
@@ -8518,7 +8532,7 @@
       if (result.status === 'missing') return 0;
       return result.final;
     }
-    if (isLeaveScore(colSpec.col.scores && colSpec.col.scores[seatNo])) return null;
+    if (isLeaveScore(readSeatScore(colSpec.col.scores, seatNo))) return null;
     return columnScore100(colSpec.col, seatNo);
   }
 
@@ -10297,7 +10311,10 @@
     var jobs = [];
     if (needDaily) {
       jobs.push(api('listDaily', [className]).then(function (data) {
-        if (data && data.days) App.dailyDays = data.days;
+        if (data && data.days) {
+          App.dailyDays = data.days;
+          App.dailyDaysClass = String(data.className || className);
+        }
       }));
     }
     if (needBook) {
