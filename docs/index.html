@@ -440,11 +440,39 @@
             </div>
 
             <div id="statsClassView">
-            <div id="statsInventory" class="stats-inventory" data-stats-kind-block="all"></div>
-            <div id="statsCards" class="stat-cards stats-hero" data-stats-kind-block="all"></div>
-            <div id="statsWatch" class="stats-watch" data-stats-kind-block="all"></div>
-            <div id="statsExtra" class="stats-extra" data-stats-kind-block="all"></div>
-            <div id="statsInsights" class="insight-list" data-stats-kind-block="all"></div>
+            <section class="stats-block" data-stats-kind-block="all">
+              <h3>重點數字</h3>
+              <div id="statsCards" class="stat-cards stats-hero"></div>
+              <div id="statsInventory" class="stats-inventory"></div>
+            </section>
+
+            <section class="stats-block" data-stats-kind-block="all">
+              <h3>需要注意的人</h3>
+              <p class="hint">低分、缺交、段考失常、成績不穩、連續退步／進步等，只列出有人符合的項目。分項細節請切到上方各類型。</p>
+              <div id="statsWatch" class="stats-watch"></div>
+            </section>
+
+            <section class="stats-block" data-stats-kind-block="all">
+              <h3>趨勢</h3>
+              <figure class="chart-card chart-wide">
+                <figcaption>各次考卷全班平均（藍：平均，灰：及格率 %；依考試日期）</figcaption>
+                <div id="chartOverviewTrend"></div>
+              </figure>
+              <div class="chart-grid">
+                <figure class="chart-card">
+                  <figcaption>同類型第一次→最近一次（進步／退步人數）</figcaption>
+                  <div id="chartGrowth"></div>
+                </figure>
+                <figure class="chart-card">
+                  <figcaption>進步最多／退步最多（同一類型前後兩次）</figcaption>
+                  <div id="chartMovers"></div>
+                </figure>
+              </div>
+              <figure class="chart-card chart-wide">
+                <figcaption>成績熱力圖（最近 14 次，依日期；一列一位學生，顏色越深分數越高）</figcaption>
+                <div id="chartHeat" class="heat-wrap"></div>
+              </figure>
+            </section>
 
             <section class="stats-block" id="statsGroupDeductBlock" data-stats-kind-block="plusminus">
               <h3>小組扣分（因誰）</h3>
@@ -455,6 +483,7 @@
             <section class="stats-block" id="statsPlusBlock" data-stats-kind-block="plusminus">
               <h3>上課加扣統計</h3>
               <div id="statsPlusCards" class="stat-cards"></div>
+              <div id="statsInsights" class="insight-list"></div>
               <figure class="chart-card chart-wide">
                 <figcaption>每天全班平均加扣分</figcaption>
                 <div id="chartTrend"></div>
@@ -565,7 +594,7 @@
 
             <section class="stats-block" id="statsGradeBlock" data-stats-kind-block="work">
               <h3>實作與作業</h3>
-              <p class="hint">含實驗室實作評量、回家實作、成績簿作業繳交；缺交作業登錄見總覽關注卡。</p>
+              <p class="hint">含實驗室實作評量、回家實作、成績簿作業繳交；缺交作業登錄見總覽「需要注意的人」。</p>
               <div id="statsAssess" class="assess-wrap"></div>
               <div class="chart-grid">
                 <figure class="chart-card">
@@ -579,8 +608,8 @@
               </div>
             </section>
 
-            <section class="stats-block" data-stats-kind-block="all">
-              <h3>進階分析</h3>
+            <section class="stats-block" data-stats-kind-block="quiz exam work">
+              <h3>分布與關聯</h3>
               <p class="hint">成績一項項打進去，圖就會自己長出來。空著的格子會寫「缺什麼才會出現」，方便對照。</p>
               <h4 class="chart-sub">全班一眼看</h4>
               <div class="chart-grid">
@@ -616,21 +645,6 @@
                   <div id="chartScatterHw"></div>
                 </figure>
               </div>
-              <h4 class="chart-sub">進步還是退步</h4>
-              <div class="chart-grid">
-                <figure class="chart-card">
-                  <figcaption>同類型第一次→最近一次（進步／退步人數）</figcaption>
-                  <div id="chartGrowth"></div>
-                </figure>
-                <figure class="chart-card">
-                  <figcaption>進步最多／退步最多（同一類型前後兩次）</figcaption>
-                  <div id="chartMovers"></div>
-                </figure>
-              </div>
-              <figure class="chart-card chart-wide">
-                <figcaption>成績熱力圖（一列一位學生，一欄一次評量；顏色越深分數越高）</figcaption>
-                <div id="chartHeat" class="heat-wrap"></div>
-              </figure>
             </section>
 
             <section class="stats-block" data-stats-kind-block="all">
@@ -655,6 +669,7 @@
                     <th>未繳作業</th>
                     <th>缺交登錄</th>
                     <th>請假</th>
+                    <th>提醒</th>
                   </tr>
                 </thead>
                 <tbody id="statsBody"></tbody>
@@ -664,12 +679,19 @@
             </div>
 
             <div id="statsSchoolView" hidden>
-              <div id="schoolCards" class="stat-cards stats-hero" data-stats-kind-block="all"></div>
-              <div id="schoolWatch" class="stats-watch" data-stats-kind-block="all"></div>
-              <div id="schoolInsights" class="insight-list" data-stats-kind-block="all"></div>
+              <section class="stats-block" data-stats-kind-block="all">
+                <h3>重點數字</h3>
+                <div id="schoolCards" class="stat-cards stats-hero"></div>
+              </section>
+
+              <section class="stats-block" data-stats-kind-block="all">
+                <h3>需要注意的班級與學生</h3>
+                <div id="schoolWatch" class="stats-watch"></div>
+              </section>
 
               <section class="stats-block" data-stats-kind-block="plusminus">
                 <h3>各班上課加扣</h3>
+                <div id="schoolInsights" class="insight-list"></div>
                 <div class="chart-grid">
                   <figure class="chart-card">
                     <figcaption>各班上課加扣平均</figcaption>
@@ -712,10 +734,49 @@
                 </div>
               </section>
 
-              <section class="stats-block" data-stats-kind-block="all">
-                <h3>同一次成績欄（全校）</h3>
-                <p class="hint">在任一班新增的欄位會同步到所有班。這裡依「同一欄」比較各班平均（至少兩個班有分數才顯示）。</p>
-                <div id="schoolSharedCols" class="chart-grid"></div>
+              <section class="stats-block" id="schoolPaperBlock" data-stats-kind-block="paper">
+                <h3>全校單張考卷</h3>
+                <p class="hint">選一張各班共用的考卷（例如學科競試），看全校排名、各班平均與及格率、各班分數分布。分數換算成百分制。</p>
+                <div class="paper-picker">
+                  <button type="button" class="tool" id="btnSchoolPaperPrev" aria-label="上一張考卷">‹ 上一張</button>
+                  <select id="schoolPaperSelect" aria-label="選擇全校考卷"></select>
+                  <button type="button" class="tool" id="btnSchoolPaperNext" aria-label="下一張考卷">下一張 ›</button>
+                </div>
+                <div id="schoolPaperCards" class="stat-cards"></div>
+                <div id="schoolPaperWatch" class="stats-watch"></div>
+                <div class="chart-grid">
+                  <figure class="chart-card">
+                    <figcaption>各班平均</figcaption>
+                    <div id="chartSchoolPaperAvg"></div>
+                  </figure>
+                  <figure class="chart-card">
+                    <figcaption>各班及格率（60 分）</figcaption>
+                    <div id="chartSchoolPaperPass"></div>
+                  </figure>
+                  <figure class="chart-card chart-wide">
+                    <figcaption>全校分數分布</figcaption>
+                    <div id="chartSchoolPaperDist"></div>
+                  </figure>
+                </div>
+                <h4 class="chart-sub">各班分數分布（人數）</h4>
+                <div id="schoolPaperBands" class="assess-wrap"></div>
+                <h4 class="chart-sub">全校排名</h4>
+                <div class="db-table-wrap stats-table-wrap">
+                  <table class="db-table">
+                    <thead>
+                      <tr>
+                        <th>全校名次</th>
+                        <th>班級</th>
+                        <th>班排</th>
+                        <th>座號</th>
+                        <th>姓名</th>
+                        <th>原始分數</th>
+                        <th>百分制</th>
+                      </tr>
+                    </thead>
+                    <tbody id="schoolPaperBody"></tbody>
+                  </table>
+                </div>
               </section>
 
               <section class="stats-block" data-stats-kind-block="all">

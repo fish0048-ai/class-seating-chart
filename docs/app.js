@@ -146,7 +146,6 @@
     statsCards: document.getElementById('statsCards'),
     statsInventory: document.getElementById('statsInventory'),
     statsWatch: document.getElementById('statsWatch'),
-    statsExtra: document.getElementById('statsExtra'),
     statsInsights: document.getElementById('statsInsights'),
     statsPlusCards: document.getElementById('statsPlusCards'),
     statsQuizCards: document.getElementById('statsQuizCards'),
@@ -420,6 +419,17 @@
   var paperNext = document.getElementById('btnPaperNext');
   if (paperPrev) paperPrev.addEventListener('click', function () { shiftStatsPaper(-1); });
   if (paperNext) paperNext.addEventListener('click', function () { shiftStatsPaper(1); });
+  var schoolPaperSelect = document.getElementById('schoolPaperSelect');
+  if (schoolPaperSelect) {
+    schoolPaperSelect.addEventListener('change', function () {
+      App.schoolPaperId = schoolPaperSelect.value;
+      renderSchoolPaper();
+    });
+  }
+  var schoolPaperPrev = document.getElementById('btnSchoolPaperPrev');
+  var schoolPaperNext = document.getElementById('btnSchoolPaperNext');
+  if (schoolPaperPrev) schoolPaperPrev.addEventListener('click', function () { shiftSchoolPaper(-1); });
+  if (schoolPaperNext) schoolPaperNext.addEventListener('click', function () { shiftSchoolPaper(1); });
   ['statsQuizAssess', 'statsExamAssess'].forEach(function (id) {
     var box = document.getElementById(id);
     if (!box) return;
@@ -6894,6 +6904,7 @@
         var second = meanOf(row.cells.slice(mid));
         if (first != null && second != null) delta = round1(second - first);
       }
+      var series = paperSeriesFor(row.seatNo);
       return Object.assign({}, row, parts, {
         leaveCount: countLeaves(row.seatNo),
         hwMissing: hw.missing,
@@ -6901,9 +6912,77 @@
         rosterMissing: rosterMissingCount(row.seatNo, className),
         plusHits: plusHitCount(row.seatNo, className),
         activeDays: activeDays,
-        trend: delta
+        trend: delta,
+        paperSeries: series,
+        types: studentTypeFlags(parts, series)
       });
     });
+  }
+
+  /** 依日期排好的各次考卷百分制分數（略過未考與請假）。 */
+  function paperSeriesFor(seatNo) {
+    var book = App.gradebook || emptyGradebook();
+    var cols = [];
+    ['yellow', 'morning', 'exams', 'labs', 'practicals'].forEach(function (key) { cols = cols.concat(book[key] || []); });
+    return byColDate(cols).map(function (col) {
+      return columnScore100(col, seatNo);
+    }).filter(function (n) { return n != null; });
+  }
+
+  function studentTypes() {
+    return [
+      { key: 'examLow', label: '段考失常', tone: 'alert', hint: '平時考試比段考高 15 分以上' },
+      { key: 'quizLow', label: '平時偏低', tone: 'warn', hint: '段考比平時考試高 15 分以上，平時可再穩定' },
+      { key: 'decline', label: '連續退步', tone: 'alert', hint: '最近三次考卷一次比一次低，共掉 10 分以上' },
+      { key: 'unstable', label: '成績不穩', tone: 'warn', hint: '至少四次考卷，標準差 15 分以上' },
+      { key: 'rise', label: '連續進步', tone: 'good', hint: '最近三次考卷一次比一次高，共進步 10 分以上' }
+    ];
+  }
+
+  function studentTypeFlags(parts, series) {
+    var flags = [];
+    var quiz = parts && parts.quiz;
+    var exam = parts && parts.exam;
+    if (quiz != null && exam != null) {
+      if (quiz - exam >= 15) flags.push({ key: 'examLow', detail: '平時 ' + quiz + '、段考 ' + exam });
+      else if (exam - quiz >= 15) flags.push({ key: 'quizLow', detail: '平時 ' + quiz + '、段考 ' + exam });
+    }
+    var last = (series || []).slice(-3);
+    if (last.length === 3) {
+      if (last[0] > last[1] && last[1] > last[2] && last[0] - last[2] >= 10) {
+        flags.push({ key: 'decline', detail: last.join('→') });
+      } else if (last[0] < last[1] && last[1] < last[2] && last[2] - last[0] >= 10) {
+        flags.push({ key: 'rise', detail: last.join('→') });
+      }
+    }
+    if ((series || []).length >= 4 && stdevOf(series) >= 15) {
+      flags.push({ key: 'unstable', detail: '標準差 ' + stdevOf(series) });
+    }
+    return flags;
+  }
+
+  function hasType(row, key) {
+    return (row.types || []).some(function (t) { return t.key === key; });
+  }
+
+  function typeLabel(key) {
+    var hit = studentTypes().filter(function (t) { return t.key === key; })[0];
+    return hit ? hit.label : key;
+  }
+
+  /** 每種類型一張提醒卡；沒有人符合的類型不顯示。 */
+  function studentTypeCards(people, withClass) {
+    return studentTypes().map(function (type) {
+      var list = (people || []).filter(function (row) { return hasType(row, type.key); });
+      if (!list.length) return '';
+      var shown = list.slice(0, 3).map(function (row) {
+        var flag = row.types.filter(function (t) { return t.key === type.key; })[0];
+        return (withClass && row.className ? row.className + ' ' : '') + row.seatNo + ' ' + row.name +
+          '（' + flag.detail + '）';
+      });
+      return watchCard(type.tone, type.label + '　' + list.length + ' 人',
+        shown.join('、') + (list.length > 3 ? ' 等' : '') + '。' + type.hint);
+    }).join('');
   }
 
   function withGradebook(book, fn) {
@@ -7061,9 +7140,10 @@
       var av = a.total == null ? -999 : a.total;
       var bv = b.total == null ? -999 : b.total;
       if (bv !== av) return bv - av;
-      return b.classRaw - a.classRaw;
+      return seatOrder(a, b);
     });
     var termScores = people.map(function (row) { return row.total; }).filter(function (n) { return n != null; });
+    var topTermRows = topTiedRows(people, 'total');
     var quizScores = people.map(function (row) { return row.quiz; }).filter(function (n) { return n != null; });
     var examScores = people.map(function (row) { return row.exam; }).filter(function (n) { return n != null; });
     var pass60 = termScores.filter(function (n) { return n >= 60; }).length;
@@ -7113,9 +7193,11 @@
       els.statsCards.innerHTML =
         statCard('學生人數', people.length) +
         statCard('學期平均', fmtMaybe(meanOf(termScores))) +
+        statCard('學期中位數', fmtMaybe(termScores.length ? medianOf(termScores) : null)) +
         statCard('學期及格率', termScores.length ? round1(pass60 / termScores.length * 100) + '%' : '尚無') +
+        statCard('平時考試平均', fmtMaybe(meanOf(quizScores))) +
+        statCard('段考平均', fmtMaybe(meanOf(examScores))) +
         statCard('需關心', needHelp.length ? needHelp.length + ' 人' : '0') +
-        statCard('缺交登錄', rosterMissingPeople.length ? rosterMissingPeople.length + ' 人' : '0') +
         statCard('考試／實驗待完成', lessonEvents.length ? String(lessonPending) : '尚未設定');
     }
     if (els.statsPlusCards) {
@@ -7132,12 +7214,13 @@
     if (els.statsWatch) {
       var cards = [];
       cards.push(watchCard('good', '表現亮點', topTerm
-        ? topTerm.seatNo + ' ' + topTerm.name + ' 學期 ' + topTerm.total + ' 分'
+        ? '學期最高 ' + tiedText(topTermRows, 'total', 3)
         : (mostPlus && mostPlus.plusSum ? mostPlus.name + ' 加分最多 +' + mostPlus.plusSum : '再多一些成績就會出現亮點')));
       cards.push(watchCard('alert', '需要關心', needHelp.length
         ? peopleText(needHelp, 3)
         : '目前沒有明顯低分、缺交或重度扣分'));
-      cards.push(watchCard('info', '還沒有加扣分', silent.length ? peopleText(silent, 4) : '每位同學都有上課紀錄'));
+      var typeCards = studentTypeCards(people, false);
+      if (typeCards) cards.push(typeCards);
       cards.push(watchCard('warn', '作業未繳／遲交', (function () {
         var missingPeople = people.filter(function (row) { return row.hwMissing > 0; });
         if (!missingPeople.length && !lateHw.length) {
@@ -7148,23 +7231,21 @@
         if (lateHw.length) bits.push('遲交 ' + peopleText(lateHw, 2));
         return bits.join('；');
       })()));
-      if (improved.length) cards.push(watchCard('good', '後段表現進步', peopleText(improved, 3) + '（後半段加扣比前半段高）'));
-      if (slipped.length) cards.push(watchCard('warn', '後半段加扣下滑', peopleText(slipped, 3)));
+      cards = cards.concat(statsExtraCards({
+        rosterMissingPeople: rosterMissingPeople,
+        leavePeople: leavePeople,
+        lessonEvents: lessonEvents,
+        lessonDone: lessonDone,
+        lessonPending: lessonPending
+      }));
+      if (silent.length) cards.push(watchCard('info', '還沒有加扣分', peopleText(silent, 4)));
       els.statsWatch.innerHTML = cards.join('');
     }
 
-    renderStatsExtraFocus({
-      rosterMissingPeople: rosterMissingPeople,
-      hitPeople: hitPeople,
-      leavePeople: leavePeople,
-      mostHits: mostHits,
-      lessonEvents: lessonEvents,
-      lessonDone: lessonDone,
-      lessonPending: lessonPending
-    });
-
     if (els.statsInsights) {
       var items = [];
+      if (improved.length) items.push(insightItem('後半段加扣進步', peopleText(improved, 3)));
+      if (slipped.length) items.push(insightItem('後半段加扣下滑', peopleText(slipped, 3)));
       if (mostPlus && mostPlus.plusSum) items.push(insightItem('加分總和最多', mostPlus.seatNo + ' ' + mostPlus.name + '　+' + mostPlus.plusSum));
       if (mostMinus && mostMinus.minusSum) items.push(insightItem('扣分總和最多', mostMinus.seatNo + ' ' + mostMinus.name + '　' + mostMinus.minusSum));
       if (mostHits && mostHits.plusHits) items.push(insightItem('加分次數最多', mostHits.seatNo + ' ' + mostHits.name + '　' + mostHits.plusHits + ' 次'));
@@ -7174,15 +7255,6 @@
       if (dayWorst && (!dayBest || dayWorst.date !== dayBest.date)) {
         items.push(insightItem('全班最低的一天', formatZhDate(dayWorst.date) + '　平均 ' + dayWorst.avg));
       }
-      if (quizScores.length) items.push(insightItem('平時考試平均', meanOf(quizScores)));
-      if (examScores.length) items.push(insightItem('段考平均', meanOf(examScores)));
-      if (rosterMissingPeople.length) {
-        items.push(insightItem('缺交登錄人數', rosterMissingPeople.length + ' 人'));
-      }
-      if (lessonEvents.length) {
-        items.push(insightItem('考試／實驗', '已完成 ' + lessonDone + '／待完成 ' + lessonPending));
-      }
-      items.push(insightItem('學期中位數', fmtMaybe(termScores.length ? medianOf(termScores) : null)));
       els.statsInsights.innerHTML = items.join('');
     }
 
@@ -7192,11 +7264,12 @@
     renderAssessStats(people);
     if (els.statsBody) {
       if (!people.length) {
-        els.statsBody.innerHTML = '<tr><td colspan="15">尚無統計資料</td></tr>';
+        els.statsBody.innerHTML = '<tr><td colspan="16">尚無統計資料</td></tr>';
       } else {
-        els.statsBody.innerHTML = rankedTerm.map(function (row, index) {
+        els.statsBody.innerHTML = rankedTerm.map(function (row) {
+          var rank = rankAmong(row.total, termScores);
           return '<tr data-seat="' + escapeHtml(String(row.seatNo)) + '">' +
-            '<td>' + (index + 1) + '</td>' +
+            '<td>' + (rank == null ? '—' : rank) + '</td>' +
             '<td>' + escapeHtml(row.seatNo) + '</td>' +
             '<td>' + escapeHtml(row.name) + '</td>' +
             '<td class="col-total">' + fmtMaybe(row.total) + '</td>' +
@@ -7211,6 +7284,7 @@
             '<td>' + (row.hwMissing || 0) + '</td>' +
             '<td>' + (row.rosterMissing || 0) + '</td>' +
             '<td>' + (row.leaveCount || 0) + '</td>' +
+            '<td>' + escapeHtml((row.types || []).map(function (t) { return typeLabel(t.key); }).join('、')) + '</td>' +
             '</tr>';
         }).join('');
       }
@@ -7259,40 +7333,26 @@
       '</div>';
   }
 
-  function renderStatsExtraFocus(pack) {
-    var el = els.statsExtra || document.getElementById('statsExtra');
-    if (!el) return;
+  /** 缺交登錄、請假、考試／實驗進度：只在有內容時出卡。 */
+  function statsExtraCards(pack) {
     pack = pack || {};
     var cards = [];
     var roster = pack.rosterMissingPeople || [];
-    cards.push(watchCard(roster.length ? 'alert' : 'info', '缺交作業登錄',
-      roster.length
-        ? peopleCountText(roster, 'rosterMissing', '份')
-        : '缺交作業分頁目前沒有名單'));
-    var hits = pack.hitPeople || [];
-    cards.push(watchCard(hits.length ? 'good' : 'info', '課堂加分次數',
-      hits.length
-        ? peopleHitsText(hits, 3)
-        : '尚未累計（座位卡加分會記入次數）'));
+    if (roster.length) cards.push(watchCard('alert', '缺交作業登錄', peopleCountText(roster, 'rosterMissing', '份')));
     var leaves = pack.leavePeople || [];
-    cards.push(watchCard(leaves.length ? 'warn' : 'info', '請假次數',
-      leaves.length
-        ? peopleCountText(leaves, 'leaveCount', '次')
-        : '考試欄位沒有請假標記'));
+    if (leaves.length) cards.push(watchCard('warn', '考試請假', peopleCountText(leaves, 'leaveCount', '次')));
     var events = pack.lessonEvents || [];
     var pending = pack.lessonPending || 0;
     var done = pack.lessonDone || 0;
     var pendingTitles = events.filter(function (ev) { return !ev.done; }).slice(0, 2).map(function (ev) {
       return (ev.title && String(ev.title).trim()) || lessonEventLabel(ev.type);
     });
-    cards.push(watchCard(pending ? 'warn' : (events.length ? 'good' : 'info'), '考試／實驗進度',
-      !events.length
-        ? '教學日誌尚未設定考試或實驗'
-        : ('已完成 ' + done + '、待完成 ' + pending +
-          (pendingTitles.length ? '（' + pendingTitles.join('、') + '）' : ''))));
-    el.innerHTML =
-      '<div class="stats-inventory-head">教室關注（原本沒進圖表的資料）</div>' +
-      '<div class="stats-watch">' + cards.join('') + '</div>';
+    if (events.length) {
+      cards.push(watchCard(pending ? 'warn' : 'good', '考試／實驗進度',
+        '已完成 ' + done + '、待完成 ' + pending +
+        (pendingTitles.length ? '（' + pendingTitles.join('、') + '）' : '')));
+    }
+    return cards;
   }
 
   function formatHistoryTime(value) {
@@ -7444,8 +7504,8 @@
     roots.forEach(function (root) {
       if (!root) return;
       root.querySelectorAll('[data-stats-kind-block]').forEach(function (el) {
-        var want = el.getAttribute('data-stats-kind-block');
-        el.hidden = kind !== 'all' && want !== kind;
+        var want = String(el.getAttribute('data-stats-kind-block') || '').split(/\s+/);
+        el.hidden = want.indexOf(kind) < 0;
       });
     });
   }
@@ -7460,7 +7520,10 @@
     else if (mode === 'school') App.statsView = 'school';
     else App.statsView = 'class';
     applyStatsView();
-    if (App.statsView === 'person') renderPersonStats();
+    if (App.statsView === 'person') {
+      App.schoolPacks = null;
+      renderPersonStats();
+    }
     if (App.statsView === 'school') ensureSchoolStats();
   }
 
@@ -7497,58 +7560,178 @@
     return meanOf(vals);
   }
 
-  function renderSchoolSharedColumns(rawClasses, packs) {
-    var box = document.getElementById('schoolSharedCols');
-    if (!box) return;
-    var classNamesList = (packs || []).map(function (pack) { return pack.className; });
-    var kinds = [
-      { key: 'yellow', label: '黃卷' },
-      { key: 'morning', label: '早自習' },
-      { key: 'exams', label: '段考' },
-      { key: 'labs', label: '實作評量' },
-      { key: 'practicals', label: '實作成績' }
-    ];
-    var byId = {};
+  /** 各班同一張考卷：同 id，或同類型＋同名稱＋同日期（各班分開建欄時）視為同一張。 */
+  function collectSchoolPapers(rawClasses) {
+    var byKey = {};
+    var aliasKey = {};
     (rawClasses || []).forEach(function (pack) {
       var book = pack.gradebook || {};
-      var students = pack.students || [];
-      kinds.forEach(function (kind) {
-        (book[kind.key] || []).forEach(function (col) {
-          if (!col || !col.id) return;
-          if (!byId[col.id]) {
-            byId[col.id] = {
-              id: col.id,
-              title: col.title || '未命名',
-              label: kind.label,
-              date: col.date || '',
-              avgs: {}
-            };
+      PAPER_KINDS.forEach(function (kind) {
+        (book[kind.kind] || []).forEach(function (col) {
+          if (!col) return;
+          var alias = kind.kind + '|' + (col.title || '') + '|' + (col.date || '');
+          var key = (col.id && byKey[String(col.id)]) ? String(col.id) : (aliasKey[alias] || String(col.id || alias));
+          if (!byKey[key]) {
+            byKey[key] = { id: key, kindLabel: kind.label, title: col.title || '未命名', date: col.date || '', byClass: {} };
           }
-          var avg = colAverageForStudents(col, students);
-          if (avg != null) byId[col.id].avgs[pack.className] = avg;
+          aliasKey[alias] = key;
+          byKey[key].byClass[pack.className] = { col: col, students: pack.students || [] };
         });
       });
     });
-    var shared = Object.keys(byId).map(function (id) { return byId[id]; }).filter(function (item) {
-      return Object.keys(item.avgs).length >= 2;
+    return Object.keys(byKey).map(function (key) { return byKey[key]; }).map(function (paper) {
+      var rows = [];
+      Object.keys(paper.byClass).forEach(function (cn) {
+        var entry = paper.byClass[cn];
+        entry.students.forEach(function (stu) {
+          var raw = readSeatScore(entry.col.scores, stu.seatNo);
+          rows.push({
+            className: cn,
+            seatNo: stu.seatNo,
+            name: stu.name,
+            raw: raw,
+            leave: isLeaveScore(raw),
+            score: columnScore100(entry.col, stu.seatNo),
+            max: Number(entry.col.max) || 100
+          });
+        });
+      });
+      paper.rows = rows;
+      paper.scored = rows.filter(function (r) { return r.score != null; });
+      return paper;
+    }).filter(function (paper) {
+      return paper.scored.length > 0;
     }).sort(function (a, b) {
       return String(b.date).localeCompare(String(a.date)) || String(a.title).localeCompare(String(b.title));
     });
-    if (!shared.length) {
-      box.innerHTML = '<p class="hint">在成績表「新增這一欄」後，全校各班會出現同一欄；至少兩個班有分數時，這裡會比較各班平均。</p>';
+  }
+
+  function shiftSchoolPaper(step) {
+    var papers = App.schoolPapers || [];
+    if (!papers.length) return;
+    var idx = -1;
+    papers.forEach(function (p, i) { if (p.id === App.schoolPaperId) idx = i; });
+    idx = idx < 0 ? 0 : (idx + step + papers.length) % papers.length;
+    App.schoolPaperId = papers[idx].id;
+    renderSchoolPaper();
+  }
+
+  function renderSchoolPaper() {
+    var papers = App.schoolPapers || [];
+    var classNamesList = App.schoolClassNames || [];
+    var select = document.getElementById('schoolPaperSelect');
+    var cardsEl = document.getElementById('schoolPaperCards');
+    var watchEl = document.getElementById('schoolPaperWatch');
+    var avgEl = document.getElementById('chartSchoolPaperAvg');
+    var passEl = document.getElementById('chartSchoolPaperPass');
+    var distEl = document.getElementById('chartSchoolPaperDist');
+    var bandsEl = document.getElementById('schoolPaperBands');
+    var bodyEl = document.getElementById('schoolPaperBody');
+    [document.getElementById('btnSchoolPaperPrev'), document.getElementById('btnSchoolPaperNext')].forEach(function (btn) {
+      if (btn) btn.disabled = papers.length < 2;
+    });
+    if (!papers.length) {
+      if (select) select.innerHTML = '<option value="">尚無考卷分數</option>';
+      [cardsEl, watchEl, avgEl, passEl, distEl, bandsEl].forEach(function (el) { if (el) el.innerHTML = ''; });
+      if (distEl) distEl.innerHTML = chartEmpty('各班輸入或匯入同一張考卷的分數後，這裡會比較全校');
+      if (bodyEl) bodyEl.innerHTML = '<tr><td colspan="7">尚無考卷分數</td></tr>';
       return;
     }
-    box.innerHTML = shared.map(function (item) {
-      var values = classNamesList.map(function (cn) {
-        return item.avgs[cn] == null ? 0 : item.avgs[cn];
+    var paper = papers.filter(function (p) { return p.id === App.schoolPaperId; })[0] || papers[0];
+    App.schoolPaperId = paper.id;
+    if (select) {
+      select.innerHTML = papers.map(function (p) {
+        return '<option value="' + escapeHtml(p.id) + '"' + (p.id === paper.id ? ' selected' : '') + '>' +
+          escapeHtml(p.kindLabel + '｜' + p.title + (p.date ? '（' + shortDate(p.date) + '）' : '') +
+            '　' + Object.keys(p.byClass).length + ' 班') + '</option>';
+      }).join('');
+    }
+    var scores = paper.scored.map(function (r) { return r.score; });
+    var perClass = classNamesList.map(function (cn) {
+      var list = paper.scored.filter(function (r) { return r.className === cn; });
+      var vals = list.map(function (r) { return r.score; });
+      return {
+        className: cn,
+        n: vals.length,
+        roster: paper.rows.filter(function (r) { return r.className === cn; }).length,
+        avg: vals.length ? meanOf(vals) : null,
+        pass: vals.length ? passRateOf(vals) : null,
+        bands: scoreBands(vals).bands,
+        values: vals
+      };
+    });
+    var withAvg = perClass.filter(function (c) { return c.avg != null; }).sort(function (a, b) { return b.avg - a.avg; });
+    var below = paper.scored.filter(function (r) { return r.score < 60; });
+    var leaves = paper.rows.filter(function (r) { return r.leave; });
+
+    if (cardsEl) {
+      cardsEl.innerHTML =
+        statCard('全校平均', fmtMaybe(meanOf(scores))) +
+        statCard('中位數', fmtMaybe(medianOf(scores))) +
+        statCard('標準差', stdevOf(scores)) +
+        statCard('及格率', fmtMaybe(passRateOf(scores), '%')) +
+        statCard('有成績', scores.length + ' / ' + paper.rows.length) +
+        statCard('未滿 60', below.length + ' 人');
+    }
+    if (watchEl) {
+      var cards = [];
+      cards.push(watchCard('good', '全校最高', tiedText(topTiedRows(paper.scored, 'score'), 'score', 5, true)));
+      if (withAvg.length >= 2) {
+        var gap = round1(withAvg[0].avg - withAvg[withAvg.length - 1].avg);
+        cards.push(watchCard(gap >= 10 ? 'warn' : 'info', '班級落差',
+          '最高 ' + withAvg[0].className + '（' + withAvg[0].avg + '）、最低 ' +
+          withAvg[withAvg.length - 1].className + '（' + withAvg[withAvg.length - 1].avg + '），相差 ' + gap + ' 分'));
+      }
+      var missingClasses = perClass.filter(function (c) { return c.roster && c.n < c.roster; }).map(function (c) {
+        return c.className + ' 缺 ' + (c.roster - c.n);
       });
-      var hasAny = classNamesList.some(function (cn) { return item.avgs[cn] != null; });
-      return '<figure class="chart-card">' +
-        '<figcaption>' + escapeHtml(item.label + '｜' + item.title) +
-        (item.date ? '（' + escapeHtml(shortDate(item.date)) + '）' : '') + '</figcaption>' +
-        (hasAny ? svgBars(classNamesList, values, { zeroLine: false }) : chartEmpty('還沒有分數')) +
-        '</figure>';
-    }).join('');
+      if (missingClasses.length || leaves.length) {
+        cards.push(watchCard('warn', '還沒有分數', (missingClasses.length ? missingClasses.join('、') : '') +
+          (leaves.length ? '（其中請假 ' + leaves.length + ' 人）' : '')));
+      }
+      watchEl.innerHTML = cards.join('');
+    }
+    if (avgEl) avgEl.innerHTML = svgBars(classNamesList, perClass.map(function (c) { return c.avg; }), { zeroLine: false });
+    if (passEl) {
+      passEl.innerHTML = svgBars(classNamesList, perClass.map(function (c) { return c.pass; }), {
+        zeroLine: false,
+        barColors: classNamesList.map(function () { return '#2f6f8f'; })
+      });
+    }
+    if (distEl) {
+      var dist = scoreBands(scores);
+      distEl.innerHTML = svgBars(dist.bands.map(function (b) { return b.label; }), dist.bands.map(function (b) { return b.count; }), {
+        zeroLine: false,
+        barColors: ['#2c7a4b', '#5aa576', '#d9a441', '#d9852b', '#b4413c']
+      });
+    }
+    if (bandsEl) {
+      var bandLabels = scoreBands([]).bands.map(function (b) { return b.label; });
+      bandsEl.innerHTML = '<table class="assess-table"><thead><tr><th>班級</th><th>有成績</th><th>平均</th><th>及格率</th>' +
+        bandLabels.map(function (lb) { return '<th>' + escapeHtml(lb) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+        perClass.map(function (c) {
+          return '<tr><td>' + escapeHtml(c.className) + '</td><td>' + c.n + ' / ' + c.roster + '</td><td>' +
+            fmtMaybe(c.avg) + '</td><td>' + fmtMaybe(c.pass, '%') + '</td>' +
+            c.bands.map(function (b) { return '<td>' + b.count + '</td>'; }).join('') + '</tr>';
+        }).join('') + '</tbody></table>';
+    }
+    if (bodyEl) {
+      var ranked = paper.scored.slice().sort(function (a, b) {
+        return b.score - a.score || String(a.className).localeCompare(String(b.className)) || seatOrder(a, b);
+      });
+      bodyEl.innerHTML = ranked.map(function (r) {
+        var classVals = (perClass.filter(function (c) { return c.className === r.className; })[0] || {}).values || [];
+        return '<tr data-class="' + escapeHtml(r.className) + '" data-seat="' + escapeHtml(String(r.seatNo)) + '">' +
+          '<td>' + rankAmong(r.score, scores) + '</td>' +
+          '<td>' + escapeHtml(r.className) + '</td>' +
+          '<td>' + rankAmong(r.score, classVals) + '</td>' +
+          '<td>' + escapeHtml(r.seatNo) + '</td>' +
+          '<td>' + escapeHtml(r.name) + '</td>' +
+          '<td>' + escapeHtml(String(r.raw) + ' / ' + r.max) + '</td>' +
+          '<td>' + fmtMaybe(r.score) + '</td>' +
+          '</tr>';
+      }).join('');
+    }
   }
 
   function ensureSchoolStats() {
@@ -7586,8 +7769,9 @@
     });
     var rankedTerm = people.filter(function (row) { return row.total != null; }).slice().sort(function (a, b) {
       if (b.total !== a.total) return b.total - a.total;
-      return (b.classRaw || 0) - (a.classRaw || 0);
+      return String(a.className).localeCompare(String(b.className)) || seatOrder(a, b);
     });
+    var schoolTotals = rankedTerm.map(function (row) { return row.total; });
     var byAvg = packs.filter(function (pack) { return pack.termAvg != null; }).slice().sort(function (a, b) {
       return b.termAvg - a.termAvg;
     });
@@ -7604,13 +7788,14 @@
           statCard('班級數', packs.length) +
           statCard('學生總數', people.length) +
           statCard('全校學期平均', fmtMaybe(meanOf(termScores))) +
+          statCard('全校中位數', fmtMaybe(termScores.length ? medianOf(termScores) : null)) +
           statCard('全校及格率', termScores.length ? round1(pass60 / termScores.length * 100) + '%' : '尚無學期成績') +
           statCard('上課平均加扣', fmtMaybe(meanOf(packs.map(function (pack) { return pack.classAvg; })))) +
           statCard('平時考試平均', fmtMaybe(meanOf(people.map(function (row) { return row.quiz; })))) +
           statCard('段考平均', fmtMaybe(meanOf(people.map(function (row) { return row.exam; })))) +
           statCard('作業未繳人數', people.filter(function (row) { return row.hwMissing > 0; }).length) +
           statCard('需要關心', needHelp.length) +
-          statCard('學期第一', rankedTerm[0] ? rankedTerm[0].className + ' ' + rankedTerm[0].name + '（' + rankedTerm[0].total + '）' : '—');
+          statCard('學期第一', tiedText(topTiedRows(rankedTerm, 'total'), 'total', 3, true));
       }
     }
 
@@ -7628,33 +7813,24 @@
         cards.push(watchCard('warn', '需要關心最多', mostNeed && mostNeed.needCount
           ? mostNeed.className + '　' + mostNeed.needCount + ' 人（' + peopleText(mostNeed.needHelp, 3) + '）'
           : '目前沒有明顯低分或未繳作業'));
-        cards.push(watchCard('info', '還沒有名單', emptyPacks.length
-          ? emptyPacks.map(function (pack) { return pack.className; }).join('、')
-          : '每一班都已有學生'));
+        if (emptyPacks.length) {
+          cards.push(watchCard('info', '還沒有名單', emptyPacks.map(function (pack) { return pack.className; }).join('、')));
+        }
+        var schoolTypeCards = studentTypeCards(people, true);
+        if (schoolTypeCards) cards.push(schoolTypeCards);
       }
       els.schoolWatch.innerHTML = cards.join('');
     }
 
     if (els.schoolInsights) {
       var items = [];
-      packs.forEach(function (pack) {
-        items.push(insightItem(
-          pack.className,
-          pack.count
-            ? (pack.count + ' 人　學期 ' + fmtMaybe(pack.termAvg) +
-              '　及格 ' + (pack.passRate == null ? '—' : pack.passRate + '%') +
-              '　加扣 ' + pack.classAvg)
-            : '還沒有學生'
-        ));
-      });
-      if (termScores.length) items.push(insightItem('全校學期中位數', medianOf(termScores)));
       items.push(insightItem('全校加分總和', '+' + packs.reduce(function (sum, pack) { return sum + pack.plusTotal; }, 0)));
       items.push(insightItem('全校扣分總和', String(packs.reduce(function (sum, pack) { return sum + pack.minusTotal; }, 0))));
       els.schoolInsights.innerHTML = items.join('');
     }
 
-    var termAvgs = packs.map(function (pack) { return pack.termAvg == null ? 0 : pack.termAvg; });
-    var passRates = packs.map(function (pack) { return pack.passRate == null ? 0 : pack.passRate; });
+    var termAvgs = packs.map(function (pack) { return pack.termAvg; });
+    var passRates = packs.map(function (pack) { return pack.passRate; });
     if (els.chartSchoolTermAvg) {
       els.chartSchoolTermAvg.innerHTML = packs.length
         ? svgBars(names, termAvgs, { zeroLine: false })
@@ -7680,12 +7856,12 @@
     }
     if (els.chartSchoolQuizAvg) {
       els.chartSchoolQuizAvg.innerHTML = packs.some(function (pack) { return pack.quizAvg != null; })
-        ? svgBars(names, packs.map(function (pack) { return pack.quizAvg == null ? 0 : pack.quizAvg; }), { zeroLine: false })
+        ? svgBars(names, packs.map(function (pack) { return pack.quizAvg; }), { zeroLine: false })
         : chartEmpty('輸入黃卷或早自習後，這裡會比較各班平時考試平均');
     }
     if (els.chartSchoolQuizPass) {
       els.chartSchoolQuizPass.innerHTML = packs.some(function (pack) { return pack.quizPass != null; })
-        ? svgBars(names, packs.map(function (pack) { return pack.quizPass == null ? 0 : pack.quizPass; }), {
+        ? svgBars(names, packs.map(function (pack) { return pack.quizPass; }), {
           zeroLine: false,
           barColors: names.map(function () { return '#2f6f8f'; })
         })
@@ -7693,12 +7869,12 @@
     }
     if (els.chartSchoolExamAvg) {
       els.chartSchoolExamAvg.innerHTML = packs.some(function (pack) { return pack.examAvg != null; })
-        ? svgBars(names, packs.map(function (pack) { return pack.examAvg == null ? 0 : pack.examAvg; }), { zeroLine: false })
+        ? svgBars(names, packs.map(function (pack) { return pack.examAvg; }), { zeroLine: false })
         : chartEmpty('輸入段考後，這裡會比較各班段考平均');
     }
     if (els.chartSchoolExamPass) {
       els.chartSchoolExamPass.innerHTML = packs.some(function (pack) { return pack.examPass != null; })
-        ? svgBars(names, packs.map(function (pack) { return pack.examPass == null ? 0 : pack.examPass; }), {
+        ? svgBars(names, packs.map(function (pack) { return pack.examPass; }), {
           zeroLine: false,
           barColors: names.map(function () { return '#2f6f8f'; })
         })
@@ -7721,12 +7897,14 @@
         meanOf(people.map(function (row) { return row.exam; }))
       ];
       els.chartSchoolKind.innerHTML = kindValues.some(function (n) { return n != null; })
-        ? svgBars(kindLabels, kindValues.map(function (n) { return n == null ? 0 : n; }), { zeroLine: false })
+        ? svgBars(kindLabels, kindValues, { zeroLine: false })
         : chartEmpty('打進平時或段考後，這裡會出現全校各類型平均');
     }
-    renderSchoolSharedColumns(((data && data.classes) || []).filter(function (pack) {
+    App.schoolClassNames = names;
+    App.schoolPapers = collectSchoolPapers(((data && data.classes) || []).filter(function (pack) {
       return isSchoolClassName(pack.className);
-    }), packs);
+    }));
+    renderSchoolPaper();
     if (els.chartSchoolTop) {
       var top10 = rankedTerm.slice(0, 10);
       els.chartSchoolTop.innerHTML = top10.length
@@ -7758,9 +7936,9 @@
     }
     if (els.schoolTopBody) {
       els.schoolTopBody.innerHTML = rankedTerm.length
-        ? rankedTerm.slice(0, 10).map(function (row, index) {
+        ? rankedTerm.slice(0, 10).map(function (row) {
           return '<tr data-class="' + escapeHtml(row.className) + '" data-seat="' + escapeHtml(String(row.seatNo)) + '">' +
-            '<td>' + (index + 1) + '</td>' +
+            '<td>' + rankAmong(row.total, schoolTotals) + '</td>' +
             '<td>' + escapeHtml(row.className) + '</td>' +
             '<td>' + escapeHtml(row.seatNo) + '</td>' +
             '<td>' + escapeHtml(row.name) + '</td>' +
@@ -7827,19 +8005,53 @@
     return '與全班平均相同';
   }
 
+  /** 全校排名：全校資料還沒讀過就先讀一次，讀完再重畫個人頁。 */
+  function personSchoolRank(className, person) {
+    var packs = App.schoolPacks;
+    if (!packs) {
+      if (App.statsView === 'person' && !App.schoolPersonBusy) {
+        App.schoolPersonBusy = true;
+        api('listSchoolOverview', []).then(function (data) {
+          App.schoolPersonBusy = false;
+          App.schoolPacks = ((data && data.classes) || []).filter(function (pack) {
+            return isSchoolClassName(pack.className);
+          }).map(summarizeClassPack);
+          if (App.statsView === 'person') renderPersonStats();
+        }).catch(function () {
+          App.schoolPersonBusy = false;
+          App.schoolPacks = [];
+        });
+      }
+      return { text: '讀取中…', pct: null };
+    }
+    var totals = [];
+    packs.forEach(function (pack) {
+      pack.people.forEach(function (row) { if (row.total != null) totals.push(row.total); });
+    });
+    if (person.total == null || !totals.length) return { text: '尚無學期成績', pct: null };
+    var rank = rankAmong(person.total, totals);
+    return {
+      text: rank == null ? '—' : rank + ' / ' + totals.length,
+      pct: percentileRank(person.total, totals)
+    };
+  }
+
   function personAssessItems(people, person) {
     var book = App.gradebook || emptyGradebook();
     var items = [];
     function addScore(group, cols) {
-      (cols || []).forEach(function (col) {
+      byColDate(cols).forEach(function (col) {
         var leave = isLeaveScore(readSeatScore(col.scores, person.seatNo));
         var mine = leave ? null : columnScore100(col, person.seatNo);
         var info = analyzeScoreColumn(col, people);
+        var classVals = numsOf(people.map(function (row) { return columnScore100(col, row.seatNo); }));
         items.push({
           group: group,
           title: col.title || group,
           mine: mine,
           classAvg: info.avg,
+          rank: mine == null ? null : rankAmong(mine, classVals),
+          rankOf: classVals.length,
           note: leave ? '請假' : (mine == null ? '未填' : '')
         });
       });
@@ -7849,7 +8061,7 @@
     addScore('段考', book.exams);
     addScore('實作評量', book.labs);
     addScore('實作成績', book.practicals);
-    (book.homeworks || []).forEach(function (col) {
+    byColDate(book.homeworks).forEach(function (col) {
       var result = homeworkResult(col, person.seatNo);
       var info = analyzeHomeworkColumn(col, people);
       var mine = result.status === 'missing' ? 0 : result.final;
@@ -7879,22 +8091,16 @@
     var quizAvg = meanOf(people.map(function (row) { return row.quiz; }));
     var examAvg = meanOf(people.map(function (row) { return row.exam; }));
     var classRawAvg = meanOf(people.map(function (row) { return row.classRaw; }));
-    var ranked = people.slice().sort(function (a, b) {
-      var av = a.total == null ? -999 : a.total;
-      var bv = b.total == null ? -999 : b.total;
-      if (bv !== av) return bv - av;
-      return b.classRaw - a.classRaw;
-    });
-    var rank = 1;
-    ranked.forEach(function (row, i) {
-      if (String(row.seatNo) === String(person.seatNo)) rank = i + 1;
-    });
+    var rank = rankAmong(person.total, termScores);
     var items = personAssessItems(people, person);
+    var school = personSchoolRank(model.className || teacherTargetClass(), person);
 
     if (els.personCards) {
       els.personCards.innerHTML =
         statCard('學生', person.seatNo + ' ' + person.name) +
-        statCard('班排名', rank + ' / ' + people.length) +
+        statCard('班排名', rank == null ? '尚無學期成績' : rank + ' / ' + termScores.length) +
+        statCard('全校排名', school.text) +
+        statCard('全校百分位', school.pct == null ? '—' : '贏過 ' + school.pct + '%') +
         statCard('學期總分', fmtMaybe(person.total)) +
         statCard('平時', fmtMaybe(person.usual)) +
         statCard('平時考試', fmtMaybe(person.quiz)) +
@@ -7906,6 +8112,10 @@
       var cards = [];
       cards.push(watchCard(person.total != null && termScores.length && person.total >= meanOf(termScores) ? 'good' : 'info',
         '學期表現', vsClassText(person.total, meanOf(termScores))));
+      studentTypes().forEach(function (type) {
+        var flag = (person.types || []).filter(function (t) { return t.key === type.key; })[0];
+        if (flag) cards.push(watchCard(type.tone, type.label, flag.detail + '。' + type.hint));
+      });
       cards.push(watchCard(person.trend != null && person.trend >= 1 ? 'good' : (person.trend != null && person.trend <= -1 ? 'warn' : 'info'),
         '加扣走勢', person.trend == null ? '紀錄天數還少，還看不出前後半段變化' : (person.trend >= 0 ? '後半段比前半段 +' + person.trend : '後半段比前半段 ' + person.trend)));
       cards.push(watchCard(person.hwMissing ? 'alert' : 'good',
@@ -7922,16 +8132,16 @@
       els.personWatch.innerHTML = cards.join('');
     }
 
-    var radarMine = [person.usual, person.quiz, person.exam].map(function (n) { return n == null ? 0 : n; });
-    var radarClass = [usualAvg, quizAvg, examAvg].map(function (n) { return n == null ? 0 : n; });
-    var hasRadar = person.usual != null || person.quiz != null || person.exam != null;
+    var radarMine = [person.usual, person.quiz, person.exam];
+    var radarClass = [usualAvg, quizAvg, examAvg];
+    var hasRadar = radarMine.every(function (n, i) { return n != null && radarClass[i] != null; });
     if (els.chartPersonRadar) {
       els.chartPersonRadar.innerHTML = hasRadar
         ? svgRadar(['平時', '平時考試', '段考'], [
           { label: '自己', color: '#2f6f8f', fill: 'rgba(47,111,143,0.22)', values: radarMine },
           { label: '全班平均', color: '#9aa8b0', fill: 'rgba(154,168,176,0.12)', values: radarClass }
         ])
-        : chartEmpty('有平時或考試成績後，這裡會出現雷達圖');
+        : chartEmpty('平時、平時考試、段考三項都有成績後才畫雷達圖；目前請看右邊的比較圖');
     }
     if (els.chartPersonVsClass) {
       els.chartPersonVsClass.innerHTML = svgPairBars(
@@ -7997,10 +8207,11 @@
     }
     if (els.personAssessTable) {
       els.personAssessTable.innerHTML = items.length
-        ? '<table class="assess-table"><thead><tr><th>類型</th><th>名稱</th><th>自己</th><th>全班平均</th><th>比較</th><th>備註</th></tr></thead><tbody>' +
+        ? '<table class="assess-table"><thead><tr><th>類型</th><th>名稱</th><th>自己</th><th>班排</th><th>全班平均</th><th>比較</th><th>備註</th></tr></thead><tbody>' +
           items.map(function (it) {
             return '<tr><td>' + escapeHtml(it.group) + '</td><td>' + escapeHtml(it.title) + '</td><td>' +
-              fmtMaybe(it.mine) + '</td><td>' + fmtMaybe(it.classAvg) + '</td><td>' +
+              fmtMaybe(it.mine) + '</td><td>' + (it.rank == null ? '—' : it.rank + ' / ' + it.rankOf) + '</td><td>' +
+              fmtMaybe(it.classAvg) + '</td><td>' +
               escapeHtml(vsClassText(it.mine, it.classAvg)) + '</td><td>' +
               escapeHtml(it.note || '') + '</td></tr>';
           }).join('') + '</tbody></table>'
@@ -8022,7 +8233,7 @@
     var chartLabels = [];
     var chartValues = [];
     groups.forEach(function (group) {
-      group.cols.forEach(function (col) {
+      byColDate(group.cols).forEach(function (col) {
         if (group.homework) {
           var hw = analyzeHomeworkColumn(col, people);
           rows.push('<tr><td>' + escapeHtml(group.label) + '</td><td>' + escapeHtml(hw.title) + '</td><td>' +
@@ -8065,9 +8276,9 @@
     var chartLabels = [];
     var chartValues = [];
     (groups || []).forEach(function (group) {
-      (group.cols || []).forEach(function (col, index) {
+      byColDate(group.cols).forEach(function (col) {
         var info = analyzeScoreColumn(col, people);
-        var paperKey = group.kind ? paperKeyOf(group.kind, col, index) : '';
+        var paperKey = group.kind ? paperKeyOf(group.kind, col, (group.cols || []).indexOf(col)) : '';
         rows.push('<tr' + (paperKey
           ? ' class="paper-link" data-paper-key="' + escapeHtml(paperKey) + '" title="點一下看這張考卷的個別統計"'
           : '') + '><td>' + escapeHtml(group.label) + '</td><td>' + escapeHtml(info.title) + '</td><td>' +
@@ -8106,7 +8317,7 @@
           statCard('中位數', fmtMaybe(medianOf(scores))) +
           statCard('有成績', scores.length + ' / ' + people.length) +
           statCard('未滿 60', below) +
-          statCard('目前第一', ranked[0] ? ranked[0].name + '（' + ranked[0][opts.scoreKey] + '）' : '—')
+          statCard('目前第一', tiedText(topTiedRows(ranked, opts.scoreKey), opts.scoreKey, 3))
         : statCard(opts.avgLabel, '尚無資料');
     }
     var chart = paintKindAssessTable(opts.tableEl, opts.groups, people);
@@ -8188,10 +8399,11 @@
     var book = App.gradebook || emptyGradebook();
     var out = [];
     PAPER_KINDS.forEach(function (meta) {
-      var cols = book[meta.kind] || [];
+      var raw = book[meta.kind] || [];
+      var cols = byColDate(raw);
       cols.forEach(function (col, index) {
         out.push({
-          key: paperKeyOf(meta.kind, col, index),
+          key: paperKeyOf(meta.kind, col, raw.indexOf(col)),
           kind: meta.kind,
           kindLabel: meta.label,
           col: col,
@@ -8281,7 +8493,7 @@
       };
     });
     var scored = rows.filter(function (r) { return r.score != null; })
-      .sort(function (a, b) { return b.score - a.score; });
+      .sort(function (a, b) { return b.score - a.score || seatOrder(a, b); });
     var scores = scored.map(function (r) { return r.score; });
     var avg = info.avg;
     var prevInfo = current.prev ? analyzeScoreColumn(current.prev, people) : null;
@@ -8306,9 +8518,7 @@
 
     if (watchEl) {
       var cards = [];
-      cards.push(watchCard('good', '最高分', scored.length
-        ? scored.slice(0, 3).map(function (r) { return r.seatNo + ' ' + r.name + '（' + r.score + '）'; }).join('、')
-        : '尚無'));
+      cards.push(watchCard('good', '最高分', scored.length ? tiedText(topTiedRows(scored, 'score'), 'score', 5) : '尚無'));
       if (full.length) cards.push(watchCard('good', '滿分', peopleText(full, 5)));
       cards.push(watchCard(low.length ? 'alert' : 'good', '未滿 60 分', low.length
         ? low.slice(0, 5).map(function (r) { return r.seatNo + ' ' + r.name + '（' + r.score + '）'; }).join('、') +
@@ -8359,7 +8569,7 @@
     if (bodyEl) {
       var ordered = scored.concat(rows.filter(function (r) { return r.score == null; }));
       bodyEl.innerHTML = ordered.length ? ordered.map(function (r) {
-        var rank = r.score != null ? scored.indexOf(r) + 1 : '—';
+        var rank = r.score != null ? rankAmong(r.score, scores) : '—';
         var diff = r.score != null && avg != null ? round1(r.score - avg) : null;
         var diffCls = diff == null ? '' : (diff >= 0 ? 'day-plus' : 'day-minus');
         var deltaCls = r.delta == null ? '' : (r.delta >= 0 ? 'day-plus' : 'day-minus');
@@ -8460,6 +8670,45 @@
     return (list || []).filter(function (n) { return n != null && isFinite(n); });
   }
 
+  /** 成績欄依考試日期排；沒填日期的放後面、維持原本順序。 */
+  function byColDate(cols) {
+    return (cols || []).map(function (col, i) { return { col: col, i: i }; }).sort(function (a, b) {
+      var da = a.col && a.col.date ? String(a.col.date) : '';
+      var db = b.col && b.col.date ? String(b.col.date) : '';
+      if (da && db && da !== db) return da < db ? -1 : 1;
+      if (!da !== !db) return da ? -1 : 1;
+      return a.i - b.i;
+    }).map(function (item) { return item.col; });
+  }
+
+  /** 同分同名次（95、95、90 → 1、1、3）；沒有分數回 null。 */
+  function rankAmong(value, values) {
+    if (value == null || !isFinite(value)) return null;
+    var rank = 1;
+    (values || []).forEach(function (v) {
+      if (v != null && isFinite(v) && v > value) rank += 1;
+    });
+    return rank;
+  }
+
+  function topTiedRows(rows, key) {
+    var list = (rows || []).filter(function (row) { return row[key] != null && isFinite(row[key]); });
+    if (!list.length) return [];
+    var best = Math.max.apply(null, list.map(function (row) { return row[key]; }));
+    return list.filter(function (row) { return row[key] === best; }).sort(function (a, b) {
+      return String(a.className || '').localeCompare(String(b.className || '')) || seatOrder(a, b);
+    });
+  }
+
+  function tiedText(rows, key, limit, withClass) {
+    if (!rows.length) return '—';
+    limit = limit || 3;
+    var names = rows.slice(0, limit).map(function (row) {
+      return (withClass && row.className ? row.className + ' ' : '') + row.seatNo + ' ' + row.name;
+    });
+    return names.join('、') + (rows.length > limit ? ' 等 ' + rows.length + ' 人' : '') + '（' + rows[0][key] + '）';
+  }
+
   function percentileRank(value, list) {
     var nums = numsOf(list).slice().sort(function (a, b) { return a - b; });
     if (value == null || !nums.length) return null;
@@ -8513,7 +8762,7 @@
     var book = App.gradebook || emptyGradebook();
     var out = [];
     function push(group, cols, homework) {
-      (cols || []).forEach(function (col) {
+      byColDate(cols).forEach(function (col) {
         out.push({ group: group, col: col, homework: !!homework, title: col.title || group });
       });
     }
@@ -8524,6 +8773,14 @@
     push('實作成績', book.practicals);
     push('作業', book.homeworks, true);
     return out;
+  }
+
+  /** 不分類型、全部依日期排（各類型內原本順序不變）。 */
+  function specsByDate(specs) {
+    var list = specs || [];
+    return byColDate(list.map(function (spec) { return spec.col; })).map(function (col) {
+      return list.filter(function (spec) { return spec.col === col; })[0];
+    });
   }
 
   function scoreForColumn(colSpec, seatNo) {
@@ -8549,12 +8806,12 @@
   function assessKinds() {
     var book = App.gradebook || emptyGradebook();
     return [
-      { key: 'yellow', label: '黃卷', cols: book.yellow || [], homework: false },
-      { key: 'morning', label: '早自習', cols: book.morning || [], homework: false },
-      { key: 'exam', label: '段考', cols: book.exams || [], homework: false },
-      { key: 'lab', label: '實作評量', cols: book.labs || [], homework: false },
-      { key: 'practical', label: '實作成績', cols: book.practicals || [], homework: false },
-      { key: 'homework', label: '作業', cols: book.homeworks || [], homework: true }
+      { key: 'yellow', label: '黃卷', cols: byColDate(book.yellow), homework: false },
+      { key: 'morning', label: '早自習', cols: byColDate(book.morning), homework: false },
+      { key: 'exam', label: '段考', cols: byColDate(book.exams), homework: false },
+      { key: 'lab', label: '實作評量', cols: byColDate(book.labs), homework: false },
+      { key: 'practical', label: '實作成績', cols: byColDate(book.practicals), homework: false },
+      { key: 'homework', label: '作業', cols: byColDate(book.homeworks), homework: true }
     ];
   }
 
@@ -8623,6 +8880,23 @@
 
   function renderAdvancedClassCharts(model, people) {
     var cols = listAssessColumns();
+    var datedSpecs = specsByDate(cols);
+    var trendEl = document.getElementById('chartOverviewTrend');
+    if (trendEl) {
+      var trendSpecs = datedSpecs.filter(function (spec) { return !spec.homework; });
+      var trendAvg = [];
+      var trendPass = [];
+      trendSpecs.forEach(function (spec) {
+        var vals = numsOf(people.map(function (stu) { return scoreForColumn(spec, stu.seatNo); }));
+        trendAvg.push(meanOf(vals));
+        trendPass.push(passRateOf(vals));
+      });
+      trendEl.innerHTML = trendAvg.some(function (n) { return n != null; })
+        ? svgLine(trendSpecs.map(function (spec) {
+          return spec.group + (spec.col.date ? ' ' + shortDate(spec.col.date) : '');
+        }), trendAvg, { compare: trendPass, compareColor: '#9aa8b0' })
+        : chartEmpty('輸入黃卷、早自習、段考或實作後，這裡會依日期畫出全班平均走勢');
+    }
     if (els.chartKindAvg) {
       var kindLabels = [];
       var kindVals = [];
@@ -8716,7 +8990,7 @@
         : chartEmpty('同一類型打兩次以上後，這裡會列出進步或退步最多的同學');
     }
     if (els.chartHeat) {
-      var heatCols = cols.slice(0, 14);
+      var heatCols = datedSpecs.slice(-14);
       if (!heatCols.length || !people.length) {
         els.chartHeat.innerHTML = chartEmpty('輸入黃卷、作業或段考後，這裡會用顏色看出誰強誰弱');
       } else {
@@ -8745,6 +9019,7 @@
     var max = 0;
     var min = 0;
     values.forEach(function (v) {
+      if (v == null || !isFinite(v)) return;
       if (v > max) max = v;
       if (v < min) min = v;
     });
@@ -8756,6 +9031,10 @@
     var bw = Math.max(5, iw / Math.max(labels.length, 1) - gap);
     var bars = values.map(function (v, i) {
       var x = l + (i + 0.5) * (iw / Math.max(labels.length, 1)) - bw / 2;
+      if (v == null || !isFinite(v)) {
+        return '<text x="' + (x + bw / 2) + '" y="' + (zeroY - 4) + '" text-anchor="middle" font-size="11" fill="#9aa8b0">無<title>' +
+          escapeHtml(labels[i] + '：尚無資料') + '</title></text>';
+      }
       var y1 = yOf(v);
       var top = Math.min(y1, zeroY);
       var height = Math.max(2, Math.abs(y1 - zeroY));
