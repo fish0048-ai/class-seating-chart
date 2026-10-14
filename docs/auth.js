@@ -78,13 +78,12 @@
   function renderAccount() {
     var text = '';
     if (user && user.email) {
-      text = (user.teacher ? '教師' : '檢視') + ' · ' + user.email;
+      text = '教師 · ' + user.email;
     }
     document.querySelectorAll('[data-account-label]').forEach(function (el) {
       el.textContent = text;
     });
     document.body.classList.toggle('role-teacher', !!(user && user.teacher));
-    document.body.classList.toggle('role-viewer', !!(user && user.email && !user.teacher));
     document.body.classList.toggle('teacher-on', !!(user && user.teacher));
   }
 
@@ -104,14 +103,32 @@
     booted = true;
   }
 
+  function rejectNonTeacher(email) {
+    user = null;
+    try {
+      if (window.google && google.accounts && google.accounts.id) {
+        google.accounts.id.disableAutoSelect();
+      }
+    } catch (err) {}
+    renderAccount();
+    showGate(true);
+    var hint = document.getElementById('loginGateHint');
+    if (hint) {
+      hint.textContent = '這個帳號（' + String(email || '') + '）沒有權限。請改用教師帳號：' + teacherEmails().join('、');
+    }
+  }
+
   function verifyThenApply(token) {
     var claims = parseJwt(token);
     if (!claims || !claims.email) {
       return Promise.reject(new Error('Google 登入沒有信箱，請改用其他帳號'));
     }
-    var teacherGuess = isTeacherEmail(claims.email);
+    if (!isTeacherEmail(claims.email)) {
+      rejectNonTeacher(claims.email);
+      return Promise.resolve(null);
+    }
     // 立刻進畫面並載入資料；不要同時打 verifyAuth，否則會跟 getStore 搶 Apps Script（常逾時）
-    applyUser(token, claims, teacherGuess);
+    applyUser(token, claims, true);
     scheduleServerVerify_(token);
     return Promise.resolve(user);
   }
@@ -124,8 +141,11 @@
       CloudStore.verifyAuth(token).then(function (data) {
         if (!user || user.idToken !== token) return;
         if (data && data.email) {
+          if (!data.teacher) {
+            rejectNonTeacher(data.email);
+            return;
+          }
           user.email = String(data.email).trim().toLowerCase();
-          user.teacher = !!data.teacher;
           renderAccount();
           if (onSignedInCb) onSignedInCb(user, true);
         }
@@ -319,9 +339,6 @@
     },
     isTeacher: function () {
       return !!(user && user.teacher);
-    },
-    isViewer: function () {
-      return !!(user && user.email && !user.teacher);
     },
     getIdToken: function () {
       return user && user.idToken ? user.idToken : '';

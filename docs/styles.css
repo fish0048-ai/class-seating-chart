@@ -3206,19 +3206,3 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-
-  body.role-viewer [data-app-view="teacher"],
-  body.role-viewer #btnDatabase,
-  body.role-viewer #app > .toolbar,
-  body.role-viewer #labBar,
-  body.role-viewer #groupBar,
-  body.role-viewer #btnGroup,
-  body.role-viewer #btnTimer,
-  body.role-viewer #timerPanel .timer-controls,
-  body.role-viewer #rankEmpty {
-    display: none !important;
-  }
-
-  body.role-viewer .board .seat-card {
-    cursor: default;
-  }

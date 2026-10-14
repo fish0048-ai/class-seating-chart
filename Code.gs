@@ -61,15 +61,13 @@ var HW_TEACHER_ACTIONS_ = {
   hwListStudents: true
 };
 
-const MAX_HISTORY_ROWS = 800;
-
 /** 你的座位表／成績資料庫（Google 試算表 ID）。課表不在這份裡。 */
 const SPREADSHEET_ID = '1AES93Jv8l65YI2LQ-scVRPqYSLFxtVOD-UqIU99gQSA';
 
 /** 上課課表試算表（只讀）。請與 docs/config.js 的 timetableId 保持一致。 */
 const TIMETABLE_SPREADSHEET_ID = '13VrWBx6hoKpUON_JNxIrynH_gyRV8HnhUt0MMscjkWg';
 
-/** 只有這些 Google 帳號能改資料、進教師模式。其餘登入只能看。 */
+/** 只有這些 Google 帳號能讀寫資料；其他帳號一律拒絕。 */
 const TEACHER_EMAILS = ['chunhsinkuo@kcis.hc.edu.tw', 'chiajungtu@kcis.hc.edu.tw'];
 
 /**
@@ -77,19 +75,6 @@ const TEACHER_EMAILS = ['chunhsinkuo@kcis.hc.edu.tw', 'chiajungtu@kcis.hc.edu.tw
  * 與 docs/config.js 的 googleClientId 相同。還沒填時仍會檢查 Google 登入信箱。
  */
 const GOOGLE_CLIENT_ID = '556988999591-tc3b8orn6ov3guinfiq5p0c9u6g0n802.apps.googleusercontent.com';
-
-var WRITE_ACTIONS_ = {
-  save: true,
-  layout: true,
-  score: true,
-  undo: true,
-  settings: true,
-  students: true,
-  clearClass: true,
-  lottery: true,
-  putStore: true,
-  repairGroups: true
-};
 
 function googleClientId_() {
   var fromCode = String(GOOGLE_CLIENT_ID || '').trim();
@@ -133,8 +118,10 @@ function authorizeScript() {
       muteHttpExceptions: true,
       followRedirects: true
     });
+    // 存檔後延遲寫出成績工作表要用時間觸發器
+    ScriptApp.getProjectTriggers();
     SpreadsheetApp.getUi().alert(
-      '已允許連線外部服務。\n\n請再到 Apps Script「部署 → 管理部署 → 編輯」，版本選「新版本」，執行身分「我」、對象「任何人」。網址不要換。'
+      '已允許連線外部服務與觸發器。\n\n請再到 Apps Script「部署 → 管理部署 → 編輯」，版本選「新版本」，執行身分「我」、對象「任何人」。網址不要換。'
     );
   } catch (err) {
     SpreadsheetApp.getUi().alert(
@@ -148,7 +135,7 @@ function verifyIdToken_(idToken) {
   idToken = String(idToken || '').trim();
   if (!idToken) throw new Error('請先用 Google 帳號登入');
 
-  // 短時間快取，避免登入當下 verifyAuth 與 getStore 各打一次 Google
+  // 快取到憑證到期，背景輪詢不必每次都打 Google tokeninfo
   var cache = CacheService.getScriptCache();
   var digest = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, idToken);
   var cacheKey = 'idtok:' + Utilities.base64EncodeWebSafe(digest).substring(0, 80);
@@ -156,7 +143,7 @@ function verifyIdToken_(idToken) {
   if (cached) {
     try {
       var hit = JSON.parse(cached);
-      if (hit && hit.email) return hit;
+      if (hit && hit.email && (!hit.exp || hit.exp * 1000 > Date.now())) return hit;
     } catch (ignore) {}
   }
 
@@ -179,13 +166,19 @@ function verifyIdToken_(idToken) {
   }
   var email = String(data.email || '').trim().toLowerCase();
   if (!email) throw new Error('Google 登入沒有信箱');
+  var exp = Number(data.exp) || 0;
   var user = {
     email: email,
-    teacher: teacherEmailList_().indexOf(email) >= 0
+    teacher: teacherEmailList_().indexOf(email) >= 0,
+    exp: exp
   };
-  try {
-    cache.put(cacheKey, JSON.stringify(user), 300);
-  } catch (cacheErr) {}
+  var ttl = exp ? Math.floor(exp - Date.now() / 1000) : 300;
+  ttl = Math.min(3600, ttl);
+  if (ttl > 0) {
+    try {
+      cache.put(cacheKey, JSON.stringify(user), ttl);
+    } catch (cacheErr) {}
+  }
   return user;
 }
 
@@ -195,33 +188,14 @@ function verifyAuthPayload_(idToken) {
 }
 
 /**
- * GitHub Pages 前端會呼叫這個 API。
- * GET  ?action=bootstrap&callback=seatCb123
- * POST { "action": "save", "payload": {...} }
+ * 網頁前端會呼叫這個 API（都要教師 idToken）。
+ * POST { "action": "getStore" | "getStoreMeta" | "putStore" | "getTimetable" | "repairGroups", "idToken": "..." }
+ * GET  ?action=getStore&idToken=...&callback=seatCb123（JSONP 備援）
  */
 function doGet(e) {
   e = e || { parameter: {} };
-  var assignmentId = String((e.parameter && e.parameter.assignment) || '').trim();
-  if (assignmentId) {
-    if (!/^HW\d+$/i.test(assignmentId)) {
-      return HtmlService.createHtmlOutput('作業編號無效').setTitle('作業檢核');
-    }
-    ensureHwSheets_(getSs_());
-    var tpl = HtmlService.createTemplateFromFile('HwStudent');
-    tpl.assignmentId = assignmentId;
-    tpl.googleClientId = googleClientId_();
-    return tpl.evaluate()
-      .setTitle('作業檢核')
-      .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover')
-      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
-  }
-  if (e.parameter.view === 'app') {
-    ensureSheets_(getSs_());
-    return HtmlService.createTemplateFromFile('Index')
-      .evaluate()
-      .setTitle('班級座位表')
-      .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover')
-      .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
+  if (e.parameter && e.parameter.assignment) {
+    return HtmlService.createHtmlOutput('作業檢核已停用，請洽老師。').setTitle('作業檢核');
   }
   return apiResponse_(handleRequest_(collectParams_(e)), e);
 }
@@ -242,10 +216,6 @@ function doPost(e) {
     }
   });
   return apiResponse_(handleRequest_(body), e);
-}
-
-function include(filename) {
-  return HtmlService.createHtmlOutputFromFile(filename).getContent();
 }
 
 function collectParams_(e) {
@@ -273,74 +243,32 @@ function parseMaybeJson_(value) {
 function handleRequest_(req) {
   try {
     req = req || {};
-    var action = String(req.action || 'bootstrap');
+    var action = String(req.action || 'getStore');
     if (action === 'verifyAuth') {
       return verifyAuthPayload_(req.idToken);
     }
     if (HW_STUDENT_ACTIONS_[action]) {
-      ensureHwSheets_(getSs_());
-      return handleHwStudent_(req, action);
+      return { ok: false, error: '作業檢核學生端已停用' };
     }
     var user = verifyIdToken_(req.idToken);
-    if ((action === 'getStore' || action === 'bootstrap' || action === 'load') && !user) {
-      throw new Error('請先用 Google 帳號登入');
-    }
-    if (WRITE_ACTIONS_[action] && (!user || !user.teacher)) {
-      throw new Error('只有教師可以修改資料');
+    // 整包資料含全部學生成績：讀與寫都只開放教師帳號
+    if (!user || !user.teacher) {
+      throw new Error('這個帳號沒有權限，請改用教師 Google 帳號登入');
     }
     var payload = parseMaybeJson_(req.payload);
-    if (payload && typeof payload === 'object' && !req.className && payload.className) {
-      var merged = {};
-      Object.keys(payload).forEach(function (key) { merged[key] = payload[key]; });
-      Object.keys(req).forEach(function (key) { merged[key] = req[key]; });
-      req = merged;
-    }
     switch (action) {
-      case 'bootstrap':
-        return getBootstrapData();
-      case 'load':
-        return loadClassroom(req.className || req.class || '');
-      case 'save':
-        return saveClassroomState(payload && payload.className ? payload : req);
-      case 'layout':
-        return saveLayout(payload && payload.className ? payload : req);
-      case 'score':
-        return applyScoreChange({
-          className: req.className,
-          seatNo: req.seatNo,
-          delta: Number(req.delta)
-        });
-      case 'undo':
-        return undoLastAction(req.className);
-      case 'settings':
-        return saveSettings({
-          className: req.className,
-          rows: req.rows,
-          cols: req.cols
-        });
-      case 'students':
-        return upsertStudents({
-          className: req.className,
-          students: parseMaybeJson_(req.students) || (payload && payload.students) || payload || []
-        });
-      case 'clearClass':
-        return clearClassStudents(req.className);
-      case 'lottery':
-        return logLottery(req);
       case 'getStore':
         return getCloudStore();
       case 'getStoreMeta':
         return getCloudStoreMeta();
       case 'getTimetable':
-        if (!user) throw new Error('請先用 Google 帳號登入');
-        return getTimetableApi_();
+        return getTimetableApi_(req.fresh === true || req.fresh === 'true' || req.fresh === '1');
       case 'putStore':
         return putCloudStore(req.store || payload);
       case 'repairGroups':
         return repairGroupsApi_();
       default:
         if (HW_TEACHER_ACTIONS_[action]) {
-          if (!user || !user.teacher) throw new Error('只有教師可以修改資料');
           ensureHwSheets_(getSs_());
           return handleHwTeacher_(req, action, user);
         }
@@ -370,6 +298,7 @@ function onOpen() {
     .addItem('開啟座位表網頁', 'openSeatingApp')
     .addItem('授權連線外部服務（驗證登入）', 'authorizeScript')
     .addItem('初始化／修復工作表', 'setupSheets')
+    .addItem('立即更新成績／學生工作表', 'refreshReadableSheets')
     .addToUi();
 }
 
@@ -391,317 +320,6 @@ function setupSheets() {
   SpreadsheetApp.getActive().toast('工作表已就緒', '座位表');
 }
 
-/**
- * 前端啟動時一次載入所有班級資料。
- */
-function getBootstrapData() {
-  return withLock_(function () {
-    const ss = getSs_();
-    ensureSheets_(ss);
-    const classNames = listClassNames_(ss);
-    const className = classNames[0] || '範例班';
-    return {
-      ok: true,
-      classNames: classNames,
-      classroom: loadClassroom_(ss, className)
-    };
-  });
-}
-
-function loadClassroom(className) {
-  return withLock_(function () {
-    const ss = getSs_();
-    ensureSheets_(ss);
-    return {
-      ok: true,
-      classNames: listClassNames_(ss),
-      classroom: loadClassroom_(ss, className)
-    };
-  });
-}
-
-/**
- * 一鍵存檔：座位座標、分數、行列設定。
- */
-function saveClassroomState(state) {
-  return withLock_(function () {
-    const ss = getSs_();
-    ensureSheets_(ss);
-    const classroom = normalizeIncomingState_(state);
-    persistClassroom_(ss, classroom, true);
-    appendHistory_(ss, {
-      className: classroom.className,
-      type: '存檔',
-      seatNo: '',
-      name: '',
-      delta: 0,
-      newScore: '',
-      detail: '一鍵存檔（座位與分數）',
-      undoable: false
-    });
-    return {
-      ok: true,
-      classroom: loadClassroom_(ss, classroom.className),
-      classNames: listClassNames_(ss)
-    };
-  });
-}
-
-/**
- * 加分／扣分。立即寫入試算表，方便其他載具同步。
- */
-function applyScoreChange(payload) {
-  return withLock_(function () {
-    const ss = getSs_();
-    ensureSheets_(ss);
-    const className = String(payload.className || '').trim();
-    const seatNo = String(payload.seatNo || '').trim();
-    const delta = Number(payload.delta);
-    if (!className || !seatNo || !isFinite(delta) || delta === 0) {
-      throw new Error('加扣分資料不完整');
-    }
-
-    const classroom = loadClassroom_(ss, className);
-    const student = classroom.students.find(function (s) {
-      return String(s.seatNo) === seatNo;
-    });
-    if (!student) {
-      throw new Error('找不到座號 ' + seatNo);
-    }
-
-    const oldScore = Number(student.score) || 0;
-    student.score = oldScore + delta;
-    persistClassroom_(ss, classroom, false);
-    appendHistory_(ss, {
-      className: className,
-      type: delta > 0 ? '加分' : '扣分',
-      seatNo: seatNo,
-      name: student.name,
-      delta: delta,
-      newScore: student.score,
-      detail: (delta > 0 ? '+' : '') + delta,
-      undoable: true
-    });
-
-    return {
-      ok: true,
-      classroom: loadClassroom_(ss, className)
-    };
-  });
-}
-
-/**
- * 復原上一筆可復原的加扣分。
- */
-function undoLastAction(className) {
-  return withLock_(function () {
-    const ss = getSs_();
-    ensureSheets_(ss);
-    className = String(className || '').trim();
-    const sheet = ss.getSheetByName(SHEETS.HISTORY);
-    const lastRow = sheet.getLastRow();
-    if (lastRow < 2) {
-      throw new Error('沒有可復原的紀錄');
-    }
-
-    const values = sheet.getRange(2, 1, lastRow - 1, HEADERS.HISTORY.length).getValues();
-    let targetIndex = -1;
-    for (let i = values.length - 1; i >= 0; i--) {
-      const row = values[i];
-      if (String(row[1]) === className && row[8] === true && row[9] !== true) {
-        targetIndex = i;
-        break;
-      }
-    }
-    if (targetIndex < 0) {
-      throw new Error('沒有可復原的加扣分');
-    }
-
-    const row = values[targetIndex];
-    const seatNo = String(row[3]);
-    const delta = Number(row[5]) || 0;
-    const classroom = loadClassroom_(ss, className);
-    const student = classroom.students.find(function (s) {
-      return String(s.seatNo) === seatNo;
-    });
-    if (!student) {
-      throw new Error('找不到要復原的學生');
-    }
-
-    student.score = (Number(student.score) || 0) - delta;
-    persistClassroom_(ss, classroom, false);
-    sheet.getRange(targetIndex + 2, 10).setValue(true);
-    appendHistory_(ss, {
-      className: className,
-      type: '復原',
-      seatNo: seatNo,
-      name: student.name,
-      delta: -delta,
-      newScore: student.score,
-      detail: '復原 ' + (delta > 0 ? '+' : '') + delta,
-      undoable: false
-    });
-
-    return {
-      ok: true,
-      classroom: loadClassroom_(ss, className),
-      undone: {
-        seatNo: seatNo,
-        name: student.name,
-        reversedDelta: -delta
-      }
-    };
-  });
-}
-
-function saveLayout(payload) {
-  return withLock_(function () {
-    const ss = getSs_();
-    ensureSheets_(ss);
-    const incoming = normalizeIncomingState_(payload);
-    const current = loadClassroom_(ss, incoming.className);
-    const scoreBySeat = {};
-    current.students.forEach(function (s) {
-      scoreBySeat[String(s.seatNo)] = s.score;
-    });
-    incoming.rows = current.rows;
-    incoming.cols = current.cols;
-    incoming.students.forEach(function (s) {
-      if (Object.prototype.hasOwnProperty.call(scoreBySeat, String(s.seatNo))) {
-        s.score = scoreBySeat[String(s.seatNo)];
-      }
-    });
-    persistClassroom_(ss, incoming, false);
-    return {
-      ok: true,
-      classroom: loadClassroom_(ss, incoming.className)
-    };
-  });
-}
-
-function saveSettings(payload) {
-  return withLock_(function () {
-    const ss = getSs_();
-    ensureSheets_(ss);
-    const className = String(payload.className || '').trim();
-    if (!className) {
-      throw new Error('請輸入班級名稱');
-    }
-    const rows = clampInt_(payload.rows, 1, 20, 6);
-    const cols = clampInt_(payload.cols, 1, 16, 7);
-    const existing = loadClassroom_(ss, className);
-    existing.rows = rows;
-    existing.cols = cols;
-    persistClassroom_(ss, existing, true);
-    return {
-      ok: true,
-      classNames: listClassNames_(ss),
-      classroom: loadClassroom_(ss, className)
-    };
-  });
-}
-
-function upsertStudents(payload) {
-  return withLock_(function () {
-    const ss = getSs_();
-    ensureSheets_(ss);
-    const className = String(payload.className || '').trim();
-    if (!className) {
-      throw new Error('請輸入班級名稱');
-    }
-    const incoming = Array.isArray(payload.students) ? payload.students : [];
-    if (!incoming.length) {
-      throw new Error('請至少輸入一位學生');
-    }
-
-    const classroom = loadClassroom_(ss, className);
-    const bySeat = {};
-    classroom.students.forEach(function (s) {
-      bySeat[String(s.seatNo)] = s;
-    });
-
-    incoming.forEach(function (raw) {
-      const seatNo = String(raw.seatNo || '').trim();
-      const name = String(raw.name || '').trim();
-      if (!seatNo || !name) {
-        return;
-      }
-      const current = bySeat[seatNo];
-      if (current) {
-        current.name = name;
-        if (raw.score !== undefined && raw.score !== '') {
-          current.score = Number(raw.score) || 0;
-        }
-      } else {
-        bySeat[seatNo] = {
-          seatNo: seatNo,
-          name: name,
-          score: Number(raw.score) || 0,
-          row: null,
-          col: null,
-          note: String(raw.note || '')
-        };
-      }
-    });
-
-    classroom.students = Object.keys(bySeat).map(function (key) {
-      return bySeat[key];
-    });
-    autoPlace_(classroom);
-    persistClassroom_(ss, classroom, true);
-    return {
-      ok: true,
-      classNames: listClassNames_(ss),
-      classroom: loadClassroom_(ss, className)
-    };
-  });
-}
-
-function clearClassStudents(className) {
-  return withLock_(function () {
-    const ss = getSs_();
-    ensureSheets_(ss);
-    className = String(className || '').trim();
-    if (!className) {
-      throw new Error('缺少班級名稱');
-    }
-    const classroom = loadClassroom_(ss, className);
-    classroom.students = [];
-    persistClassroom_(ss, classroom, true);
-    appendHistory_(ss, {
-      className: className,
-      type: '清空名單',
-      seatNo: '',
-      name: '',
-      delta: 0,
-      newScore: '',
-      detail: '上傳名單前清空本班學生',
-      undoable: false
-    });
-    return {
-      ok: true,
-      classNames: listClassNames_(ss),
-      classroom: loadClassroom_(ss, className)
-    };
-  });
-}
-
-function logLottery(payload) {
-  const ss = getSs_();
-  ensureSheets_(ss);
-  appendHistory_(ss, {
-    className: String(payload.className || ''),
-    type: '抽籤',
-    seatNo: String(payload.seatNo || ''),
-    name: String(payload.name || ''),
-    delta: 0,
-    newScore: '',
-    detail: payload.detail || '隨機抽籤',
-    undoable: false
-  });
-  return { ok: true };
-}
-
 function getSs_() {
   if (SPREADSHEET_ID) {
     return SpreadsheetApp.openById(SPREADSHEET_ID);
@@ -709,8 +327,48 @@ function getSs_() {
   return SpreadsheetApp.getActiveSpreadsheet();
 }
 
+var TIMETABLE_CACHE_SECS_ = 600;
+var TIMETABLE_CACHE_PART_ = 90000;
+
+/** 課表很少變：快取 10 分鐘。CacheService 單筆上限 100KB，所以分段存。 */
+function getTimetableApi_(fresh) {
+  var cache = CacheService.getScriptCache();
+  if (!fresh) {
+    try {
+      var count = Number(cache.get('tt:n') || 0);
+      if (count > 0) {
+        var keys = [];
+        for (var i = 0; i < count; i++) keys.push('tt:' + i);
+        var parts = cache.getAll(keys);
+        var text = '';
+        var complete = keys.every(function (k) {
+          if (parts[k] == null) return false;
+          text += parts[k];
+          return true;
+        });
+        if (complete) {
+          var hit = JSON.parse(text);
+          hit.cached = true;
+          return hit;
+        }
+      }
+    } catch (ignore) {}
+  }
+  var data = readTimetable_();
+  try {
+    var json = JSON.stringify(data);
+    var n = Math.ceil(json.length / TIMETABLE_CACHE_PART_);
+    if (n <= 20) {
+      var entries = { 'tt:n': String(n) };
+      for (var j = 0; j < n; j++) entries['tt:' + j] = json.substr(j * TIMETABLE_CACHE_PART_, TIMETABLE_CACHE_PART_);
+      cache.putAll(entries, TIMETABLE_CACHE_SECS_);
+    }
+  } catch (ignore2) {}
+  return data;
+}
+
 /** 從另一份「上課課表」試算表讀取最新內容（只讀，不寫入）。 */
-function getTimetableApi_() {
+function readTimetable_() {
   var id = String(TIMETABLE_SPREADSHEET_ID || '').trim();
   if (!id) throw new Error('尚未設定課表試算表 ID');
   var ss;
@@ -754,7 +412,8 @@ function withLock_(fn) {
 function getCloudStore() {
   var ss = getSs_();
   var sheet = ensureCloudSheet_(ss);
-  var json = readCloudChunks_(sheet);
+  // 拿鎖讀，避免讀到 putStore 寫到一半的分段
+  var json = withLock_(function () { return readCloudChunks_(sheet); });
   if (json) {
     try {
       var store = JSON.parse(json);
@@ -768,12 +427,26 @@ function getCloudStore() {
   return { ok: true, empty: true, store: null };
 }
 
+var STORE_AT_CACHE_KEY_ = 'storeUpdatedAt';
+
+function noteStoreUpdated_(at) {
+  try {
+    CacheService.getScriptCache().put(STORE_AT_CACHE_KEY_, String(at || ''), 21600);
+  } catch (ignore) {}
+}
+
 function getCloudStoreMeta() {
+  var cached = null;
+  try { cached = CacheService.getScriptCache().get(STORE_AT_CACHE_KEY_); } catch (ignore) {}
+  if (cached) return { ok: true, empty: false, updatedAt: cached };
   var ss = getSs_();
   var sheet = ss.getSheetByName(SHEETS.CLOUD);
   if (!sheet) return { ok: true, empty: true, updatedAt: '' };
   var at = String(sheet.getRange(2, 3).getValue() || '').trim();
-  if (at) return { ok: true, empty: false, updatedAt: at };
+  if (at) {
+    noteStoreUpdated_(at);
+    return { ok: true, empty: false, updatedAt: at };
+  }
   var json = readCloudChunks_(sheet);
   if (!json) return { ok: true, empty: true, updatedAt: '' };
   try {
@@ -793,7 +466,7 @@ function putCloudStore(store) {
   }
   return withLock_(function () {
     var ss = getSs_();
-    ensureSheets_(ss);
+    ensureSheetsOnce_(ss);
     var sheet = ensureCloudSheet_(ss);
     var existing = null;
     try {
@@ -809,11 +482,64 @@ function putCloudStore(store) {
     healStoreGroupsFromHistory_(store);
     store.updatedAt = new Date().toISOString();
     writeCloudChunks_(sheet, JSON.stringify(store), store.updatedAt);
-    syncVisibleRoster_(ss, store);
-    try {
-      syncReadableGrades_(ss, store);
-    } catch (gradeErr) {}
+    noteStoreUpdated_(store.updatedAt);
+    scheduleReadableSync_(ss, store);
     return { ok: true, updatedAt: store.updatedAt };
+  });
+}
+
+/** 工作表結構改了就調這個版本，讓 ensureSheets_ 再跑一次。 */
+const SHEETS_SCHEMA_VERSION = '2026-10-14';
+
+function ensureSheetsOnce_(ss) {
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty('SHEETS_READY') === SHEETS_SCHEMA_VERSION) return;
+  ensureSheets_(ss);
+  props.setProperty('SHEETS_READY', SHEETS_SCHEMA_VERSION);
+}
+
+function syncReadableNow_(ss, store) {
+  syncVisibleRoster_(ss, store);
+  try {
+    syncReadableGrades_(ss, store);
+  } catch (gradeErr) {}
+}
+
+/**
+ * 「學生／班級設定／成績／每日加扣」是給人看的副本，整張重寫很慢。
+ * 存檔時只排一個約 1 分鐘後的觸發器，連續存檔只會重寫一次。
+ */
+function scheduleReadableSync_(ss, store) {
+  var props = PropertiesService.getScriptProperties();
+  var pendingAt = Number(props.getProperty('READABLE_TRIGGER_AT') || 0);
+  if (pendingAt && Date.now() - pendingAt < 10 * 60 * 1000) return;
+  try {
+    deleteReadableTriggers_();
+    ScriptApp.newTrigger('refreshReadableSheets').timeBased().after(60 * 1000).create();
+    props.setProperty('READABLE_TRIGGER_AT', String(Date.now()));
+  } catch (err) {
+    // 還沒授權觸發器時退回立即寫出
+    syncReadableNow_(ss, store);
+  }
+}
+
+function deleteReadableTriggers_() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'refreshReadableSheets') ScriptApp.deleteTrigger(t);
+  });
+}
+
+/** 觸發器或選單呼叫：依雲端資料重寫「學生／班級設定／成績／每日加扣」。 */
+function refreshReadableSheets() {
+  var props = PropertiesService.getScriptProperties();
+  props.deleteProperty('READABLE_TRIGGER_AT');
+  try { deleteReadableTriggers_(); } catch (ignore) {}
+  withLock_(function () {
+    var ss = getSs_();
+    ensureSheets_(ss);
+    var json = readCloudChunks_(ensureCloudSheet_(ss));
+    if (!json) return;
+    syncReadableNow_(ss, JSON.parse(json));
   });
 }
 
@@ -845,6 +571,7 @@ function repairGroupsApi_() {
     }
     store.updatedAt = new Date().toISOString();
     writeCloudChunks_(sheet, JSON.stringify(store), store.updatedAt);
+    noteStoreUpdated_(store.updatedAt);
     syncVisibleRoster_(ss, store);
     return {
       ok: true,
@@ -1097,16 +824,6 @@ function mergeProtectCloudStore_(incoming, existing) {
   store.scheduleChanges = mergeCloudScheduleChanges_(store.scheduleChanges, existing.scheduleChanges);
   store.hwMissing = mergeCloudHwMissing_(store.hwMissing, existing.hwMissing);
   return store;
-}
-
-function countCloudLessonEntries_(log) {
-  var n = 0;
-  Object.keys(log || {}).forEach(function (cn) {
-    var pack = log[cn] || {};
-    if (pack.current) n += 1;
-    n += (pack.entries || []).length;
-  });
-  return n;
 }
 
 function mergeCloudLessonPack_(localPack, remotePack) {
@@ -1652,271 +1369,12 @@ function seedSampleData_(ss) {
     .setValues([['範例班', 4, 6, 1, new Date()]]);
 }
 
-function listClassNames_(ss) {
-  const names = {};
-  const studentSheet = ss.getSheetByName(SHEETS.STUDENTS);
-  const last = studentSheet.getLastRow();
-  if (last >= 2) {
-    studentSheet.getRange(2, 1, last - 1, 1).getValues().forEach(function (row) {
-      const name = String(row[0] || '').trim();
-      if (name) {
-        names[name] = true;
-      }
-    });
-  }
-  const configSheet = ss.getSheetByName(SHEETS.CONFIG);
-  const configLast = configSheet.getLastRow();
-  if (configLast >= 2) {
-    configSheet.getRange(2, 1, configLast - 1, 1).getValues().forEach(function (row) {
-      const name = String(row[0] || '').trim();
-      if (name) {
-        names[name] = true;
-      }
-    });
-  }
-  return Object.keys(names).sort();
-}
-
-function loadClassroom_(ss, className) {
-  className = String(className || '').trim() || '範例班';
-  const config = readConfig_(ss, className);
-  const students = readStudents_(ss, className);
-  const classroom = {
-    className: className,
-    rows: config.rows,
-    cols: config.cols,
-    version: config.version,
-    updatedAt: config.updatedAt,
-    students: students
-  };
-  autoPlace_(classroom);
-  return classroom;
-}
-
-function readConfig_(ss, className) {
-  const sheet = ss.getSheetByName(SHEETS.CONFIG);
-  const last = sheet.getLastRow();
-  const fallback = { rows: 6, cols: 7, version: 1, updatedAt: '' };
-  if (last < 2) {
-    return fallback;
-  }
-  const values = sheet.getRange(2, 1, last - 1, HEADERS.CONFIG.length).getValues();
-  for (let i = 0; i < values.length; i++) {
-    if (String(values[i][0]).trim() === className) {
-      return {
-        rows: clampInt_(values[i][1], 1, 20, 6),
-        cols: clampInt_(values[i][2], 1, 16, 7),
-        version: Number(values[i][3]) || 1,
-        updatedAt: values[i][4] ? new Date(values[i][4]).toISOString() : ''
-      };
-    }
-  }
-  return fallback;
-}
-
-function readStudents_(ss, className) {
-  const sheet = ss.getSheetByName(SHEETS.STUDENTS);
-  const last = sheet.getLastRow();
-  if (last < 2) {
-    return [];
-  }
-  const values = sheet.getRange(2, 1, last - 1, HEADERS.STUDENTS.length).getValues();
-  const students = [];
-  values.forEach(function (row) {
-    if (String(row[0]).trim() !== className) {
-      return;
-    }
-    const seatNo = String(row[1] || '').trim();
-    const name = String(row[2] || '').trim();
-    if (!seatNo || !name) {
-      return;
-    }
-    students.push({
-      seatNo: seatNo,
-      name: name,
-      score: Number(row[3]) || 0,
-      row: toNullableInt_(row[4]),
-      col: toNullableInt_(row[5]),
-      note: String(row[6] || '')
-    });
-  });
-  students.sort(function (a, b) {
-    return seatNoValue_(a.seatNo) - seatNoValue_(b.seatNo);
-  });
-  return students;
-}
-
-function persistClassroom_(ss, classroom, bumpVersion) {
-  autoPlace_(classroom);
-  writeStudents_(ss, classroom);
-  writeConfig_(ss, classroom, bumpVersion);
-}
-
-function writeStudents_(ss, classroom) {
-  const sheet = ss.getSheetByName(SHEETS.STUDENTS);
-  const last = sheet.getLastRow();
-  const kept = [];
-  if (last >= 2) {
-    const values = sheet.getRange(2, 1, last - 1, HEADERS.STUDENTS.length).getValues();
-    values.forEach(function (row) {
-      if (String(row[0]).trim() !== classroom.className) {
-        kept.push(row);
-      }
-    });
-  }
-  const next = kept.concat(classroom.students.map(function (s) {
-    return [
-      classroom.className,
-      s.seatNo,
-      s.name,
-      Number(s.score) || 0,
-      s.row == null ? '' : Number(s.row) + 1,
-      s.col == null ? '' : Number(s.col) + 1,
-      s.note || '',
-      groupIdOf_(classroom, s.seatNo)
-    ];
-  }));
-  if (last >= 2) {
-    sheet.getRange(2, 1, last - 1, HEADERS.STUDENTS.length).clearContent();
-  }
-  if (next.length) {
-    sheet.getRange(2, 1, next.length, HEADERS.STUDENTS.length).setValues(next);
-  }
-}
-
-function writeConfig_(ss, classroom, bumpVersion) {
-  const sheet = ss.getSheetByName(SHEETS.CONFIG);
-  const last = sheet.getLastRow();
-  let rowIndex = -1;
-  let version = 1;
-  if (last >= 2) {
-    const values = sheet.getRange(2, 1, last - 1, HEADERS.CONFIG.length).getValues();
-    for (let i = 0; i < values.length; i++) {
-      if (String(values[i][0]).trim() === classroom.className) {
-        rowIndex = i + 2;
-        version = Number(values[i][3]) || 1;
-        break;
-      }
-    }
-  }
-  if (bumpVersion) {
-    version += 1;
-  }
-  const row = [classroom.className, classroom.rows, classroom.cols, version, new Date()];
-  if (rowIndex > 0) {
-    sheet.getRange(rowIndex, 1, 1, HEADERS.CONFIG.length).setValues([row]);
-  } else {
-    sheet.appendRow(row);
-  }
-}
-
-function appendHistory_(ss, item) {
-  const sheet = ss.getSheetByName(SHEETS.HISTORY);
-  sheet.appendRow([
-    new Date(),
-    item.className,
-    item.type,
-    item.seatNo,
-    item.name,
-    item.delta,
-    item.newScore,
-    item.detail,
-    item.undoable === true,
-    false
-  ]);
-  const last = sheet.getLastRow();
-  if (last - 1 > MAX_HISTORY_ROWS) {
-    sheet.deleteRows(2, last - 1 - MAX_HISTORY_ROWS);
-  }
-}
-
-function normalizeIncomingState_(state) {
-  const className = String(state.className || '').trim();
-  if (!className) {
-    throw new Error('缺少班級名稱');
-  }
-  const classroom = {
-    className: className,
-    rows: clampInt_(state.rows, 1, 20, 6),
-    cols: clampInt_(state.cols, 1, 16, 7),
-    students: (state.students || []).map(function (s) {
-      return {
-        seatNo: String(s.seatNo || '').trim(),
-        name: String(s.name || '').trim(),
-        score: Number(s.score) || 0,
-        row: s.row === null || s.row === undefined || s.row === '' ? null : Number(s.row),
-        col: s.col === null || s.col === undefined || s.col === '' ? null : Number(s.col),
-        note: String(s.note || '')
-      };
-    }).filter(function (s) {
-      return s.seatNo && s.name;
-    })
-  };
-  autoPlace_(classroom);
-  return classroom;
-}
-
-function autoPlace_(classroom) {
-  const taken = {};
-  classroom.students.forEach(function (s) {
-    if (s.row == null || s.col == null) {
-      return;
-    }
-    if (s.row < 0 || s.col < 0 || s.row >= classroom.rows || s.col >= classroom.cols) {
-      s.row = null;
-      s.col = null;
-      return;
-    }
-    const key = s.row + ',' + s.col;
-    if (taken[key]) {
-      s.row = null;
-      s.col = null;
-    } else {
-      taken[key] = true;
-    }
-  });
-  classroom.students.forEach(function (s) {
-    if (s.row != null && s.col != null) {
-      return;
-    }
-    const slot = nextEmptySlot_(classroom.rows, classroom.cols, taken);
-    if (!slot) {
-      return;
-    }
-    s.row = slot.row;
-    s.col = slot.col;
-    taken[slot.row + ',' + slot.col] = true;
-  });
-}
-
-function nextEmptySlot_(rows, cols, taken) {
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      if (!taken[r + ',' + c]) {
-        return { row: r, col: c };
-      }
-    }
-  }
-  return null;
-}
-
 function clampInt_(value, min, max, fallback) {
   const n = parseInt(value, 10);
   if (!isFinite(n)) {
     return fallback;
   }
   return Math.min(max, Math.max(min, n));
-}
-
-function toNullableInt_(value) {
-  if (value === '' || value === null || value === undefined) {
-    return null;
-  }
-  const n = parseInt(value, 10);
-  if (!isFinite(n) || n <= 0) {
-    return null;
-  }
-  return n - 1;
 }
 
 function seatNoValue_(seatNo) {
@@ -2040,44 +1498,6 @@ function hwNormEmail_(email) {
   return String(email || '').trim().toLowerCase();
 }
 
-function hwFindStudent_(className, seatNo, name) {
-  var c = hwNormClass_(className);
-  var s = hwNormSeat_(seatNo);
-  var n = hwNormName_(name);
-  var list = hwReadObjects_(SHEETS.HW_STUDENTS, 'HW_STUDENTS');
-  for (var i = 0; i < list.length; i++) {
-    if (hwNormClass_(list[i]['班級']) === c && hwNormSeat_(list[i]['座號']) === s && hwNormName_(list[i]['姓名']) === n) {
-      return {
-        className: hwNormClass_(list[i]['班級']),
-        seatNo: hwNormSeat_(list[i]['座號']),
-        name: hwNormName_(list[i]['姓名']),
-        email: hwNormEmail_(list[i]['Email'])
-      };
-    }
-  }
-  return null;
-}
-
-function hwFindStudentByEmail_(email, className) {
-  var e = hwNormEmail_(email);
-  if (!e) return null;
-  var wantClass = hwNormClass_(className);
-  var list = hwReadObjects_(SHEETS.HW_STUDENTS, 'HW_STUDENTS');
-  var match = null;
-  for (var i = 0; i < list.length; i++) {
-    if (hwNormEmail_(list[i]['Email']) !== e) continue;
-    var stu = {
-      className: hwNormClass_(list[i]['班級']),
-      seatNo: hwNormSeat_(list[i]['座號']),
-      name: hwNormName_(list[i]['姓名']),
-      email: e
-    };
-    if (wantClass && stu.className === wantClass) return stu;
-    if (!match) match = stu;
-  }
-  return match;
-}
-
 function hwGetAssignment_(id) {
   id = String(id || '').trim();
   if (!id) return null;
@@ -2130,90 +1550,6 @@ function hwNextId_() {
   return 'HW' + pad;
 }
 
-function hwSessionSecret_() {
-  var props = PropertiesService.getScriptProperties();
-  var secret = String(props.getProperty('HW_SESSION_SECRET') || '').trim();
-  if (secret) return secret;
-  secret = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
-  props.setProperty('HW_SESSION_SECRET', secret);
-  return secret;
-}
-
-function hwSignSession_(nonce, payloadJson) {
-  var raw = Utilities.computeHmacSha256Signature(nonce + '.' + payloadJson, hwSessionSecret_());
-  return Utilities.base64EncodeWebSafe(raw).replace(/=+$/, '');
-}
-
-function hwIssueSession_(identity, assignmentId) {
-  var nonce = Utilities.getUuid().replace(/-/g, '');
-  var payload = {
-    className: identity.className,
-    seatNo: identity.seatNo,
-    name: identity.name,
-    email: identity.email || '',
-    assignmentId: String(assignmentId || '').trim()
-  };
-  var payloadJson = JSON.stringify(payload);
-  var token = nonce + '.' + hwSignSession_(nonce, payloadJson);
-  CacheService.getScriptCache().put('hw_' + nonce, payloadJson, 21600);
-  return token;
-}
-
-function hwReadSession_(token) {
-  token = String(token || '').trim();
-  if (!token) throw new Error('請先登入這份作業');
-  var parts = token.split('.');
-  if (parts.length !== 2 || !parts[0] || !parts[1]) throw new Error('登入無效，請再登入一次');
-  var nonce = parts[0];
-  var raw = CacheService.getScriptCache().get('hw_' + nonce);
-  if (!raw) throw new Error('登入已過期，請再登入一次');
-  if (hwSignSession_(nonce, raw) !== parts[1]) throw new Error('登入無效，請再登入一次');
-  var data = JSON.parse(raw);
-  if (!data || !data.seatNo || !data.className) throw new Error('登入無效，請再登入一次');
-  return data;
-}
-
-function hwRequireSession_(req, assignmentId) {
-  var sess = hwReadSession_(req.sessionToken || req.token);
-  var aid = String(assignmentId || req.assignmentId || '').trim();
-  if (sess.assignmentId && aid && sess.assignmentId !== aid) {
-    throw new Error('這次登入不是這份作業');
-  }
-  return sess;
-}
-
-function hwDueForStudent_(assignment, sess) {
-  var due = assignment.dueAt;
-  var rows = hwReadObjects_(SHEETS.HW_OVERRIDES, 'HW_OVERRIDES');
-  for (var i = 0; i < rows.length; i++) {
-    if (String(rows[i]['作業編號']).trim() === assignment.assignmentId &&
-        hwNormClass_(rows[i]['班級']) === sess.className &&
-        hwNormSeat_(rows[i]['座號']) === sess.seatNo) {
-      var custom = hwIso_(rows[i]['個別截止']);
-      if (custom) return custom;
-    }
-  }
-  return due;
-}
-
-function hwLateWorkdays_(dueAt, submittedAt) {
-  var due = new Date(dueAt);
-  var sub = new Date(submittedAt);
-  if (isNaN(due.getTime()) || isNaN(sub.getTime())) return 0;
-  if (sub.getTime() <= due.getTime()) return 0;
-  var start = new Date(due.getFullYear(), due.getMonth(), due.getDate());
-  var end = new Date(sub.getFullYear(), sub.getMonth(), sub.getDate());
-  var count = 0;
-  var cursor = new Date(start.getTime());
-  cursor.setDate(cursor.getDate() + 1);
-  while (cursor.getTime() <= end.getTime()) {
-    var dow = cursor.getDay();
-    if (dow !== 0 && dow !== 6) count += 1;
-    cursor.setDate(cursor.getDate() + 1);
-  }
-  return count;
-}
-
 function hwCalcScore_(assignment, lateWorkdays, adjustment) {
   var maxScore = Number(assignment.maxScore) || 100;
   var minScore = Number(assignment.minScore);
@@ -2264,265 +1600,6 @@ function hwSubmissionPublic_(row, assignment, sess) {
     finalScore: row['最終分數'] === '' || row['最終分數'] == null ? '' : Number(row['最終分數']),
     allowMakeup: String(row['允許補交']) === '是' || row['允許補交'] === true
   };
-}
-
-function hwWrongList_(assignmentId, className, seatNo) {
-  return hwReadObjects_(SHEETS.HW_WRONG, 'HW_WRONG').filter(function (r) {
-    return String(r['作業編號']).trim() === assignmentId &&
-      hwNormClass_(r['班級']) === className &&
-      hwNormSeat_(r['座號']) === seatNo;
-  }).map(function (r) {
-    return { q: Number(r['題號']) || 0, reason: String(r['原因'] || '') };
-  });
-}
-
-function hwSpot_(assignmentId, className, seatNo) {
-  var rows = hwReadObjects_(SHEETS.HW_SPOT, 'HW_SPOT');
-  for (var i = 0; i < rows.length; i++) {
-    if (String(rows[i]['作業編號']).trim() === assignmentId &&
-        hwNormClass_(rows[i]['班級']) === className &&
-        hwNormSeat_(rows[i]['座號']) === seatNo) {
-      var nums = String(rows[i]['抽查題號'] || '').split(',').map(function (x) {
-        return parseInt(String(x).trim(), 10);
-      }).filter(function (n) { return isFinite(n) && n > 0; });
-      return {
-        questions: nums,
-        seen: String(rows[i]['已看詳解']) === '是' || rows[i]['已看詳解'] === true,
-        _row: rows[i]._row
-      };
-    }
-  }
-  return null;
-}
-
-function hwPickSpot_(count, maxQ) {
-  var pool = [];
-  var i;
-  for (i = 1; i <= maxQ; i++) pool.push(i);
-  var n = Math.min(count, pool.length);
-  var picked = [];
-  for (i = 0; i < n; i++) {
-    var j = Math.floor(Math.random() * pool.length);
-    picked.push(pool[j]);
-    pool.splice(j, 1);
-  }
-  picked.sort(function (a, b) { return a - b; });
-  return picked;
-}
-
-function hwSaveWrongs_(assignmentId, className, seatNo, items) {
-  hwDeleteRowsWhere_(SHEETS.HW_WRONG, 'HW_WRONG', function (r) {
-    return String(r['作業編號']).trim() === assignmentId &&
-      hwNormClass_(r['班級']) === className &&
-      hwNormSeat_(r['座號']) === seatNo;
-  });
-  (items || []).forEach(function (item) {
-    var q = Number(item.q || item.question);
-    if (!isFinite(q) || q <= 0) return;
-    hwAppend_(SHEETS.HW_WRONG, 'HW_WRONG', {
-      '作業編號': assignmentId,
-      '班級': className,
-      '座號': seatNo,
-      '題號': q,
-      '原因': String(item.reason || '')
-    });
-  });
-}
-
-function hwPayloadForStudent_(assignment, sess) {
-  var sub = hwFindSubmission_(assignment.assignmentId, sess.className, sess.seatNo);
-  var due = hwDueForStudent_(assignment, sess);
-  var spot = hwSpot_(assignment.assignmentId, sess.className, sess.seatNo);
-  return {
-    ok: true,
-    assignment: {
-      assignmentId: assignment.assignmentId,
-      title: assignment.title,
-      className: assignment.className,
-      questionCount: assignment.questionCount,
-      spotCount: assignment.spotCount,
-      startAt: assignment.startAt,
-      dueAt: due,
-      originalDueAt: assignment.dueAt,
-      maxScore: assignment.maxScore
-    },
-    student: { className: sess.className, seatNo: sess.seatNo, name: sess.name },
-    wrong: hwWrongList_(assignment.assignmentId, sess.className, sess.seatNo),
-    spot: spot ? { questions: spot.questions, seen: spot.seen } : { questions: [], seen: false },
-    result: hwSubmissionPublic_(sub, assignment, sess)
-  };
-}
-
-function handleHwStudent_(req, action) {
-  req = req || {};
-  if (action === 'hwLogin') {
-    var assignment = hwGetAssignment_(req.assignmentId);
-    if (!assignment) throw new Error('找不到這份作業');
-    var stu = hwFindStudent_(req.className, req.seatNo, req.name);
-    if (!stu) throw new Error('學生名單沒有這筆資料，請核對班級、座號、姓名，或請教師先匯入');
-    if (stu.className !== assignment.className) throw new Error('這份作業不是這個班的');
-    var token = hwIssueSession_(stu, assignment.assignmentId);
-    return Object.assign({ sessionToken: token }, hwPayloadForStudent_(assignment, stu));
-  }
-  if (action === 'hwLoginGoogle') {
-    var assignmentG = hwGetAssignment_(req.assignmentId);
-    if (!assignmentG) throw new Error('找不到這份作業');
-    var email = '';
-    try {
-      email = hwNormEmail_(Session.getActiveUser().getEmail());
-    } catch (err) {}
-    if (!email && req.idToken) {
-      var googleUser = verifyIdToken_(req.idToken);
-      email = googleUser.email;
-    }
-    if (!email) throw new Error('無法取得 Google 信箱，請改用班級、座號、姓名登入');
-    var stuG = hwFindStudentByEmail_(email, assignmentG.className);
-    if (!stuG || stuG.className !== assignmentG.className) {
-      throw new Error('這份作業的學生名單沒有這個信箱，請改用班級座號姓名，或請教師補上 Email');
-    }
-    var tokenG = hwIssueSession_(stuG, assignmentG.assignmentId);
-    return Object.assign({ sessionToken: tokenG }, hwPayloadForStudent_(assignmentG, stuG));
-  }
-
-  var assignmentId = String(req.assignmentId || '').trim();
-  var assignmentA = hwGetAssignment_(assignmentId);
-  if (!assignmentA) throw new Error('找不到這份作業');
-  var sess = hwRequireSession_(req, assignmentId);
-  if (sess.className !== assignmentA.className) throw new Error('這份作業不是你的班級');
-
-  if (action === 'hwGetAssignment' || action === 'hwMyResult') {
-    return hwPayloadForStudent_(assignmentA, sess);
-  }
-
-  var existing = hwFindSubmission_(assignmentA.assignmentId, sess.className, sess.seatNo);
-  var statusNow = existing ? String(existing['狀態'] || '') : '';
-  var submitted = existing && statusNow !== '未交' && statusNow !== '進行中';
-  var allowMakeup = existing && (String(existing['允許補交']) === '是' || existing['允許補交'] === true);
-  var teacherZero = existing && !allowMakeup && (existing['最終分數'] === 0 || existing['最終分數'] === '0');
-  if ((submitted || teacherZero) && action !== 'hwGetAssignment' && action !== 'hwMyResult' && !allowMakeup) {
-    if (action === 'hwSaveProgress' || action === 'hwSubmit') {
-      throw new Error('這份作業已提交');
-    }
-  }
-
-  if (action === 'hwSaveProgress') {
-    if (submitted && !allowMakeup) throw new Error('這份作業已提交');
-    hwSaveWrongs_(assignmentA.assignmentId, sess.className, sess.seatNo, parseMaybeJson_(req.wrong) || []);
-    var spotNow = hwSpot_(assignmentA.assignmentId, sess.className, sess.seatNo);
-    if ((!spotNow || !spotNow.questions.length) && req.ensureSpot) {
-      var picked = hwPickSpot_(assignmentA.spotCount, assignmentA.questionCount);
-      hwAppend_(SHEETS.HW_SPOT, 'HW_SPOT', {
-        '作業編號': assignmentA.assignmentId,
-        '班級': sess.className,
-        '座號': sess.seatNo,
-        '抽查題號': picked.join(','),
-        '已看詳解': req.seenExplain ? '是' : '否'
-      });
-    } else if (spotNow && req.seenExplain) {
-      var rows = hwReadObjects_(SHEETS.HW_SPOT, 'HW_SPOT');
-      for (var si = 0; si < rows.length; si++) {
-        if (rows[si]._row === spotNow._row) {
-          rows[si]['已看詳解'] = '是';
-          hwUpdateRow_(SHEETS.HW_SPOT, 'HW_SPOT', rows[si]._row, rows[si]);
-          break;
-        }
-      }
-    }
-    if (!existing) {
-      hwAppend_(SHEETS.HW_SUBMISSIONS, 'HW_SUBMISSIONS', {
-        '作業編號': assignmentA.assignmentId,
-        '班級': sess.className,
-        '座號': sess.seatNo,
-        '提交時間': '',
-        '狀態': '進行中',
-        '遲交工作天': '',
-        '計算分數': '',
-        '教師加減': 0,
-        '調整原因': '',
-        '最終分數': '',
-        '調整者': '',
-        '調整時間': '',
-        '允許補交': '否'
-      });
-    }
-    return hwPayloadForStudent_(assignmentA, sess);
-  }
-
-  if (action === 'hwSubmit') {
-    if (submitted && !allowMakeup) throw new Error('這份作業已提交');
-    hwSaveWrongs_(assignmentA.assignmentId, sess.className, sess.seatNo, parseMaybeJson_(req.wrong) || []);
-    var spot = hwSpot_(assignmentA.assignmentId, sess.className, sess.seatNo);
-    if (!spot || !spot.questions.length) {
-      var picked2 = hwPickSpot_(assignmentA.spotCount, assignmentA.questionCount);
-      hwAppend_(SHEETS.HW_SPOT, 'HW_SPOT', {
-        '作業編號': assignmentA.assignmentId,
-        '班級': sess.className,
-        '座號': sess.seatNo,
-        '抽查題號': picked2.join(','),
-        '已看詳解': '是'
-      });
-    } else if (!spot.seen && !req.seenExplain) {
-      throw new Error('請先對照紙本講義看完抽查題');
-    } else {
-      var spots = hwReadObjects_(SHEETS.HW_SPOT, 'HW_SPOT');
-      for (var sj = 0; sj < spots.length; sj++) {
-        if (spots[sj]._row === spot._row) {
-          spots[sj]['已看詳解'] = '是';
-          hwUpdateRow_(SHEETS.HW_SPOT, 'HW_SPOT', spots[sj]._row, spots[sj]);
-          break;
-        }
-      }
-    }
-    var now = new Date();
-    if (assignmentA.startAt && now.getTime() < new Date(assignmentA.startAt).getTime()) {
-      throw new Error('作業還沒開始');
-    }
-    var due = hwDueForStudent_(assignmentA, sess);
-    var late = hwLateWorkdays_(due, now.toISOString());
-    var adj = existing ? (Number(existing['教師加減']) || 0) : 0;
-    var reason = existing ? String(existing['調整原因'] || '') : '';
-    var scored = hwCalcScore_(assignmentA, late, adj);
-    var status = late > 0 ? ('遲交 ' + late + ' 個工作天') : '準時';
-    var rec = {
-      '作業編號': assignmentA.assignmentId,
-      '班級': sess.className,
-      '座號': sess.seatNo,
-      '提交時間': now.toISOString(),
-      '狀態': status,
-      '遲交工作天': late,
-      '計算分數': scored.calculated,
-      '教師加減': adj,
-      '調整原因': reason,
-      '最終分數': scored.finalScore,
-      '調整者': existing ? existing['調整者'] : '',
-      '調整時間': existing ? existing['調整時間'] : '',
-      '允許補交': '否'
-    };
-    if (existing) hwUpdateRow_(SHEETS.HW_SUBMISSIONS, 'HW_SUBMISSIONS', existing._row, rec);
-    else hwAppend_(SHEETS.HW_SUBMISSIONS, 'HW_SUBMISSIONS', rec);
-    return hwPayloadForStudent_(assignmentA, sess);
-  }
-
-  throw new Error('未知的學生操作');
-}
-
-function hwStudentLogin(payload) {
-  return handleHwStudent_(payload || {}, 'hwLogin');
-}
-function hwStudentLoginGoogle(payload) {
-  return handleHwStudent_(payload || {}, 'hwLoginGoogle');
-}
-function hwStudentGet(payload) {
-  return handleHwStudent_(payload || {}, 'hwGetAssignment');
-}
-function hwStudentSave(payload) {
-  return handleHwStudent_(payload || {}, 'hwSaveProgress');
-}
-function hwStudentSubmit(payload) {
-  return handleHwStudent_(payload || {}, 'hwSubmit');
-}
-function hwStudentMyResult(payload) {
-  return handleHwStudent_(payload || {}, 'hwMyResult');
 }
 
 function hwStudentKey_(className, seatNo) {

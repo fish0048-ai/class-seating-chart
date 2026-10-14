@@ -202,7 +202,7 @@
   if (els.btnPeerTeach) {
     els.btnPeerTeach.addEventListener('click', function () {
       if (!canEdit()) {
-        toast('檢視模式不能互教加分');
+        toast('未登入教師帳號，不能互教加分');
         return;
       }
       setPeerTeach(!App.peerTeach);
@@ -997,7 +997,7 @@
 
   function startAnswerTimer() {
     if (!canEdit()) {
-      toast('檢視模式不能操作定時器');
+      toast('未登入教師帳號，不能操作定時器');
       return;
     }
     if (App.timer.running) return;
@@ -1044,7 +1044,7 @@
 
   function toggleTimerPanel() {
     if (!canEdit()) {
-      toast('檢視模式不能操作定時器');
+      toast('未登入教師帳號，不能操作定時器');
       return;
     }
     App.timerOpen = !App.timerOpen;
@@ -1117,7 +1117,7 @@
 
   function showTeacherView() {
     if (!canEdit()) {
-      toast('檢視模式沒有教師功能');
+      toast('未登入教師帳號，沒有教師功能');
       showClassView();
       return;
     }
@@ -1134,10 +1134,6 @@
   function requireTeacher(nextFn) {
     if (canEdit()) {
       nextFn();
-      return;
-    }
-    if (window.GoogleAuth && GoogleAuth.isViewer()) {
-      toast('檢視模式只能看座位表，無法使用教師功能');
       return;
     }
     toast('請先用教師 Google 帳號登入');
@@ -2135,7 +2131,7 @@
 
   function setMode(mode) {
     if (!canEdit() && (mode === 'plus' || mode === 'minus')) {
-      toast('檢視模式不能加扣分');
+      toast('未登入教師帳號，不能加扣分');
       return;
     }
     App.mode = mode;
@@ -2303,7 +2299,7 @@
 
   function assignLabGroups(shuffle) {
     if (!canEdit()) {
-      toast('檢視模式不能改實驗分組');
+      toast('未登入教師帳號，不能改實驗分組');
       return;
     }
     if (!App.classroom) return;
@@ -2623,7 +2619,7 @@
 
   function seatByGroups() {
     if (!canEdit()) {
-      toast('檢視模式不能改座位');
+      toast('未登入教師帳號，不能改座位');
       return;
     }
     if (isLabView()) {
@@ -2699,7 +2695,7 @@
 
   function randomGroups() {
     if (!canEdit()) {
-      toast('檢視模式不能改分組');
+      toast('未登入教師帳號，不能改分組');
       return;
     }
     if (!App.classroom) return;
@@ -2749,7 +2745,7 @@
 
   function changeScore(student, delta, forceGroup, causeSeatNo, opts) {
     if (!canEdit()) {
-      toast('檢視模式不能加扣分');
+      toast('未登入教師帳號，不能加扣分');
       return;
     }
     if (!delta) {
@@ -2855,7 +2851,7 @@
 
   function openDatabase() {
     if (!canEdit()) {
-      toast('檢視模式沒有教師功能');
+      toast('未登入教師帳號，沒有教師功能');
       return;
     }
     // 立刻切畫面；不要等雲端 pull／也不要被 App.busy 擋住
@@ -4154,7 +4150,7 @@
 
     var chain;
     if (window.CloudStore && CloudStore.request && cloudConnected()) {
-      chain = CloudStore.request('getTimetable', { _: Date.now() });
+      chain = CloudStore.request('getTimetable', { _: Date.now(), fresh: !!force });
     } else {
       chain = Promise.reject(new Error('尚未連上雲端，無法讀取最新課表'));
     }
@@ -8960,7 +8956,7 @@
   function beginManualFate(student, opts) {
     opts = opts || {};
     if (!canEdit()) {
-      toast('檢視模式不能加分');
+      toast('未登入教師帳號，不能加分');
       return;
     }
     if (!student) return;
@@ -9167,7 +9163,7 @@
 
   function openLottery(fromButton) {
     if (!canEdit()) {
-      toast('檢視模式不能抽籤');
+      toast('未登入教師帳號，不能抽籤');
       return;
     }
     if (App.lotteryBusy) return;
@@ -9309,7 +9305,7 @@
 
   function saveAll() {
     if (!canEdit()) {
-      toast('檢視模式不能改資料');
+      toast('未登入教師帳號，不能改資料');
       return;
     }
     run('saveClassroomState', [serializeClassroom()], function (data) {
