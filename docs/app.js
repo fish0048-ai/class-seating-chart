@@ -865,6 +865,7 @@
     red: '太吵了'
   };
   var noiseAudio_ = null;
+  var noiseStarting_ = false;
 
   function formatTimerMs(ms) {
     var total = Math.max(0, Math.ceil(Number(ms) / 1000));
@@ -1170,7 +1171,7 @@
       });
       els.noiseLevelFace.setAttribute('data-noise-level', level);
     }
-    if (els.btnNoiseStart) els.btnNoiseStart.disabled = !!App.noiseRunning;
+    if (els.btnNoiseStart) els.btnNoiseStart.disabled = !!App.noiseRunning || !!noiseStarting_;
     if (els.btnNoiseStop) els.btnNoiseStop.disabled = !App.noiseRunning;
   }
 
@@ -1189,12 +1190,14 @@
   }
 
   function startNoiseMeter() {
-    if (App.noiseRunning) return;
+    if (App.noiseRunning || noiseStarting_) return;
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       toast('這個瀏覽器不支援麥克風測分貝');
       return;
     }
     App.noiseOpen = true;
+    noiseStarting_ = true;
+    renderNoiseUi();
     navigator.mediaDevices.getUserMedia({
       audio: {
         echoCancellation: false,
@@ -1241,6 +1244,9 @@
     }).catch(function () {
       toast('請允許麥克風後再按開始');
       stopNoiseMeter();
+    }).finally(function () {
+      noiseStarting_ = false;
+      renderNoiseUi();
     });
   }
 
@@ -1253,6 +1259,7 @@
       try { noiseAudio_.ctx.close(); } catch (e) {}
     }
     noiseAudio_ = null;
+    noiseStarting_ = false;
     App.noiseRunning = false;
     App.noiseLevel = 'idle';
     App.noiseScore = 0;
@@ -1263,6 +1270,7 @@
     App.noiseThreshold = readNoiseThreshold_();
     App.noiseOpen = false;
     App.noiseRunning = false;
+    noiseStarting_ = false;
     App.noiseScore = 0;
     App.noiseLevel = 'idle';
     renderNoiseUi();
