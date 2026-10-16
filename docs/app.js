@@ -3025,9 +3025,15 @@
     return activeHwMissingItems(className).filter(hasHwDueDate_);
   }
 
+  var HW_MISSING_SEVERE_DAYS = 10;
+
   function hwMissingDaysLate_(item) {
     if (!hasHwDueDate_(item)) return 0;
     return workDaysLate(item.dueDate, formatDateKey(new Date()));
+  }
+
+  function isHwMissingSevere_(days) {
+    return Number(days) > HW_MISSING_SEVERE_DAYS;
   }
 
   function hwMissingLinesForSeat_(seatNo, className) {
@@ -3049,7 +3055,9 @@
     var lines = hwMissingLinesForSeat_(seatNo);
     if (!lines.length) return '';
     return '<span class="seat-hw-missing-stack">' + lines.map(function (line) {
-      return '<span class="seat-hw-missing">缺交 ' + escapeHtml(line.title) + ' ' +
+      var severe = isHwMissingSevere_(line.days);
+      return '<span class="seat-hw-missing' + (severe ? ' seat-hw-missing-severe' : '') + '">' +
+        (severe ? '嚴重 ' : '') + '缺交 ' + escapeHtml(line.title) + ' ' +
         line.days + '天</span>';
     }).join('') + '</span>';
   }
@@ -3133,9 +3141,12 @@
         selected[normalizeDisplaySeat_(seat)] = true;
       });
       var dueOk = hasHwDueDate_(item);
+      var daysLate = dueOk ? hwMissingDaysLate_(item) : 0;
+      var severe = dueOk && isHwMissingSevere_(daysLate);
       var dueHtml = dueOk
-        ? ('<span class="missing-due">期限 ' + escapeHtml(item.dueDate) +
-          '（已缺 ' + hwMissingDaysLate_(item) + ' 工作天）</span>')
+        ? ('<span class="missing-due' + (severe ? ' missing-due-severe' : '') + '">期限 ' +
+          escapeHtml(item.dueDate) + '（已缺 ' + daysLate + ' 工作天）' +
+          (severe ? '｜嚴重：超過 ' + HW_MISSING_SEVERE_DAYS + ' 個工作天' : '') + '</span>')
         : ('<span class="missing-due missing-due-need">請補期限</span>' +
           '<label class="missing-due-patch">補繳交期限' +
           '<input type="date" data-missing-due-id="' + escapeHtml(item.id) +
@@ -3388,18 +3399,27 @@
     if (!App.classroom || App.appView === 'teacher') {
       el.hidden = true;
       el.innerHTML = '';
+      el.classList.remove('hw-missing-banner-severe');
       return;
     }
     var items = completeHwMissingItems(App.classroom.className);
     if (!items.length) {
       el.hidden = true;
       el.innerHTML = '';
+      el.classList.remove('hw-missing-banner-severe');
       return;
     }
+    var anySevere = items.some(function (item) {
+      return isHwMissingSevere_(hwMissingDaysLate_(item));
+    });
     el.hidden = false;
-    el.innerHTML = '<strong>缺交作業</strong>' + items.map(function (item) {
+    el.classList.toggle('hw-missing-banner-severe', anySevere);
+    el.innerHTML = '<strong>缺交作業' + (anySevere ? '｜有超過 ' + HW_MISSING_SEVERE_DAYS + ' 工作天' : '') +
+      '</strong>' + items.map(function (item) {
       var days = hwMissingDaysLate_(item);
-      return '<span class="hw-missing-line">' +
+      var severe = isHwMissingSevere_(days);
+      return '<span class="hw-missing-line' + (severe ? ' hw-missing-line-severe' : '') + '">' +
+        (severe ? '嚴重｜' : '') +
         escapeHtml(item.title || '缺交') + '（缺 ' + days + ' 天）：' +
         escapeHtml((item.seats || []).join('、')) +
         '</span>';
