@@ -3026,6 +3026,7 @@
   }
 
   var HW_MISSING_SEVERE_DAYS = 10;
+  var HW_MISSING_SEVERE_NOTE = '超過' + HW_MISSING_SEVERE_DAYS + '天，會先寄B提醒，再寄D';
 
   function hwMissingDaysLate_(item) {
     if (!hasHwDueDate_(item)) return 0;
@@ -3034,6 +3035,10 @@
 
   function isHwMissingSevere_(days) {
     return Number(days) > HW_MISSING_SEVERE_DAYS;
+  }
+
+  function hwMissingSevereTitle_() {
+    return '嚴重缺交（' + HW_MISSING_SEVERE_NOTE + '）';
   }
 
   function hwMissingLinesForSeat_(seatNo, className) {
@@ -3156,7 +3161,7 @@
       var dueHtml = dueOk
         ? ('<span class="missing-due' + (severe ? ' missing-due-severe' : '') + '">期限 ' +
           escapeHtml(item.dueDate) + '（已缺 ' + daysLate + ' 工作天）' +
-          (severe ? '｜嚴重：超過 ' + HW_MISSING_SEVERE_DAYS + ' 個工作天' : '') + '</span>')
+          (severe ? '｜嚴重（' + HW_MISSING_SEVERE_NOTE + '）' : '') + '</span>')
         : ('<span class="missing-due missing-due-need">請補期限</span>' +
           '<label class="missing-due-patch">補繳交期限' +
           '<input type="date" data-missing-due-id="' + escapeHtml(item.id) +
@@ -3200,8 +3205,8 @@
     });
     var html = '';
     if (severeItems.length) {
-      html += '<h3 class="subhead missing-severe-head">嚴重缺交（超過 ' + HW_MISSING_SEVERE_DAYS +
-        ' 個工作天）</h3><div class="missing-severe-list">' +
+      html += '<h3 class="subhead missing-severe-head">' + escapeHtml(hwMissingSevereTitle_()) +
+        '</h3><div class="missing-severe-list">' +
         severeItems.map(itemCardHtml_).join('') + '</div>';
     }
     if (otherItems.length) {
@@ -3457,12 +3462,7 @@
       if (isHwMissingSevere_(hwMissingDaysLate_(item))) severe.push(item);
       else normal.push(item);
     });
-    fillHwMissingBanner_(
-      severeEl,
-      '嚴重缺交（超過 ' + HW_MISSING_SEVERE_DAYS + ' 個工作天）',
-      severe,
-      true
-    );
+    fillHwMissingBanner_(severeEl, hwMissingSevereTitle_(), severe, true);
     fillHwMissingBanner_(el, '缺交作業', normal, false);
   }
 
