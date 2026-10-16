@@ -60,6 +60,11 @@
       tickId: null,
       done: false
     },
+    noiseOpen: false,
+    noiseRunning: false,
+    noiseThreshold: 60,
+    noiseScore: 0, // 0~100 smoothed
+    noiseLevel: 'idle',
     appView: 'class',
     lessonLog: {}
   };
@@ -115,6 +120,16 @@
     timerMinutes: document.getElementById('timerMinutes'),
     timerSeconds: document.getElementById('timerSeconds'),
     btnTimer: document.getElementById('btnTimer'),
+    btnNoise: document.getElementById('btnNoise'),
+    noisePanel: document.getElementById('noisePanel'),
+    noiseLevelFace: document.getElementById('noiseLevelFace'),
+    noiseDisplay: document.getElementById('noiseDisplay'),
+    noiseStatus: document.getElementById('noiseStatus'),
+    noiseThreshold: document.getElementById('noiseThreshold'),
+    noiseThresholdVal: document.getElementById('noiseThresholdVal'),
+    btnNoiseStart: document.getElementById('btnNoiseStart'),
+    btnNoiseStop: document.getElementById('btnNoiseStop'),
+    btnNoiseHide: document.getElementById('btnNoiseHide'),
     settingClassName: document.getElementById('settingClassName'),
     settingRows: document.getElementById('settingRows'),
     settingCols: document.getElementById('settingCols'),
@@ -240,6 +255,24 @@
   }
   if (els.timerSeconds) {
     els.timerSeconds.addEventListener('change', applyTimerCustom);
+  }
+  if (els.btnNoise) {
+    els.btnNoise.addEventListener('click', toggleNoisePanel);
+  }
+  if (els.btnNoiseHide) {
+    els.btnNoiseHide.addEventListener('click', hideNoisePanel);
+  }
+  if (els.btnNoiseStart) {
+    els.btnNoiseStart.addEventListener('click', startNoiseMeter);
+  }
+  if (els.btnNoiseStop) {
+    els.btnNoiseStop.addEventListener('click', stopNoiseMeter);
+  }
+  if (els.noiseThreshold) {
+    els.noiseThreshold.addEventListener('input', function () {
+      saveNoiseThreshold_(els.noiseThreshold.value);
+      renderNoiseUi();
+    });
   }
   var btnGroup = document.getElementById('btnGroup');
   if (btnGroup) {
@@ -824,6 +857,7 @@
   }
 
   var TIMER_STORAGE_KEY = 'class-seating-timer-secs';
+  var NOISE_LS_KEY = 'class-seating-noise-threshold';
 
   function formatTimerMs(ms) {
     var total = Math.max(0, Math.ceil(Number(ms) / 1000));
@@ -1075,6 +1109,79 @@
     App.timer.done = false;
     App.timerOpen = false;
     renderTimerUi();
+  }
+
+  function readNoiseThreshold_() {
+    try {
+      var n = Number(localStorage.getItem(NOISE_LS_KEY));
+      if (isFinite(n)) return Math.max(30, Math.min(90, Math.round(n)));
+    } catch (e) {}
+    return 60;
+  }
+
+  function saveNoiseThreshold_(n) {
+    App.noiseThreshold = Math.max(30, Math.min(90, Math.round(Number(n) || 60)));
+    try { localStorage.setItem(NOISE_LS_KEY, String(App.noiseThreshold)); } catch (e) {}
+  }
+
+  function renderNoiseUi() {
+    if (els.noisePanel) els.noisePanel.hidden = !App.noiseOpen;
+    if (els.btnNoise) {
+      els.btnNoise.classList.toggle('tab-on', !!App.noiseOpen);
+      els.btnNoise.setAttribute('aria-pressed', App.noiseOpen ? 'true' : 'false');
+    }
+    if (els.noiseThreshold && document.activeElement !== els.noiseThreshold) {
+      els.noiseThreshold.value = String(App.noiseThreshold);
+    }
+    if (els.noiseThresholdVal) els.noiseThresholdVal.textContent = String(App.noiseThreshold);
+    if (els.noiseDisplay) els.noiseDisplay.textContent = App.noiseRunning ? String(Math.round(App.noiseScore)) : '—';
+    if (els.noiseStatus) els.noiseStatus.textContent = App.noiseRunning ? '測量中（下一版接上麥克風）' : '尚未開始';
+    if (els.noiseLevelFace) {
+      var level = App.noiseRunning ? App.noiseLevel : 'idle';
+      ['idle', 'green', 'yellow', 'red'].forEach(function (name) {
+        els.noiseLevelFace.classList.toggle('noise-level-' + name, level === name);
+      });
+      els.noiseLevelFace.setAttribute('data-noise-level', level);
+    }
+    if (els.btnNoiseStart) els.btnNoiseStart.disabled = !!App.noiseRunning;
+    if (els.btnNoiseStop) els.btnNoiseStop.disabled = !App.noiseRunning;
+  }
+
+  function toggleNoisePanel() {
+    if (!canEdit()) {
+      toast('未登入教師帳號，不能操作測分貝');
+      return;
+    }
+    App.noiseOpen = !App.noiseOpen;
+    renderNoiseUi();
+  }
+
+  function hideNoisePanel() {
+    App.noiseOpen = false;
+    // Task 2 會接上麥克風；收合面板時不主動停止測量。
+    renderNoiseUi();
+  }
+
+  function startNoiseMeter() {
+    App.noiseOpen = true;
+    renderNoiseUi();
+    toast('測分貝麥克風功能下一版接上');
+  }
+
+  function stopNoiseMeter() {
+    App.noiseRunning = false;
+    App.noiseLevel = 'idle';
+    App.noiseScore = 0;
+    renderNoiseUi();
+  }
+
+  function initNoiseMeter() {
+    App.noiseThreshold = readNoiseThreshold_();
+    App.noiseOpen = false;
+    App.noiseRunning = false;
+    App.noiseScore = 0;
+    App.noiseLevel = 'idle';
+    renderNoiseUi();
   }
 
   function teacherEmailHint() {
@@ -1788,6 +1895,7 @@
     renderGroupRoster();
     renderMode();
     renderDelta();
+    renderNoiseUi();
     if (App.appView === 'teacher' && App.teacherTab === 'journal') renderLessonJournal();
     if (App.appView === 'teacher' && App.teacherTab === 'missing') renderHwMissingTab();
     renderHwMissingBanner();
@@ -10151,6 +10259,7 @@
   applyTeacherUi();
   restoreLayoutMode();
   initAnswerTimer();
+  initNoiseMeter();
   if (window.GoogleAuth) {
     GoogleAuth.start({
       onSignedIn: function (account, alreadyBooted) {

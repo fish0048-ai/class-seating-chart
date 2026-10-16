@@ -77,6 +77,7 @@
         <button type="button" class="tool" id="btnUndo">復原</button>
         <button type="button" class="tool accent" id="btnLottery">抽籤</button>
         <button type="button" class="tool" id="btnTimer" aria-pressed="false">定時</button>
+        <button type="button" class="tool" id="btnNoise" aria-pressed="false">測分貝</button>
         <button type="button" class="tool" id="btnGroup">分組</button>
         <button type="button" class="tool primary" id="btnSave">立即同步</button>
       </nav>
@@ -110,6 +111,26 @@
             <button type="button" class="tool" id="btnTimerPause" disabled>暫停</button>
             <button type="button" class="tool" id="btnTimerReset">重設</button>
             <button type="button" class="tool" id="btnTimerHide">收合</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="noisePanel" class="noise-panel" hidden aria-label="課堂測分貝">
+        <div id="noiseLevelFace" class="noise-face noise-level-idle" data-noise-level="idle">
+          <p class="noise-label">課堂音量</p>
+          <div id="noiseDisplay" class="noise-display" aria-live="polite">—</div>
+          <p id="noiseStatus" class="noise-status">按開始後會使用麥克風（相對參考）</p>
+        </div>
+        <div class="noise-controls">
+          <label class="noise-threshold-label">太吵門檻
+            <input id="noiseThreshold" type="range" min="30" max="90" value="60" />
+            <span id="noiseThresholdVal">60</span>
+          </label>
+          <p class="hint noise-privacy">相對參考，非專業分貝計；不會錄音或上傳。不同麥克風請調整門檻。</p>
+          <div class="noise-actions">
+            <button type="button" class="tool primary" id="btnNoiseStart">開始</button>
+            <button type="button" class="tool" id="btnNoiseStop" disabled>停止</button>
+            <button type="button" class="tool" id="btnNoiseHide">收合</button>
           </div>
         </div>
       </section>
