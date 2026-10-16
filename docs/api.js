@@ -679,6 +679,18 @@
     return out;
   }
 
+  function normalizeHwDueDate_(raw) {
+    var s = String(raw == null ? '' : raw).trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return '';
+    var d = new Date(s.slice(0, 4), Number(s.slice(5, 7)) - 1, Number(s.slice(8, 10)));
+    if (isNaN(d.getTime())) return '';
+    var y = d.getFullYear();
+    var m = String(d.getMonth() + 1).padStart(2, '0');
+    var day = String(d.getDate()).padStart(2, '0');
+    var key = y + '-' + m + '-' + day;
+    return key === s ? s : '';
+  }
+
   function normalizeHwMissingItem_(raw, className) {
     raw = raw || {};
     var id = String(raw.id || '').trim();
@@ -689,6 +701,7 @@
       title: String(raw.title || '').trim().slice(0, 60) || '缺交作業',
       seats: normalizeHwSeatList_(raw.seats),
       note: String(raw.note || '').trim().slice(0, 120),
+      dueDate: normalizeHwDueDate_(raw.dueDate),
       deleted: !!raw.deleted,
       createdAt: String(raw.createdAt || nowIso()),
       updatedAt: String(raw.updatedAt || raw.createdAt || nowIso())
@@ -2661,6 +2674,7 @@
       item.deleted = false;
       item.className = className;
       if (!item.seats.length) throw new Error('請至少選一位缺交座號');
+      if (!item.dueDate) throw new Error('請填繳交期限');
       item.updatedAt = nowIso();
       if (!item.createdAt) item.createdAt = item.updatedAt;
       store.hwMissing = normalizeHwMissing_(store.hwMissing);
