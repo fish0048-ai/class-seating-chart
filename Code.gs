@@ -966,6 +966,21 @@ function mergeCloudScheduleChanges_(localList, remoteList) {
   return out;
 }
 
+/** 缺交作業繳交期限：只接受 YYYY-MM-DD，並用回推日期擋非法日。 */
+function normalizeCloudHwDueDate_(raw) {
+  var s = String(raw == null ? '' : raw).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return '';
+  var y = Number(s.slice(0, 4));
+  var m = Number(s.slice(5, 7));
+  var d = Number(s.slice(8, 10));
+  var dt = new Date(y, m - 1, d);
+  if (isNaN(dt.getTime())) return '';
+  var key = dt.getFullYear() + '-' +
+    String(dt.getMonth() + 1).padStart(2, '0') + '-' +
+    String(dt.getDate()).padStart(2, '0');
+  return key === s ? s : '';
+}
+
 function mergeCloudHwMissing_(localMap, remoteMap) {
   localMap = localMap && typeof localMap === 'object' ? localMap : {};
   remoteMap = remoteMap && typeof remoteMap === 'object' ? remoteMap : {};
@@ -995,6 +1010,7 @@ function mergeCloudHwMissing_(localMap, remoteMap) {
         title: String(item.title || '').trim().slice(0, 60) || '缺交作業',
         seats: seats,
         note: String(item.note || '').trim().slice(0, 120),
+        dueDate: normalizeCloudHwDueDate_(item.dueDate),
         deleted: !!item.deleted,
         createdAt: String(item.createdAt || ''),
         updatedAt: String(item.updatedAt || item.createdAt || '')
