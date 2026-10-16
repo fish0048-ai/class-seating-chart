@@ -858,6 +858,13 @@
 
   var TIMER_STORAGE_KEY = 'class-seating-timer-secs';
   var NOISE_LS_KEY = 'class-seating-noise-threshold';
+  var LEVEL_TEXT = {
+    idle: '尚未開始',
+    green: '安靜',
+    yellow: '有點吵',
+    red: '太吵了'
+  };
+  var noiseAudio_ = null;
 
   function formatTimerMs(ms) {
     var total = Math.max(0, Math.ceil(Number(ms) / 1000));
@@ -1124,6 +1131,23 @@
     try { localStorage.setItem(NOISE_LS_KEY, String(App.noiseThreshold)); } catch (e) {}
   }
 
+  function rmsToScore_(rms) {
+    if (!rms || rms <= 0) return 0;
+    var db = 20 * Math.log10(rms);
+    var score = (db + 60) * (100 / 60);
+    if (score < 0) return 0;
+    if (score > 100) return 100;
+    return score;
+  }
+
+  function scoreToLevel_(score, red) {
+    red = Math.max(30, Math.min(90, Number(red) || 60));
+    var yellow = red * 0.7;
+    if (score >= red) return 'red';
+    if (score >= yellow) return 'yellow';
+    return 'green';
+  }
+
   function renderNoiseUi() {
     if (els.noisePanel) els.noisePanel.hidden = !App.noiseOpen;
     if (els.btnNoise) {
@@ -1135,7 +1159,10 @@
     }
     if (els.noiseThresholdVal) els.noiseThresholdVal.textContent = String(App.noiseThreshold);
     if (els.noiseDisplay) els.noiseDisplay.textContent = App.noiseRunning ? String(Math.round(App.noiseScore)) : '—';
-    if (els.noiseStatus) els.noiseStatus.textContent = App.noiseRunning ? '測量中（下一版接上麥克風）' : '尚未開始';
+    if (els.noiseStatus) {
+      var statusLevel = App.noiseRunning ? App.noiseLevel : 'idle';
+      els.noiseStatus.textContent = LEVEL_TEXT[statusLevel] || LEVEL_TEXT.idle;
+    }
     if (els.noiseLevelFace) {
       var level = App.noiseRunning ? App.noiseLevel : 'idle';
       ['idle', 'green', 'yellow', 'red'].forEach(function (name) {
@@ -1158,17 +1185,74 @@
 
   function hideNoisePanel() {
     App.noiseOpen = false;
-    // Task 2 會接上麥克風；收合面板時不主動停止測量。
     renderNoiseUi();
   }
 
   function startNoiseMeter() {
+    if (App.noiseRunning) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      toast('這個瀏覽器不支援麥克風測分貝');
+      return;
+    }
     App.noiseOpen = true;
-    renderNoiseUi();
-    toast('測分貝麥克風功能下一版接上');
+    navigator.mediaDevices.getUserMedia({
+      audio: {
+        echoCancellation: false,
+        noiseSuppression: false,
+        autoGainControl: false
+      }
+    }).then(function (stream) {
+      var Ctx = window.AudioContext || window.webkitAudioContext;
+      if (!Ctx) {
+        stream.getTracks().forEach(function (t) { try { t.stop(); } catch (e) {} });
+        toast('這個瀏覽器不支援音量分析');
+        stopNoiseMeter();
+        return;
+      }
+      var ctx = new Ctx();
+      var source = ctx.createMediaStreamSource(stream);
+      var analyser = ctx.createAnalyser();
+      analyser.fftSize = 2048;
+      source.connect(analyser);
+      // 不連到 destination，避免教室喇叭回授。
+      var data = new Float32Array(analyser.fftSize);
+      noiseAudio_ = { ctx: ctx, stream: stream, analyser: analyser, raf: 0, data: data };
+      App.noiseRunning = true;
+      App.noiseScore = 0;
+      App.noiseLevel = 'idle';
+      renderNoiseUi();
+      function tick() {
+        if (!noiseAudio_ || !App.noiseRunning) return;
+        noiseAudio_.analyser.getFloatTimeDomainData(noiseAudio_.data);
+        var sum = 0;
+        for (var i = 0; i < noiseAudio_.data.length; i++) {
+          var v = noiseAudio_.data[i];
+          sum += v * v;
+        }
+        var rms = Math.sqrt(sum / noiseAudio_.data.length);
+        var instant = rmsToScore_(rms);
+        App.noiseScore = App.noiseScore * 0.8 + instant * 0.2;
+        App.noiseLevel = scoreToLevel_(App.noiseScore, App.noiseThreshold);
+        renderNoiseUi();
+        noiseAudio_.raf = requestAnimationFrame(tick);
+      }
+      noiseAudio_.raf = requestAnimationFrame(tick);
+      toast('測分貝已開始');
+    }).catch(function () {
+      toast('請允許麥克風後再按開始');
+      stopNoiseMeter();
+    });
   }
 
   function stopNoiseMeter() {
+    if (noiseAudio_ && noiseAudio_.raf) cancelAnimationFrame(noiseAudio_.raf);
+    if (noiseAudio_ && noiseAudio_.stream) {
+      noiseAudio_.stream.getTracks().forEach(function (t) { try { t.stop(); } catch (e) {} });
+    }
+    if (noiseAudio_ && noiseAudio_.ctx) {
+      try { noiseAudio_.ctx.close(); } catch (e) {}
+    }
+    noiseAudio_ = null;
     App.noiseRunning = false;
     App.noiseLevel = 'idle';
     App.noiseScore = 0;
@@ -1379,6 +1463,7 @@
     pullCloudQuiet();
   });
   window.addEventListener('pagehide', function () {
+    stopNoiseMeter();
     if (typeof SeatDB !== 'undefined' && SeatDB.flushCloud) {
       SeatDB.flushCloud({ pendingOnly: true, skipHeld: true }).catch(function () {});
     }
