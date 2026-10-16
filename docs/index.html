@@ -824,6 +824,9 @@
               <label>作業名稱
                 <input id="missingTitle" type="text" maxlength="60" placeholder="例如 講義第 3 回" />
               </label>
+              <label>繳交期限
+                <input id="missingDue" type="date" required />
+              </label>
               <label>備註
                 <input id="missingNote" type="text" maxlength="120" placeholder="選填" />
               </label>
@@ -837,6 +840,7 @@
               <button type="button" class="tool primary" id="btnMissingSave">儲存缺交名單</button>
               <button type="button" class="tool" id="btnMissingClearPick">清除已選座號</button>
             </div>
+            <p id="missingDueWarn" class="missing-due-warn" hidden></p>
             <h3 class="subhead">本班缺交名單</h3>
             <div id="missingList" class="missing-list" aria-live="polite"></div>
           </div>

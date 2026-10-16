@@ -754,6 +754,13 @@
   var missingList = document.getElementById('missingList');
   if (missingList) {
     missingList.addEventListener('click', function (event) {
+      var dueSave = event.target.closest('[data-missing-due-save]');
+      if (dueSave) {
+        requireTeacher(function () {
+          saveHwMissingDuePatch(dueSave.getAttribute('data-missing-due-class'), dueSave.getAttribute('data-missing-due-save'));
+        });
+        return;
+      }
       var del = event.target.closest('[data-missing-del]');
       if (del) {
         requireTeacher(function () {
@@ -3092,10 +3099,27 @@
     var className = teacherTargetClass();
     renderHwMissingSeatPick();
     var list = document.getElementById('missingList');
+    var warn = document.getElementById('missingDueWarn');
     if (!list) return;
     if (!className) {
+      if (warn) {
+        warn.hidden = true;
+        warn.textContent = '';
+      }
       list.innerHTML = '<p class="hint">請先在上方選班級。</p>';
       return;
+    }
+    var incomplete = activeHwMissingItems(className).filter(function (item) {
+      return !hasHwDueDate_(item);
+    }).length;
+    if (warn) {
+      if (incomplete > 0) {
+        warn.hidden = false;
+        warn.textContent = '有 ' + incomplete + ' 筆缺交還沒填繳交期限，補齊前不會出現在座位表。';
+      } else {
+        warn.hidden = true;
+        warn.textContent = '';
+      }
     }
     var items = activeHwMissingItems(className);
     if (!items.length) {
@@ -3108,21 +3132,34 @@
       (item.seats || []).forEach(function (seat) {
         selected[normalizeDisplaySeat_(seat)] = true;
       });
+      var dueOk = hasHwDueDate_(item);
+      var dueHtml = dueOk
+        ? ('<span class="missing-due">期限 ' + escapeHtml(item.dueDate) +
+          '（已缺 ' + hwMissingDaysLate_(item) + ' 工作天）</span>')
+        : ('<span class="missing-due missing-due-need">請補期限</span>' +
+          '<label class="missing-due-patch">補繳交期限' +
+          '<input type="date" data-missing-due-id="' + escapeHtml(item.id) +
+          '" data-missing-due-class="' + escapeHtml(className) + '" />' +
+          '<button type="button" class="tool" data-missing-due-save="' + escapeHtml(item.id) +
+          '" data-missing-due-class="' + escapeHtml(className) + '">儲存期限</button></label>');
       var seatHtml = roster.length
         ? roster.map(function (s) {
             var seat = normalizeDisplaySeat_(s.seatNo);
             var on = selected[seat] ? ' tab-on' : '';
+            var disabled = dueOk ? '' : ' disabled';
+            var title = dueOk ? (s.name || '') : '請先補繳交期限';
             return '<button type="button" class="tool missing-seat-btn' + on +
               '" data-missing-edit-seat="' + escapeHtml(seat) +
               '" data-missing-edit-id="' + escapeHtml(item.id) +
               '" data-missing-edit-class="' + escapeHtml(className) +
-              '" title="' + escapeHtml(s.name || '') + '">' + escapeHtml(seat) + '</button>';
+              '" title="' + escapeHtml(title) + '"' + disabled + '>' + escapeHtml(seat) + '</button>';
           }).join('')
         : '<span class="missing-seats">缺交座號：' + escapeHtml((item.seats || []).join('、')) +
           '</span><p class="hint">這班名單未載入，請先到上課模式選此班，或上方新建時用輸入框改。</p>';
       return '<div class="missing-item" data-missing-item="' + escapeHtml(item.id) + '">' +
         '<div class="missing-item-head">' +
           '<strong>' + escapeHtml(item.title || '缺交作業') + '</strong>' +
+          dueHtml +
           '<button type="button" class="tool danger" data-missing-del="' + escapeHtml(item.id) +
             '" data-missing-class="' + escapeHtml(className) + '">刪除</button>' +
         '</div>' +
@@ -3195,6 +3232,10 @@
       toast('找不到這筆缺交名單');
       return;
     }
+    if (!hasHwDueDate_(item)) {
+      toast('請先補這筆的繳交期限');
+      return;
+    }
     var seats = (item.seats || []).map(normalizeDisplaySeat_).filter(Boolean);
     var has = seats.indexOf(seat) >= 0;
     var next = has
@@ -3216,6 +3257,7 @@
       className: className,
       title: item.title || '',
       note: item.note || '',
+      dueDate: item.dueDate || '',
       seats: next,
       createdAt: item.createdAt || ''
     }]).then(function (data) {
@@ -3238,6 +3280,41 @@
     });
   }
 
+  function saveHwMissingDuePatch(className, itemId) {
+    var item = findHwMissingItem_(className, itemId);
+    if (!item) {
+      toast('找不到這筆缺交名單');
+      return;
+    }
+    var input = document.querySelector(
+      'input[data-missing-due-id="' + itemId + '"][data-missing-due-class="' + className + '"]'
+    );
+    var dueDate = input ? String(input.value || '').trim() : '';
+    if (!dueDate) {
+      toast('請填繳交期限');
+      return;
+    }
+    api('saveHwMissing', [{
+      id: item.id,
+      className: className,
+      title: item.title || '',
+      note: item.note || '',
+      dueDate: dueDate,
+      seats: item.seats || [],
+      createdAt: item.createdAt || ''
+    }]).then(function (data) {
+      if (data && data.hwMissing) {
+        App.hwMissing = mergeHwMissingClient_(App.hwMissing, data.hwMissing);
+      }
+      renderHwMissingTab();
+      renderHwMissingBanner();
+      if (App.classroom && App.classroom.className === className) renderBoard();
+      toast('已補上繳交期限');
+    }).catch(function (err) {
+      toast(err && err.message ? err.message : '儲存失敗');
+    });
+  }
+
   function saveHwMissingFromForm() {
     var className = teacherTargetClass();
     if (!className) {
@@ -3245,14 +3322,21 @@
       return;
     }
     var titleEl = document.getElementById('missingTitle');
+    var dueEl = document.getElementById('missingDue');
     var noteEl = document.getElementById('missingNote');
     var textEl = document.getElementById('missingSeatsText');
+    var dueDate = dueEl ? String(dueEl.value || '').trim() : '';
+    if (!dueDate) {
+      toast('請填繳交期限');
+      return;
+    }
     var seats = Object.keys(App.missingPick || {}).filter(function (k) { return App.missingPick[k]; });
     if (!seats.length && textEl) seats = parseMissingSeatsText(textEl.value);
     api('saveHwMissing', [{
       className: className,
       title: titleEl ? titleEl.value : '',
       note: noteEl ? noteEl.value : '',
+      dueDate: dueDate,
       seats: seats
     }]).then(function (data) {
       if (data && data.hwMissing) {
@@ -3261,6 +3345,7 @@
       App.missingPick = {};
       if (textEl) textEl.value = '';
       if (noteEl) noteEl.value = '';
+      if (dueEl) dueEl.value = '';
       renderHwMissingTab();
       renderHwMissingBanner();
       if (App.classroom && App.classroom.className === className) renderBoard();
