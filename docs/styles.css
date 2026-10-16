@@ -1096,6 +1096,7 @@
     background: #fde8e8;
     border-color: #d64545;
     color: #8a1f1f;
+    margin-bottom: 8px;
   }
 
   .hw-missing-line-severe {
@@ -1107,16 +1108,31 @@
     box-shadow: none;
   }
 
-  .seat-hw-missing-stack {
+  .seat-hw-missing-wrap {
     position: absolute;
     top: 4px;
     right: 4px;
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    gap: 2px;
+    gap: 4px;
     max-width: 72%;
     z-index: 2;
+  }
+
+  .seat-hw-missing-stack {
+    position: static;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
+    max-width: 100%;
+  }
+
+  .seat-hw-missing-stack-severe {
+    padding: 2px;
+    border-radius: 8px;
+    background: rgba(198, 40, 40, 0.12);
   }
 
   .seat-hw-missing {
@@ -1142,6 +1158,22 @@
   .missing-due-severe {
     color: #8a1f1f;
     font-weight: 800;
+  }
+
+  .missing-severe-head {
+    color: #8a1f1f;
+  }
+
+  .missing-severe-list {
+    margin-bottom: 16px;
+    padding: 10px;
+    border-radius: 12px;
+    background: #fde8e8;
+    border: 1px solid #d64545;
+  }
+
+  .missing-item-severe {
+    border-color: #d64545;
   }
 
   .tt-event-tags {

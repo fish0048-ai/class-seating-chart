@@ -3054,12 +3054,22 @@
   function hwMissingBadgeHtml(seatNo) {
     var lines = hwMissingLinesForSeat_(seatNo);
     if (!lines.length) return '';
-    return '<span class="seat-hw-missing-stack">' + lines.map(function (line) {
-      var severe = isHwMissingSevere_(line.days);
-      return '<span class="seat-hw-missing' + (severe ? ' seat-hw-missing-severe' : '') + '">' +
-        (severe ? '嚴重 ' : '') + '缺交 ' + escapeHtml(line.title) + ' ' +
-        line.days + '天</span>';
-    }).join('') + '</span>';
+    var severeLines = lines.filter(function (line) { return isHwMissingSevere_(line.days); });
+    var normalLines = lines.filter(function (line) { return !isHwMissingSevere_(line.days); });
+    var html = '';
+    if (severeLines.length) {
+      html += '<span class="seat-hw-missing-stack seat-hw-missing-stack-severe">' + severeLines.map(function (line) {
+        return '<span class="seat-hw-missing seat-hw-missing-severe">嚴重 ' +
+          escapeHtml(line.title) + ' ' + line.days + '天</span>';
+      }).join('') + '</span>';
+    }
+    if (normalLines.length) {
+      html += '<span class="seat-hw-missing-stack">' + normalLines.map(function (line) {
+        return '<span class="seat-hw-missing">缺交 ' + escapeHtml(line.title) + ' ' +
+          line.days + '天</span>';
+      }).join('') + '</span>';
+    }
+    return '<span class="seat-hw-missing-wrap">' + html + '</span>';
   }
 
   function hwMissingSeatSet(className) {
@@ -3135,7 +3145,7 @@
       return;
     }
     var roster = studentsForMissingClass_(className);
-    list.innerHTML = items.map(function (item) {
+    function itemCardHtml_(item) {
       var selected = {};
       (item.seats || []).forEach(function (seat) {
         selected[normalizeDisplaySeat_(seat)] = true;
@@ -3167,9 +3177,11 @@
           }).join('')
         : '<span class="missing-seats">缺交座號：' + escapeHtml((item.seats || []).join('、')) +
           '</span><p class="hint">這班名單未載入，請先到上課模式選此班，或上方新建時用輸入框改。</p>';
-      return '<div class="missing-item" data-missing-item="' + escapeHtml(item.id) + '">' +
+      return '<div class="missing-item' + (severe ? ' missing-item-severe' : '') +
+        '" data-missing-item="' + escapeHtml(item.id) + '">' +
         '<div class="missing-item-head">' +
-          '<strong>' + escapeHtml(item.title || '缺交作業') + '</strong>' +
+          '<strong>' + escapeHtml(item.title || '缺交作業') +
+          (severe ? '｜嚴重缺交' : '') + '</strong>' +
           dueHtml +
           '<button type="button" class="tool danger" data-missing-del="' + escapeHtml(item.id) +
             '" data-missing-class="' + escapeHtml(className) + '">刪除</button>' +
@@ -3179,7 +3191,24 @@
         '<div class="missing-seat-pick missing-item-seats" role="group" aria-label="' +
           escapeHtml((item.title || '缺交') + ' 座號') + '">' + seatHtml + '</div>' +
         '</div>';
-    }).join('');
+    }
+    var severeItems = [];
+    var otherItems = [];
+    items.forEach(function (item) {
+      if (hasHwDueDate_(item) && isHwMissingSevere_(hwMissingDaysLate_(item))) severeItems.push(item);
+      else otherItems.push(item);
+    });
+    var html = '';
+    if (severeItems.length) {
+      html += '<h3 class="subhead missing-severe-head">嚴重缺交（超過 ' + HW_MISSING_SEVERE_DAYS +
+        ' 個工作天）</h3><div class="missing-severe-list">' +
+        severeItems.map(itemCardHtml_).join('') + '</div>';
+    }
+    if (otherItems.length) {
+      html += '<h3 class="subhead">' + (severeItems.length ? '其他缺交' : '本班缺交名單') + '</h3>' +
+        otherItems.map(itemCardHtml_).join('');
+    }
+    list.innerHTML = html;
   }
 
   function studentsForMissingClass_(className) {
@@ -3393,37 +3422,48 @@
     });
   }
 
-  function renderHwMissingBanner() {
-    var el = document.getElementById('hwMissingBanner');
+  function hwMissingLineHtml_(item, severe) {
+    var days = hwMissingDaysLate_(item);
+    return '<span class="hw-missing-line' + (severe ? ' hw-missing-line-severe' : '') + '">' +
+      escapeHtml(item.title || '缺交') + '（缺 ' + days + ' 天）：' +
+      escapeHtml((item.seats || []).join('、')) +
+      '</span>';
+  }
+
+  function fillHwMissingBanner_(el, title, items, severe) {
     if (!el) return;
-    if (!App.classroom || App.appView === 'teacher') {
-      el.hidden = true;
-      el.innerHTML = '';
-      el.classList.remove('hw-missing-banner-severe');
-      return;
-    }
-    var items = completeHwMissingItems(App.classroom.className);
     if (!items.length) {
       el.hidden = true;
       el.innerHTML = '';
-      el.classList.remove('hw-missing-banner-severe');
       return;
     }
-    var anySevere = items.some(function (item) {
-      return isHwMissingSevere_(hwMissingDaysLate_(item));
-    });
     el.hidden = false;
-    el.classList.toggle('hw-missing-banner-severe', anySevere);
-    el.innerHTML = '<strong>缺交作業' + (anySevere ? '｜有超過 ' + HW_MISSING_SEVERE_DAYS + ' 工作天' : '') +
-      '</strong>' + items.map(function (item) {
-      var days = hwMissingDaysLate_(item);
-      var severe = isHwMissingSevere_(days);
-      return '<span class="hw-missing-line' + (severe ? ' hw-missing-line-severe' : '') + '">' +
-        (severe ? '嚴重｜' : '') +
-        escapeHtml(item.title || '缺交') + '（缺 ' + days + ' 天）：' +
-        escapeHtml((item.seats || []).join('、')) +
-        '</span>';
+    el.innerHTML = '<strong>' + title + '</strong>' + items.map(function (item) {
+      return hwMissingLineHtml_(item, severe);
     }).join('');
+  }
+
+  function renderHwMissingBanner() {
+    var severeEl = document.getElementById('hwMissingSevereBanner');
+    var el = document.getElementById('hwMissingBanner');
+    if (!App.classroom || App.appView === 'teacher') {
+      fillHwMissingBanner_(severeEl, '', [], true);
+      fillHwMissingBanner_(el, '', [], false);
+      return;
+    }
+    var severe = [];
+    var normal = [];
+    completeHwMissingItems(App.classroom.className).forEach(function (item) {
+      if (isHwMissingSevere_(hwMissingDaysLate_(item))) severe.push(item);
+      else normal.push(item);
+    });
+    fillHwMissingBanner_(
+      severeEl,
+      '嚴重缺交（超過 ' + HW_MISSING_SEVERE_DAYS + ' 個工作天）',
+      severe,
+      true
+    );
+    fillHwMissingBanner_(el, '缺交作業', normal, false);
   }
 
   function lessonLogClassNames() {
