@@ -1890,7 +1890,7 @@
     const missingCls = isSeatHwMissing(student.seatNo) ? ' hw-missing' : '';
     const groupStyle = gid ? ' style="--group-color:' + groupColor(gid) + '"' : '';
     const groupBadge = gid ? '<span class="seat-group">第' + gid + '組</span>' : '';
-    const missingBadge = missingCls ? '<span class="seat-hw-missing">缺交</span>' : '';
+    const missingBadge = hwMissingBadgeHtml(student.seatNo);
     return '<div class="seat">' +
       '<article class="seat-card' + selected + helper + groupCls + pickedCls + missingCls + '" data-seat="' + escapeHtml(student.seatNo) + '"' + groupStyle + '>' +
         groupBadge + missingBadge +
@@ -2377,7 +2377,7 @@
     var selected = student.seatNo === App.selectedSeatNo ? ' selected' : '';
     var helper = App.peerHelperSeatNo && String(student.seatNo) === String(App.peerHelperSeatNo) ? ' peer-helper' : '';
     var missingCls = isSeatHwMissing(student.seatNo) ? ' hw-missing' : '';
-    var missingBadge = missingCls ? '<span class="seat-hw-missing">缺交</span>' : '';
+    var missingBadge = hwMissingBadgeHtml(student.seatNo);
     return '<article class="seat-card has-group' + selected + helper + missingCls + '" data-seat="' + escapeHtml(student.seatNo) + '" style="--group-color:' + groupColor(gid) + '">' +
       missingBadge +
       '<span class="seat-no">' + escapeHtml(student.seatNo) + '</span>' +
@@ -3010,9 +3010,46 @@
     });
   }
 
+  function hasHwDueDate_(item) {
+    return !!(item && /^\d{4}-\d{2}-\d{2}$/.test(String(item.dueDate || '').trim()));
+  }
+
+  function completeHwMissingItems(className) {
+    return activeHwMissingItems(className).filter(hasHwDueDate_);
+  }
+
+  function hwMissingDaysLate_(item) {
+    if (!hasHwDueDate_(item)) return 0;
+    return workDaysLate(item.dueDate, formatDateKey(new Date()));
+  }
+
+  function hwMissingLinesForSeat_(seatNo, className) {
+    className = className || (App.classroom && App.classroom.className) || '';
+    var seat = normalizeDisplaySeat_(seatNo);
+    var lines = [];
+    completeHwMissingItems(className).forEach(function (item) {
+      var seats = (item.seats || []).map(normalizeDisplaySeat_);
+      if (seats.indexOf(seat) < 0 && seats.indexOf(String(Number(seatNo) || '')) < 0) return;
+      lines.push({
+        title: item.title || '缺交',
+        days: hwMissingDaysLate_(item)
+      });
+    });
+    return lines;
+  }
+
+  function hwMissingBadgeHtml(seatNo) {
+    var lines = hwMissingLinesForSeat_(seatNo);
+    if (!lines.length) return '';
+    return '<span class="seat-hw-missing-stack">' + lines.map(function (line) {
+      return '<span class="seat-hw-missing">缺交 ' + escapeHtml(line.title) + ' ' +
+        line.days + '天</span>';
+    }).join('') + '</span>';
+  }
+
   function hwMissingSeatSet(className) {
     var set = {};
-    activeHwMissingItems(className).forEach(function (item) {
+    completeHwMissingItems(className).forEach(function (item) {
       (item.seats || []).forEach(function (seat) {
         set[normalizeDisplaySeat_(seat)] = true;
         set[String(Number(seat) || seat)] = true;
@@ -3268,7 +3305,7 @@
       el.innerHTML = '';
       return;
     }
-    var items = activeHwMissingItems(App.classroom.className);
+    var items = completeHwMissingItems(App.classroom.className);
     if (!items.length) {
       el.hidden = true;
       el.innerHTML = '';
@@ -3276,8 +3313,9 @@
     }
     el.hidden = false;
     el.innerHTML = '<strong>缺交作業</strong>' + items.map(function (item) {
+      var days = hwMissingDaysLate_(item);
       return '<span class="hw-missing-line">' +
-        escapeHtml(item.title || '缺交') + '：' +
+        escapeHtml(item.title || '缺交') + '（缺 ' + days + ' 天）：' +
         escapeHtml((item.seats || []).join('、')) +
         '</span>';
     }).join('');
