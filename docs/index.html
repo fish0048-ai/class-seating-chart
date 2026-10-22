@@ -267,15 +267,14 @@
             </div>
             <div id="timetableNow" class="tt-focus"></div>
             <div id="ttHolidayBanner" class="tt-holiday-banner" hidden></div>
-            <section class="tt-swap" id="timetableSwapPanel" aria-label="調課與代課">
+            <details class="tt-swap" id="timetableSwapPanel">
+              <summary class="tt-swap-summary">
+                <span class="tt-swap-title">調課與代課</span>
+                <span id="ttSwapCount" class="tt-swap-count"></span>
+                <span class="tt-swap-toggle-hint">點此新增或修改</span>
+              </summary>
               <div class="tt-swap-head">
-                <h3>調課與代課</h3>
-                <p class="hint">只改這個網站課表顯示，不會動到 Google 課表試算表。平板與筆電會共用。</p>
-              </div>
-              <div class="tt-swap-view">
-                <label>課表檢視週
-                  <select id="ttSwapWeek"></select>
-                </label>
+                <p class="hint">只改這個網站課表顯示，不會動到 Google 課表試算表。平板與筆電會共用。設定好後會直接顯示在下方課表。</p>
               </div>
               <div class="tt-mode-switch" role="group" aria-label="種類">
                 <button type="button" class="tool tab-on" data-tt-mode="swap">調課</button>
@@ -311,7 +310,12 @@
                 </div>
               </div>
               <div id="ttSwapList" class="tt-swap-list" aria-live="polite"></div>
-            </section>
+            </details>
+            <div class="tt-swap-view">
+              <label>課表檢視週
+                <select id="ttSwapWeek"></select>
+              </label>
+            </div>
             <div id="timetableGrid" class="tt-wrap"></div>
             <details class="tt-live">
               <summary>看 Google 課表原貌（只讀，不會寫入成績）</summary>

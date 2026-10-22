@@ -4617,6 +4617,8 @@
     if (f.note) f.note.value = item.note || '';
     App.ttAutoClass = '';
     renderTtForm();
+    var panel = document.getElementById('timetableSwapPanel');
+    if (panel) panel.open = true;
     var form = document.getElementById('ttSwapForm');
     if (form && form.scrollIntoView) form.scrollIntoView({ block: 'center', behavior: 'smooth' });
   }
@@ -4628,10 +4630,15 @@
     resetTtForm();
     renderScheduleChangePanel();
     renderTimetable();
+    var panel = document.getElementById('timetableSwapPanel');
+    if (panel) panel.open = false;
+    if (els.timetableGrid && els.timetableGrid.scrollIntoView) {
+      els.timetableGrid.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    }
     if (data && data.synced === false) {
       toast((data.cloudError || '已暫存，但還沒同步到雲端') + '。請按「立即同步」', 7000);
     } else {
-      toast(okMsg + '（Google 課表試算表未改動）');
+      toast(okMsg + '，已顯示在課表（Google 課表試算表未改動）');
     }
   }
 
@@ -4774,6 +4781,8 @@
     var past = entries.filter(function (e) { return e.last < today; }).sort(function (a, b) {
       return b.first.localeCompare(a.first);
     }).slice(0, 30);
+    var countEl = document.getElementById('ttSwapCount');
+    if (countEl) countEl.textContent = upcoming.length ? '近期 ' + upcoming.length + ' 筆' : '';
     var html = '<h4 class="tt-agenda-head">近期調課與代課</h4>';
     html += upcoming.length
       ? upcoming.map(ttAgendaRowHtml_).join('')

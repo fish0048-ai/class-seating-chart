@@ -1948,8 +1948,50 @@
     display: none;
   }
 
+  .tt-swap-summary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 12px;
+    cursor: pointer;
+    font-weight: 800;
+    font-size: 1.05rem;
+    color: #334;
+  }
+
+  .tt-swap:not([open]) {
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+
+  .tt-swap[open] .tt-swap-summary {
+    margin-bottom: 8px;
+  }
+
+  .tt-swap-count {
+    padding: 2px 10px;
+    border-radius: 999px;
+    background: #c56a00;
+    color: #fff;
+    font-size: 12px;
+  }
+
+  .tt-swap-count:empty {
+    display: none;
+  }
+
+  .tt-swap-toggle-hint {
+    font-size: 13px;
+    font-weight: 600;
+    color: #778;
+  }
+
+  .tt-swap[open] .tt-swap-toggle-hint {
+    display: none;
+  }
+
   .tt-swap-view {
-    margin-bottom: 10px;
+    margin: 0 0 10px;
   }
 
   .tt-swap-view label {
