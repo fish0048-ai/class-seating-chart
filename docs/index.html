@@ -273,9 +273,13 @@
                 <span id="ttSwapCount" class="tt-swap-count"></span>
                 <span class="tt-swap-toggle-hint">點此新增或修改</span>
               </summary>
-              <div class="tt-swap-head">
-                <p class="hint">只改這個網站課表顯示，不會動到 Google 課表試算表。平板與筆電會共用。設定好後會直接顯示在下方課表。</p>
+              <div class="tt-swap-tabs" role="tablist" aria-label="調課與代課">
+                <button type="button" class="tool tab-on" data-tt-view="add" role="tab">新增</button>
+                <button type="button" class="tool" data-tt-view="upcoming" role="tab">近期紀錄 <span id="ttUpcomingCount" class="tt-tab-count"></span></button>
+                <button type="button" class="tool" data-tt-view="past" role="tab">過去紀錄 <span id="ttPastCount" class="tt-tab-count"></span></button>
               </div>
+              <div data-tt-view-panel="add">
+              <p class="hint tt-swap-hint">只改網站課表顯示，不動 Google 課表試算表。先選種類再填。</p>
               <div class="tt-mode-switch" role="group" aria-label="種類">
                 <button type="button" class="tool tab-on" data-tt-mode="swap">調課</button>
                 <button type="button" class="tool" data-tt-mode="in">我代別人</button>
@@ -318,7 +322,13 @@
                   <button type="button" class="tool" id="btnTtFormCancel" hidden>取消編輯</button>
                 </div>
               </div>
-              <div id="ttSwapList" class="tt-swap-list" aria-live="polite"></div>
+              </div>
+              <div data-tt-view-panel="upcoming" hidden>
+                <div id="ttSwapList" class="tt-swap-list" aria-live="polite"></div>
+              </div>
+              <div data-tt-view-panel="past" hidden>
+                <div id="ttSwapPast" class="tt-swap-list"></div>
+              </div>
             </details>
             <div class="tt-swap-view">
               <label>課表檢視週

@@ -47,6 +47,7 @@
     ttEditId: '',
     ttAutoClass: '',
     ttOffPeriods: [],
+    ttView: 'add',
     hwMissing: {},
     missingPick: {},
     missingSeatSaving: false,
@@ -531,9 +532,14 @@
   if (btnTtPeriodAll) btnTtPeriodAll.addEventListener('click', function () { setAllTtOffPeriods_(true); });
   var btnTtPeriodNone = document.getElementById('btnTtPeriodNone');
   if (btnTtPeriodNone) btnTtPeriodNone.addEventListener('click', function () { setAllTtOffPeriods_(false); });
-  var ttSwapList = document.getElementById('ttSwapList');
-  if (ttSwapList) {
-    ttSwapList.addEventListener('click', function (event) {
+  document.querySelectorAll('[data-tt-view]').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      setTtView(btn.getAttribute('data-tt-view'));
+    });
+  });
+  var ttSwapRecords = document.getElementById('timetableSwapPanel');
+  if (ttSwapRecords) {
+    ttSwapRecords.addEventListener('click', function (event) {
       var del = event.target.closest('[data-tt-del]');
       var edit = event.target.closest('[data-tt-edit]');
       var subfill = event.target.closest('[data-tt-subfill]');
@@ -4738,6 +4744,7 @@
     if (f.note) f.note.value = item.note || '';
     App.ttAutoClass = '';
     renderTtForm();
+    setTtView('add');
     var panel = document.getElementById('timetableSwapPanel');
     if (panel) panel.open = true;
     var form = document.getElementById('ttSwapForm');
@@ -4763,6 +4770,7 @@
     });
     if (f.period) f.period.value = freed[0] || candidates[0];
     renderTtForm();
+    setTtView('add');
     var panel = document.getElementById('timetableSwapPanel');
     if (panel) panel.open = true;
     if (f.cls) f.cls.focus();
@@ -4944,18 +4952,52 @@
     var subBtn = canSub
       ? '<button type="button" class="tool" data-tt-subfill="' + escapeHtml(item.id) + '" title="這段時間空出來，記一筆我代別人">去代課</button>'
       : '';
-    return '<div class="tt-swap-item tt-agenda-' + kindCls + '">' +
-      '<span class="tt-agenda-tag">' + tag + '</span>' +
-      '<strong>' + escapeHtml(item.className || '全部班') + '</strong>' +
-      '<span class="tt-swap-meta">' + escapeHtml(meta) + (item.note ? '　' + escapeHtml(item.note) : '') + '</span>' +
-      subBtn +
+    return '<div class="tt-swap-item tt-agenda-' + kindCls + '" title="' + escapeHtml(tag) + '">' +
+      '<span class="tt-swap-meta"><strong>' + escapeHtml(item.className || '全部班') + '</strong>　' +
+        escapeHtml(meta) + (item.note ? '<span class="tt-agenda-note">' + escapeHtml(item.note) + '</span>' : '') + '</span>' +
+      '<span class="tt-agenda-actions">' + subBtn +
       '<button type="button" class="tool" data-tt-edit="' + escapeHtml(item.id) + '" data-tt-type="' + entry.type + '">編輯</button>' +
       '<button type="button" class="tool danger" data-tt-del="' + escapeHtml(item.id) + '" data-tt-type="' + entry.type + '">刪除</button>' +
-      '</div>';
+      '</span></div>';
+  }
+
+  var TT_GROUPS = [
+    { key: 'swap', title: '調課' },
+    { key: 'in', title: '我代別人' },
+    { key: 'out', title: '別人代我' },
+    { key: 'off', title: '學生活動停課' }
+  ];
+
+  function ttEntryGroup_(entry) {
+    return entry.type === 'swap' ? 'swap' : entry.item.kind;
+  }
+
+  function ttGroupedHtml_(entries, emptyText) {
+    if (!entries.length) return '<p class="tt-swap-empty">' + emptyText + '</p>';
+    return TT_GROUPS.map(function (g) {
+      var rows = entries.filter(function (e) { return ttEntryGroup_(e) === g.key; });
+      if (!rows.length) return '';
+      return '<section class="tt-agenda-group tt-agenda-group-' + g.key + '">' +
+        '<h4 class="tt-agenda-head">' + g.title + '<span class="tt-tab-count">' + rows.length + '</span></h4>' +
+        rows.map(ttAgendaRowHtml_).join('') + '</section>';
+    }).join('');
+  }
+
+  function setTtView(view) {
+    App.ttView = view === 'upcoming' || view === 'past' ? view : 'add';
+    document.querySelectorAll('[data-tt-view]').forEach(function (btn) {
+      var on = btn.getAttribute('data-tt-view') === App.ttView;
+      btn.classList.toggle('tab-on', on);
+      btn.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    document.querySelectorAll('[data-tt-view-panel]').forEach(function (panel) {
+      panel.hidden = panel.getAttribute('data-tt-view-panel') !== App.ttView;
+    });
   }
 
   function renderScheduleChangePanel() {
     var list = document.getElementById('ttSwapList');
+    var pastEl = document.getElementById('ttSwapPast');
     if (!list) return;
     var entries = [];
     (App.scheduleChanges || []).forEach(function (item) {
@@ -4974,18 +5016,16 @@
     });
     var past = entries.filter(function (e) { return e.last < today; }).sort(function (a, b) {
       return b.first.localeCompare(a.first);
-    }).slice(0, 30);
+    }).slice(0, 50);
     var countEl = document.getElementById('ttSwapCount');
     if (countEl) countEl.textContent = upcoming.length ? '近期 ' + upcoming.length + ' 筆' : '';
-    var html = '<h4 class="tt-agenda-head">近期調課與代課</h4>';
-    html += upcoming.length
-      ? upcoming.map(ttAgendaRowHtml_).join('')
-      : '<p class="tt-swap-empty">今天起沒有調課或代課。</p>';
-    if (past.length) {
-      html += '<details class="tt-agenda-past"><summary>過去紀錄（' + past.length + '）</summary>' +
-        past.map(ttAgendaRowHtml_).join('') + '</details>';
-    }
-    list.innerHTML = html;
+    var upCount = document.getElementById('ttUpcomingCount');
+    if (upCount) upCount.textContent = upcoming.length ? String(upcoming.length) : '';
+    var pastCount = document.getElementById('ttPastCount');
+    if (pastCount) pastCount.textContent = past.length ? String(past.length) : '';
+    list.innerHTML = ttGroupedHtml_(upcoming, '今天起沒有調課、代課或停課。按「新增」加一筆。');
+    if (pastEl) pastEl.innerHTML = ttGroupedHtml_(past, '還沒有過去的紀錄。');
+    setTtView(App.ttView);
   }
 
   function deleteScheduleChange(id) {

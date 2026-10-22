@@ -2024,10 +2024,89 @@
     align-items: end;
   }
 
+  .tt-swap-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 12px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #ead9c4;
+  }
+
+  .tt-swap-tabs .tool.tab-on,
+  .tt-mode-switch .tool.tab-on {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+  }
+
+  .tt-swap-tabs .tool.tab-on .tt-tab-count {
+    background: rgba(255, 255, 255, 0.25);
+  }
+
+  .tt-tab-count {
+    display: inline-block;
+    min-width: 1.4em;
+    margin-left: 4px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, 0.08);
+    font-size: 12px;
+    text-align: center;
+  }
+
+  .tt-tab-count:empty {
+    display: none;
+  }
+
+  .tt-swap-hint {
+    margin: 0 0 10px;
+  }
+
+  .tt-agenda-group {
+    display: grid;
+    gap: 6px;
+    margin-bottom: 14px;
+  }
+
   .tt-agenda-head {
-    margin: 4px 0 2px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    margin: 0;
     font-size: 0.95rem;
     color: #334;
+  }
+
+  .tt-agenda-group .tt-swap-item {
+    border-left: 5px solid #c56a00;
+    padding: 8px 10px;
+  }
+
+  .tt-agenda-group-in .tt-swap-item {
+    border-left-color: #d9480f;
+  }
+
+  .tt-agenda-group-out .tt-swap-item {
+    border-left-color: #6b7280;
+  }
+
+  .tt-agenda-group-off .tt-swap-item {
+    border-left-color: #7048e8;
+  }
+
+  .tt-agenda-note {
+    display: block;
+    margin-top: 2px;
+    font-size: 13px;
+    color: #667;
+  }
+
+  .tt-agenda-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-left: auto;
   }
 
   .tt-agenda-tag {
