@@ -2047,6 +2047,63 @@
     background: #6b7280;
   }
 
+  .tt-agenda-off .tt-agenda-tag {
+    background: #7048e8;
+  }
+
+  .tt-period-checks {
+    grid-column: 1 / -1;
+    display: grid;
+    gap: 6px;
+    font-size: 13px;
+    color: #445;
+  }
+
+  .tt-period-checks[hidden] {
+    display: none;
+  }
+
+  .tt-period-check-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .tt-period-check {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border: 1px solid #c9d4e0;
+    border-radius: 999px;
+    background: #fff;
+    cursor: pointer;
+    font-size: 13px;
+  }
+
+  .tt-period-check.has-class {
+    border-color: #7048e8;
+  }
+
+  .tt-period-check small {
+    color: #5f3dc4;
+    font-weight: 700;
+  }
+
+  .tt-period-check-actions {
+    display: flex;
+    gap: 6px;
+  }
+
+  .tt-table td.tt-mark-off {
+    background: #f3f0ff;
+    box-shadow: inset 0 0 0 2px #7048e8;
+  }
+
+  .tt-mark-tag.tt-mark-off {
+    background: #7048e8;
+  }
+
   .tt-agenda-past summary {
     cursor: pointer;
     color: #556;

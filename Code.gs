@@ -967,7 +967,7 @@ function mergeCloudScheduleChanges_(localList, remoteList) {
   return out;
 }
 
-/** 代課：kind in＝我代別人、out＝別人代我。所有欄位都要保留，舊分頁沒有代課資料也不能清掉雲端。 */
+/** 代課：kind in＝我代別人、out＝別人代我、off＝學生活動停課（periods 多節）。所有欄位都要保留，舊分頁沒有代課資料也不能清掉雲端。 */
 function mergeCloudSubstitutes_(localList, remoteList) {
   var byId = {};
   function take(item) {
@@ -975,11 +975,23 @@ function mergeCloudSubstitutes_(localList, remoteList) {
     var id = String(item.id || '').trim();
     if (!id) return;
     var kind = String(item.kind || '').trim();
+    var periods = [];
+    (Array.isArray(item.periods) ? item.periods : []).forEach(function (p) {
+      p = String(p == null ? '' : p).trim().slice(0, 20);
+      if (p && periods.indexOf(p) < 0) periods.push(p);
+    });
+    if (periods.length > 20) periods = periods.slice(0, 20);
+    var period = String(item.period || '').trim().slice(0, 20);
+    if (kind === 'off') {
+      if (!periods.length && period) periods = [period];
+      period = periods[0] || '';
+    }
     var norm = {
       id: id,
-      kind: kind === 'in' || kind === 'out' ? kind : '',
+      kind: kind === 'in' || kind === 'out' || kind === 'off' ? kind : '',
       date: normalizeCloudHwDueDate_(item.date),
-      period: String(item.period || '').trim().slice(0, 20),
+      period: period,
+      periods: kind === 'off' ? periods : [],
       className: String(item.className || '').trim().slice(0, 20),
       teacher: String(item.teacher || '').trim().slice(0, 20),
       note: String(item.note || '').trim().slice(0, 120),
@@ -987,7 +999,8 @@ function mergeCloudSubstitutes_(localList, remoteList) {
       createdAt: String(item.createdAt || ''),
       updatedAt: String(item.updatedAt || item.createdAt || '')
     };
-    if (!norm.deleted && (!norm.kind || !norm.date || !norm.period || !norm.className)) return;
+    if (!norm.deleted && (!norm.kind || !norm.date || !norm.period ||
+        (norm.kind !== 'off' && !norm.className))) return;
     var prev = byId[id];
     if (!prev || String(norm.updatedAt || '') >= String(prev.updatedAt || '')) byId[id] = norm;
   }

@@ -280,14 +280,23 @@
                 <button type="button" class="tool tab-on" data-tt-mode="swap">調課</button>
                 <button type="button" class="tool" data-tt-mode="in">我代別人</button>
                 <button type="button" class="tool" data-tt-mode="out">別人代我</button>
+                <button type="button" class="tool" data-tt-mode="off">學生活動停課</button>
               </div>
               <div class="tt-swap-form" id="ttSwapForm">
                 <label><span id="ttFormDateLabel">原日期</span>
                   <input id="ttFormDate" type="date" />
                 </label>
-                <label><span id="ttFormPeriodLabel">原節次</span>
+                <label data-tt-only="swap in out"><span id="ttFormPeriodLabel">原節次</span>
                   <select id="ttFormPeriod"></select>
                 </label>
+                <div class="tt-period-checks" data-tt-only="off">
+                  <span class="tt-period-checks-label">停課節次（可勾多節）</span>
+                  <div id="ttFormPeriodChecks" class="tt-period-check-list"></div>
+                  <div class="tt-period-check-actions">
+                    <button type="button" class="tool" id="btnTtPeriodAll">整天</button>
+                    <button type="button" class="tool" id="btnTtPeriodNone">全不勾</button>
+                  </div>
+                </div>
                 <label data-tt-only="swap">新日期
                   <input id="ttFormToDate" type="date" />
                 </label>
@@ -301,7 +310,7 @@
                 <label data-tt-only="in out"><span id="ttFormTeacherLabel">原任課老師</span>
                   <input id="ttFormTeacher" type="text" maxlength="20" placeholder="例如 王老師" />
                 </label>
-                <label class="tt-swap-note">備註
+                <label class="tt-swap-note"><span id="ttFormNoteLabel">備註</span>
                   <input id="ttFormNote" type="text" maxlength="120" placeholder="選填，例如考試／活動" />
                 </label>
                 <div class="tt-form-actions">

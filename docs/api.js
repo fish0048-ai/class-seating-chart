@@ -857,11 +857,23 @@
     var id = String(raw.id || '').trim();
     if (!id) id = 'SB' + Date.now() + String(Math.floor(Math.random() * 1000));
     var kind = String(raw.kind || '').trim();
+    var periods = [];
+    (Array.isArray(raw.periods) ? raw.periods : []).forEach(function (p) {
+      p = String(p == null ? '' : p).trim().slice(0, 20);
+      if (p && periods.indexOf(p) < 0) periods.push(p);
+    });
+    if (periods.length > 20) periods = periods.slice(0, 20);
+    var period = String(raw.period || '').trim().slice(0, 20);
+    if (kind === 'off') {
+      if (!periods.length && period) periods = [period];
+      period = periods[0] || '';
+    }
     return {
       id: id,
-      kind: kind === 'in' || kind === 'out' ? kind : '',
+      kind: kind === 'in' || kind === 'out' || kind === 'off' ? kind : '',
       date: normalizeSubDate_(raw.date),
-      period: String(raw.period || '').trim().slice(0, 20),
+      period: period,
+      periods: kind === 'off' ? periods : [],
       className: String(raw.className || '').trim().slice(0, 20),
       teacher: String(raw.teacher || '').trim().slice(0, 20),
       note: String(raw.note || '').trim().slice(0, 120),
@@ -876,7 +888,8 @@
     var byId = {};
     list.forEach(function (item) {
       var norm = normalizeSubstitute_(item);
-      if (!norm.deleted && (!norm.kind || !norm.date || !norm.period || !norm.className)) return;
+      if (!norm.deleted && (!norm.kind || !norm.date || !norm.period ||
+          (norm.kind !== 'off' && !norm.className))) return;
       var prev = byId[norm.id];
       if (!prev || String(norm.updatedAt || '') >= String(prev.updatedAt || '')) byId[norm.id] = norm;
     });
@@ -2646,8 +2659,8 @@
       item.deleted = false;
       if (!item.kind) throw new Error('請選代課種類');
       if (!item.date) throw new Error('請選日期');
-      if (!item.period) throw new Error('請選節次');
-      if (!item.className) throw new Error('請填班級');
+      if (!item.period) throw new Error(item.kind === 'off' ? '請至少勾一節' : '請選節次');
+      if (item.kind !== 'off' && !item.className) throw new Error('請填班級');
       item.updatedAt = nowIso();
       store.substitutes = normalizeSubstitutes_(store.substitutes);
       var found = false;

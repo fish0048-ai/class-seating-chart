@@ -46,6 +46,7 @@
     ttFormMode: 'swap',
     ttEditId: '',
     ttAutoClass: '',
+    ttOffPeriods: [],
     hwMissing: {},
     missingPick: {},
     missingSeatSaving: false,
@@ -515,6 +516,20 @@
     var el = document.getElementById(id);
     if (el) el.addEventListener('change', autoFillTtClass);
   });
+  var ttFormDateEl = document.getElementById('ttFormDate');
+  if (ttFormDateEl) {
+    ttFormDateEl.addEventListener('change', function () {
+      if (App.ttFormMode !== 'off') return;
+      readTtOffPeriods_();
+      renderTtPeriodChecks_();
+    });
+  }
+  var ttPeriodChecks = document.getElementById('ttFormPeriodChecks');
+  if (ttPeriodChecks) ttPeriodChecks.addEventListener('change', readTtOffPeriods_);
+  var btnTtPeriodAll = document.getElementById('btnTtPeriodAll');
+  if (btnTtPeriodAll) btnTtPeriodAll.addEventListener('click', function () { setAllTtOffPeriods_(true); });
+  var btnTtPeriodNone = document.getElementById('btnTtPeriodNone');
+  if (btnTtPeriodNone) btnTtPeriodNone.addEventListener('click', function () { setAllTtOffPeriods_(false); });
   var ttSwapList = document.getElementById('ttSwapList');
   if (ttSwapList) {
     ttSwapList.addEventListener('click', function (event) {
@@ -1916,7 +1931,7 @@
       }
     });
     return Object.keys(byId).map(function (id) { return byId[id]; }).filter(function (item) {
-      return !item.deleted && item.date && item.period && item.className;
+      return !item.deleted && item.date && item.period && (item.kind === 'off' || item.className);
     }).sort(function (a, b) {
       return String(b.date || '').localeCompare(String(a.date || ''));
     });
@@ -4215,6 +4230,23 @@
     substitutesForWeek(key).forEach(function (sub) {
       var day = (parseDateKey(sub.date).getDay() + 6) % 7;
       if (day > 4) return;
+      if (sub.kind === 'off') {
+        (sub.periods && sub.periods.length ? sub.periods : [sub.period]).forEach(function (p) {
+          var offRi = findPeriodRowIndex(rows, p);
+          if (offRi < 0) return;
+          var text = String(rows[offRi].cells[day] || '').trim();
+          if (!text) return;
+          var cls = matchClassName(text) || text;
+          if (sub.className && cls !== sub.className && text.indexOf(sub.className) < 0) return;
+          rows[offRi].cells[day] = '';
+          marks[day + ':' + offRi] = {
+            kind: 'off',
+            label: '停課｜' + (sub.note || '學生活動'),
+            className: text
+          };
+        });
+        return;
+      }
       var ri = findPeriodRowIndex(rows, sub.period);
       if (ri < 0) return;
       var cellKey = day + ':' + ri;
@@ -4475,7 +4507,8 @@
   var TT_MODE_TEXT = {
     swap: { tag: '調課', date: '原日期', period: '原節次', teacher: '', save: '加入調課' },
     in: { tag: '我代別人', date: '日期', period: '節次', teacher: '原任課老師', save: '加入代課' },
-    out: { tag: '別人代我', date: '日期', period: '節次', teacher: '代課老師', save: '加入被代課' }
+    out: { tag: '別人代我', date: '日期', period: '節次', teacher: '代課老師', save: '加入被代課' },
+    off: { tag: '學生活動停課', date: '日期', period: '節次', teacher: '', save: '加入停課' }
   };
 
   function ttDateToWeekDay_(key) {
@@ -4553,7 +4586,14 @@
     if (dateLabel) dateLabel.textContent = text.date;
     if (periodLabelEl) periodLabelEl.textContent = text.period;
     if (teacherLabel) teacherLabel.textContent = text.teacher;
-    if (f.cls) f.cls.placeholder = mode === 'in' ? '例如 805' : '選日期節次後自動帶入';
+    var noteLabel = document.getElementById('ttFormNoteLabel');
+    if (noteLabel) noteLabel.textContent = mode === 'off' ? '活動名稱' : '備註';
+    if (f.note) f.note.placeholder = mode === 'off' ? '例如 校外教學、運動會' : '選填，例如考試／活動';
+    if (f.cls) {
+      f.cls.placeholder = mode === 'in' ? '例如 805' :
+        (mode === 'off' ? '選填；空白＝勾的節次全部停課' : '選日期節次後自動帶入');
+    }
+    renderTtPeriodChecks_();
     if (f.save) f.save.textContent = App.ttEditId ? '更新' : text.save;
     if (f.cancel) f.cancel.hidden = !App.ttEditId;
   }
@@ -4567,8 +4607,41 @@
     autoFillTtClass();
   }
 
+  function renderTtPeriodChecks_() {
+    var wrap = document.getElementById('ttFormPeriodChecks');
+    var select = document.getElementById('ttFormPeriod');
+    if (!wrap || !select) return;
+    var picked = App.ttOffPeriods || [];
+    var date = (document.getElementById('ttFormDate') || {}).value || '';
+    var dateOk = !ttDateProblem_(date);
+    wrap.innerHTML = Array.prototype.map.call(select.options, function (opt) {
+      var p = opt.value;
+      var slot = dateOk ? ttSlotInfo_(date, p) : { text: '' };
+      return '<label class="tt-period-check' + (slot.text ? ' has-class' : '') + '">' +
+        '<input type="checkbox" value="' + escapeHtml(p) + '"' + (picked.indexOf(p) >= 0 ? ' checked' : '') + ' />' +
+        '<span>' + escapeHtml(ttPeriodWord_(p)) + '</span>' +
+        (slot.text ? '<small>' + escapeHtml(slot.cls || slot.text) + '</small>' : '') +
+        '</label>';
+    }).join('');
+  }
+
+  function readTtOffPeriods_() {
+    var out = [];
+    document.querySelectorAll('#ttFormPeriodChecks input[type="checkbox"]').forEach(function (box) {
+      if (box.checked) out.push(box.value);
+    });
+    App.ttOffPeriods = out;
+    return out;
+  }
+
+  function setAllTtOffPeriods_(on) {
+    var select = document.getElementById('ttFormPeriod');
+    App.ttOffPeriods = on && select ? Array.prototype.map.call(select.options, function (o) { return o.value; }) : [];
+    renderTtPeriodChecks_();
+  }
+
   function autoFillTtClass() {
-    if (App.ttFormMode === 'in') return;
+    if (App.ttFormMode === 'in' || App.ttFormMode === 'off') return;
     var f = ttFormEls_();
     if (!f.cls || !f.date || !f.period) return;
     if (f.cls.value && f.cls.value !== App.ttAutoClass) return;
@@ -4582,6 +4655,7 @@
     var f = ttFormEls_();
     App.ttEditId = '';
     App.ttAutoClass = '';
+    App.ttOffPeriods = [];
     if (f.cls) f.cls.value = '';
     if (f.teacher) f.teacher.value = '';
     if (f.note) f.note.value = '';
@@ -4607,6 +4681,9 @@
       if (f.date) f.date.value = item.date;
       if (f.period) f.period.value = item.period;
       if (f.teacher) f.teacher.value = item.teacher || '';
+      App.ttOffPeriods = item.kind === 'off'
+        ? ((item.periods && item.periods.length) ? item.periods : [item.period]).slice()
+        : [];
     } else {
       if (f.date) f.date.value = addDaysToKey(item.weekStart, item.fromDay);
       if (f.period) f.period.value = item.fromPeriod;
@@ -4659,6 +4736,40 @@
       return;
     }
     var editing = App.ttEditId ? findTtEntry_(mode === 'swap' ? 'swap' : 'sub', App.ttEditId) : null;
+
+    if (mode === 'off') {
+      var offPeriods = readTtOffPeriods_();
+      if (!offPeriods.length) {
+        toast('請至少勾一節');
+        return;
+      }
+      var affected = offPeriods.filter(function (p) {
+        var s = ttSlotInfo_(date, p);
+        return s.text && (!className || s.cls === className || s.text.indexOf(className) >= 0);
+      });
+      if (!affected.length && !editing &&
+          !window.confirm('勾的節次' + (className ? '沒有 ' + className + ' 的課' : '都沒有課') + '，確定要記停課？')) return;
+      var offBody = {
+        kind: 'off',
+        date: date,
+        period: offPeriods[0],
+        periods: offPeriods,
+        className: className,
+        teacher: '',
+        note: String(note || '').trim() || '學生活動'
+      };
+      if (editing) {
+        offBody.id = editing.id;
+        offBody.createdAt = editing.createdAt;
+      }
+      api('saveSubstitute', [offBody]).then(function (data) {
+        ttAfterSave_(data, '停課（' + offBody.note + '）' + (editing ? '已更新' : '已加入'), date);
+      }).catch(function (err) {
+        toast(err && err.message ? err.message : '儲存停課失敗');
+      });
+      return;
+    }
+
     var slot = ttSlotInfo_(date, period);
 
     if (mode === 'swap') {
@@ -4745,6 +4856,10 @@
       tag = '調課';
       meta = ttDateLabel_(entry.from) + ttPeriodWord_(item.fromPeriod) + ' → ' +
         ttDateLabel_(entry.to) + ttPeriodWord_(item.toPeriod);
+    } else if (item.kind === 'off') {
+      tag = '學生活動停課';
+      meta = ttDateLabel_(item.date) +
+        ((item.periods && item.periods.length) ? item.periods : [item.period]).map(ttPeriodWord_).join('、');
     } else {
       tag = item.kind === 'in' ? '我代別人' : '別人代我';
       meta = ttDateLabel_(item.date) + ttPeriodWord_(item.period) +
@@ -4753,7 +4868,7 @@
     var kindCls = entry.type === 'swap' ? 'swap' : item.kind;
     return '<div class="tt-swap-item tt-agenda-' + kindCls + '">' +
       '<span class="tt-agenda-tag">' + tag + '</span>' +
-      '<strong>' + escapeHtml(item.className) + '</strong>' +
+      '<strong>' + escapeHtml(item.className || '全部班') + '</strong>' +
       '<span class="tt-swap-meta">' + escapeHtml(meta) + (item.note ? '　' + escapeHtml(item.note) : '') + '</span>' +
       '<button type="button" class="tool" data-tt-edit="' + escapeHtml(item.id) + '" data-tt-type="' + entry.type + '">編輯</button>' +
       '<button type="button" class="tool danger" data-tt-del="' + escapeHtml(item.id) + '" data-tt-type="' + entry.type + '">刪除</button>' +
@@ -5267,7 +5382,7 @@
       : (text
         ? (cls ? ttClassButton(text) : '<span class="tt-focus-item">' + escapeHtml(text) + '</span>')
         : '<span class="tt-focus-empty">' + (kind === 'now' ? '這一節沒有排課' : '沒有下一節') + '</span>');
-    if (!holidayName && mark && mark.kind === 'subOut') {
+    if (!holidayName && ttMarkFreesSlot_(mark)) {
       body = '<span class="tt-focus-item tt-sub-out-text">' + escapeHtml(mark.label) +
         (mark.className ? '（' + escapeHtml(mark.className) + '）' : '') + '</span>';
       go = '';
@@ -5334,7 +5449,11 @@
     els.timetableNow.innerHTML = '<div class="tt-focus-grid">' + nowCard + nextCard + '</div>';
   }
 
-  var TT_MARK_CLASS = { from: 'tt-mark-from', to: 'tt-mark-to', subIn: 'tt-mark-subin', subOut: 'tt-mark-subout' };
+  var TT_MARK_CLASS = { from: 'tt-mark-from', to: 'tt-mark-to', subIn: 'tt-mark-subin', subOut: 'tt-mark-subout', off: 'tt-mark-off' };
+
+  function ttMarkFreesSlot_(mark) {
+    return !!mark && (mark.kind === 'subOut' || mark.kind === 'off');
+  }
 
   function ttMarkBadgeHtml_(mark, inline) {
     if (!mark) return '';
@@ -5345,7 +5464,7 @@
   function cellInner(cell, badge, events, swapMark) {
     var mark = badge ? '<span class="tt-badge">' + badge + '</span>' : '';
     var body;
-    if (swapMark && swapMark.kind === 'subOut') {
+    if (ttMarkFreesSlot_(swapMark)) {
       body = '<span class="tt-sub-out-class">' + escapeHtml(swapMark.className || '') + '</span>';
     } else {
       body = cell ? (matchClassName(cell) ? ttClassButton(cell) : escapeHtml(cell)) :
