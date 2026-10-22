@@ -267,52 +267,48 @@
             </div>
             <div id="timetableNow" class="tt-focus"></div>
             <div id="ttHolidayBanner" class="tt-holiday-banner" hidden></div>
-            <section class="tt-swap" id="timetableSwapPanel" aria-label="調課提醒">
+            <section class="tt-swap" id="timetableSwapPanel" aria-label="調課與代課">
               <div class="tt-swap-head">
-                <h3>調課提醒</h3>
-                <p class="hint">可同週或跨週調課。只改這個網站課表顯示，不會動到 Google 課表試算表。平板與筆電會共用。</p>
+                <h3>調課與代課</h3>
+                <p class="hint">只改這個網站課表顯示，不會動到 Google 課表試算表。平板與筆電會共用。</p>
               </div>
-              <div class="tt-swap-form" id="ttSwapForm">
-                <label>檢視週
+              <div class="tt-swap-view">
+                <label>課表檢視週
                   <select id="ttSwapWeek"></select>
                 </label>
+              </div>
+              <div class="tt-mode-switch" role="group" aria-label="種類">
+                <button type="button" class="tool tab-on" data-tt-mode="swap">調課</button>
+                <button type="button" class="tool" data-tt-mode="in">我代別人</button>
+                <button type="button" class="tool" data-tt-mode="out">別人代我</button>
+              </div>
+              <div class="tt-swap-form" id="ttSwapForm">
+                <label><span id="ttFormDateLabel">原日期</span>
+                  <input id="ttFormDate" type="date" />
+                </label>
+                <label><span id="ttFormPeriodLabel">原節次</span>
+                  <select id="ttFormPeriod"></select>
+                </label>
+                <label data-tt-only="swap">新日期
+                  <input id="ttFormToDate" type="date" />
+                </label>
+                <label data-tt-only="swap">新節次
+                  <select id="ttFormToPeriod"></select>
+                </label>
                 <label>班級
-                  <select id="ttSwapClass"></select>
+                  <input id="ttFormClass" type="text" maxlength="20" list="ttClassList" placeholder="選日期節次後自動帶入" />
                 </label>
-                <label>原週（週一）
-                  <select id="ttSwapFromWeek"></select>
-                </label>
-                <label>原星期
-                  <select id="ttSwapFromDay">
-                    <option value="0">週一</option>
-                    <option value="1">週二</option>
-                    <option value="2">週三</option>
-                    <option value="3">週四</option>
-                    <option value="4">週五</option>
-                  </select>
-                </label>
-                <label>原節次
-                  <select id="ttSwapFromPeriod"></select>
-                </label>
-                <label>調到週（週一）
-                  <select id="ttSwapToWeek"></select>
-                </label>
-                <label>調到星期
-                  <select id="ttSwapToDay">
-                    <option value="0">週一</option>
-                    <option value="1">週二</option>
-                    <option value="2">週三</option>
-                    <option value="3">週四</option>
-                    <option value="4">週五</option>
-                  </select>
-                </label>
-                <label>調到節次
-                  <select id="ttSwapToPeriod"></select>
+                <datalist id="ttClassList"></datalist>
+                <label data-tt-only="in out"><span id="ttFormTeacherLabel">原任課老師</span>
+                  <input id="ttFormTeacher" type="text" maxlength="20" placeholder="例如 王老師" />
                 </label>
                 <label class="tt-swap-note">備註
-                  <input id="ttSwapNote" type="text" maxlength="120" placeholder="選填，例如考試／活動" />
+                  <input id="ttFormNote" type="text" maxlength="120" placeholder="選填，例如考試／活動" />
                 </label>
-                <button type="button" class="tool primary" id="btnTtSwapSave">加入調課</button>
+                <div class="tt-form-actions">
+                  <button type="button" class="tool primary" id="btnTtSwapSave">加入調課</button>
+                  <button type="button" class="tool" id="btnTtFormCancel" hidden>取消編輯</button>
+                </div>
               </div>
               <div id="ttSwapList" class="tt-swap-list" aria-live="polite"></div>
             </section>

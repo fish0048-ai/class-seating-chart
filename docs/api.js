@@ -442,6 +442,7 @@
     }
     local.lessonLog = mergeLessonLogProtect_(local.lessonLog, remote.lessonLog);
     local.scheduleChanges = mergeScheduleChangesProtect_(local.scheduleChanges, remote.scheduleChanges);
+    local.substitutes = mergeSubstitutesProtect_(local.substitutes, remote.substitutes);
     local.hwMissing = mergeHwMissingProtect_(local.hwMissing, remote.hwMissing);
     return local;
   }
@@ -642,6 +643,7 @@
     parsed.mockExam = normalizeMockExam_(parsed.mockExam);
     parsed.lessonLog = normalizeLessonLog_(parsed.lessonLog);
     parsed.scheduleChanges = normalizeScheduleChanges_(parsed.scheduleChanges);
+    parsed.substitutes = normalizeSubstitutes_(parsed.substitutes);
     parsed.hwMissing = normalizeHwMissing_(parsed.hwMissing);
     return parsed;
   }
@@ -840,6 +842,61 @@
     return normalizeScheduleChanges_(Object.keys(byId).map(function (id) { return byId[id]; }));
   }
 
+  function normalizeSubDate_(raw) {
+    var s = String(raw == null ? '' : raw).trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return '';
+    var d = new Date(Number(s.slice(0, 4)), Number(s.slice(5, 7)) - 1, Number(s.slice(8, 10)));
+    if (isNaN(d.getTime())) return '';
+    var key = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' +
+      String(d.getDate()).padStart(2, '0');
+    return key === s ? s : '';
+  }
+
+  function normalizeSubstitute_(raw) {
+    raw = raw || {};
+    var id = String(raw.id || '').trim();
+    if (!id) id = 'SB' + Date.now() + String(Math.floor(Math.random() * 1000));
+    var kind = String(raw.kind || '').trim();
+    return {
+      id: id,
+      kind: kind === 'in' || kind === 'out' ? kind : '',
+      date: normalizeSubDate_(raw.date),
+      period: String(raw.period || '').trim().slice(0, 20),
+      className: String(raw.className || '').trim().slice(0, 20),
+      teacher: String(raw.teacher || '').trim().slice(0, 20),
+      note: String(raw.note || '').trim().slice(0, 120),
+      deleted: !!raw.deleted,
+      createdAt: String(raw.createdAt || nowIso()),
+      updatedAt: String(raw.updatedAt || raw.createdAt || nowIso())
+    };
+  }
+
+  function normalizeSubstitutes_(raw) {
+    var list = Array.isArray(raw) ? raw : [];
+    var byId = {};
+    list.forEach(function (item) {
+      var norm = normalizeSubstitute_(item);
+      if (!norm.deleted && (!norm.kind || !norm.date || !norm.period || !norm.className)) return;
+      var prev = byId[norm.id];
+      if (!prev || String(norm.updatedAt || '') >= String(prev.updatedAt || '')) byId[norm.id] = norm;
+    });
+    var out = Object.keys(byId).map(function (id) { return byId[id]; });
+    out.sort(function (a, b) {
+      return String(b.date).localeCompare(String(a.date)) ||
+        String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
+    });
+    if (out.length > 200) out = out.slice(0, 200);
+    return out;
+  }
+
+  function activeSubstitutes_(list) {
+    return normalizeSubstitutes_(list).filter(function (item) { return !item.deleted; });
+  }
+
+  function mergeSubstitutesProtect_(localList, remoteList) {
+    return normalizeSubstitutes_((remoteList || []).concat(localList || []));
+  }
+
   function normalizeLessonEntry_(raw, className) {
     raw = raw || {};
     var id = String(raw.id || '').trim();
@@ -996,6 +1053,7 @@
     if (!memStore.mockExam) memStore.mockExam = emptyMockExam_();
     if (!memStore.lessonLog) memStore.lessonLog = emptyLessonLog_();
     if (!memStore.scheduleChanges) memStore.scheduleChanges = emptyScheduleChanges_();
+    if (!memStore.substitutes) memStore.substitutes = [];
     if (!memStore.hwMissing) memStore.hwMissing = emptyHwMissing_();
     if (hydrated && ensureRolledScores_(memStore)) saveStore(memStore);
     return memStore;
@@ -1614,6 +1672,7 @@
       mockExam: store.mockExam || emptyMockExam_(),
       lessonLog: store.lessonLog || emptyLessonLog_(),
       scheduleChanges: activeScheduleChanges_(store.scheduleChanges),
+      substitutes: activeSubstitutes_(store.substitutes),
       hwMissing: store.hwMissing || emptyHwMissing_(),
       plusHits: plusHitsForClass_(store, className)
     }, store);
@@ -2577,7 +2636,72 @@
       return wrap({
         ok: true,
         scheduleChanges: activeScheduleChanges_(store.scheduleChanges),
+        substitutes: activeSubstitutes_(store.substitutes),
         weekStart: mondayKeyFromDate_(new Date())
+      });
+    },
+    saveSubstitute: function (body) {
+      var store = loadStore();
+      var item = normalizeSubstitute_(body || {});
+      item.deleted = false;
+      if (!item.kind) throw new Error('請選代課種類');
+      if (!item.date) throw new Error('請選日期');
+      if (!item.period) throw new Error('請選節次');
+      if (!item.className) throw new Error('請填班級');
+      item.updatedAt = nowIso();
+      store.substitutes = normalizeSubstitutes_(store.substitutes);
+      var found = false;
+      store.substitutes = store.substitutes.map(function (old) {
+        if (old.id !== item.id) return old;
+        found = true;
+        if (body && !body.createdAt) item.createdAt = old.createdAt || item.createdAt;
+        return item;
+      });
+      if (!found) store.substitutes.unshift(item);
+      store.substitutes = normalizeSubstitutes_(store.substitutes);
+      saveStore(store);
+      var result = { ok: true, substitutes: activeSubstitutes_(store.substitutes), item: item };
+      if (!cloudOn() || !hydrated) return wrap(result);
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      return pushCloud_(memStore).then(function () {
+        result.substitutes = activeSubstitutes_(memStore.substitutes);
+        result.synced = true;
+        return result;
+      }).catch(function (err) {
+        result.synced = false;
+        result.cloudError = err && err.message ? err.message : '雲端同步失敗';
+        return result;
+      });
+    },
+    deleteSubstitute: function (body) {
+      var store = loadStore();
+      var id = String((body && body.id) || '').trim();
+      if (!id) throw new Error('缺少要刪的代課');
+      store.substitutes = normalizeSubstitutes_(store.substitutes);
+      var found = false;
+      store.substitutes = store.substitutes.map(function (item) {
+        if (item.id !== id) return item;
+        found = true;
+        return Object.assign({}, item, { deleted: true, updatedAt: nowIso() });
+      });
+      if (!found) {
+        store.substitutes.unshift(normalizeSubstitute_({ id: id, deleted: true, updatedAt: nowIso() }));
+      }
+      store.substitutes = normalizeSubstitutes_(store.substitutes);
+      saveStore(store);
+      var result = { ok: true, substitutes: activeSubstitutes_(store.substitutes) };
+      if (!cloudOn() || !hydrated) return wrap(result);
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      return pushCloud_(memStore).then(function () {
+        result.substitutes = activeSubstitutes_(memStore.substitutes);
+        result.synced = true;
+        return result;
+      }).catch(function (err) {
+        result.synced = false;
+        result.cloudError = err && err.message ? err.message : '雲端同步失敗';
+        return result;
       });
     },
     saveScheduleChange: function (body) {

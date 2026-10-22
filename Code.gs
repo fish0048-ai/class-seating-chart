@@ -822,6 +822,7 @@ function mergeProtectCloudStore_(incoming, existing) {
   }
   store.lessonLog = mergeCloudLessonLog_(store.lessonLog, existing.lessonLog);
   store.scheduleChanges = mergeCloudScheduleChanges_(store.scheduleChanges, existing.scheduleChanges);
+  store.substitutes = mergeCloudSubstitutes_(store.substitutes, existing.substitutes);
   store.hwMissing = mergeCloudHwMissing_(store.hwMissing, existing.hwMissing);
   return store;
 }
@@ -963,6 +964,41 @@ function mergeCloudScheduleChanges_(localList, remoteList) {
       String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
   });
   if (out.length > 80) out = out.slice(0, 80);
+  return out;
+}
+
+/** 代課：kind in＝我代別人、out＝別人代我。所有欄位都要保留，舊分頁沒有代課資料也不能清掉雲端。 */
+function mergeCloudSubstitutes_(localList, remoteList) {
+  var byId = {};
+  function take(item) {
+    if (!item || typeof item !== 'object') return;
+    var id = String(item.id || '').trim();
+    if (!id) return;
+    var kind = String(item.kind || '').trim();
+    var norm = {
+      id: id,
+      kind: kind === 'in' || kind === 'out' ? kind : '',
+      date: normalizeCloudHwDueDate_(item.date),
+      period: String(item.period || '').trim().slice(0, 20),
+      className: String(item.className || '').trim().slice(0, 20),
+      teacher: String(item.teacher || '').trim().slice(0, 20),
+      note: String(item.note || '').trim().slice(0, 120),
+      deleted: !!item.deleted,
+      createdAt: String(item.createdAt || ''),
+      updatedAt: String(item.updatedAt || item.createdAt || '')
+    };
+    if (!norm.deleted && (!norm.kind || !norm.date || !norm.period || !norm.className)) return;
+    var prev = byId[id];
+    if (!prev || String(norm.updatedAt || '') >= String(prev.updatedAt || '')) byId[id] = norm;
+  }
+  (Array.isArray(remoteList) ? remoteList : []).forEach(take);
+  (Array.isArray(localList) ? localList : []).forEach(take);
+  var out = Object.keys(byId).map(function (id) { return byId[id]; });
+  out.sort(function (a, b) {
+    return String(b.date).localeCompare(String(a.date)) ||
+      String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
+  });
+  if (out.length > 200) out = out.slice(0, 200);
   return out;
 }
 

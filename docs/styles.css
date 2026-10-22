@@ -1943,13 +1943,153 @@
     font-size: 14px;
   }
 
+  .tt-swap-form [hidden],
+  .tt-swap-form label[hidden] {
+    display: none;
+  }
+
+  .tt-swap-view {
+    margin-bottom: 10px;
+  }
+
+  .tt-swap-view label {
+    display: inline-grid;
+    gap: 4px;
+    font-size: 13px;
+    color: #445;
+  }
+
+  .tt-swap-view select {
+    min-height: 36px;
+    padding: 6px 8px;
+    border: 1px solid #c9d4e0;
+    border-radius: 8px;
+    background: #fff;
+    font: inherit;
+  }
+
+  .tt-mode-switch {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+
+  .tt-form-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: end;
+  }
+
+  .tt-agenda-head {
+    margin: 4px 0 2px;
+    font-size: 0.95rem;
+    color: #334;
+  }
+
+  .tt-agenda-tag {
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 800;
+    color: #fff;
+    background: #c56a00;
+  }
+
+  .tt-agenda-in .tt-agenda-tag {
+    background: #d9480f;
+  }
+
+  .tt-agenda-out .tt-agenda-tag {
+    background: #6b7280;
+  }
+
+  .tt-agenda-past summary {
+    cursor: pointer;
+    color: #556;
+    font-size: 14px;
+    margin: 6px 0;
+  }
+
+  .tt-agenda-past .tt-swap-item {
+    opacity: 0.75;
+    margin-bottom: 6px;
+  }
+
   .tt-table td.tt-swapped {
     background: #fff3d6;
     box-shadow: inset 0 0 0 2px #e0a44a;
   }
 
-  .tt-table td.tt-swapped .tt-badge-swap {
+  .tt-table td.tt-mark-from {
+    background: #f1f3f5;
+    box-shadow: inset 0 0 0 2px #adb5bd;
+  }
+
+  .tt-table td.tt-mark-to {
+    background: #e7f1fb;
+    box-shadow: inset 0 0 0 2px #4a90d9;
+  }
+
+  .tt-table td.tt-mark-subin {
+    background: #fff0e6;
+    box-shadow: inset 0 0 0 2px #e8590c;
+  }
+
+  .tt-table td.tt-mark-subout {
+    background: #f1f3f5;
+    box-shadow: inset 0 0 0 2px #adb5bd;
+  }
+
+  .tt-mark-tag {
+    display: block;
+    width: fit-content;
+    margin: 0 auto 3px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    line-height: 1.35;
+    white-space: nowrap;
     background: #c56a00;
+  }
+
+  .tt-mark-tag.tt-mark-inline {
+    display: inline-block;
+    margin: 0 6px 0 0;
+    vertical-align: middle;
+  }
+
+  .tt-mark-tag.tt-mark-from,
+  .tt-mark-tag.tt-mark-subout {
+    background: #6b7280;
+  }
+
+  .tt-mark-tag.tt-mark-to {
+    background: #2f6fb3;
+  }
+
+  .tt-mark-tag.tt-mark-subin {
+    background: #d9480f;
+  }
+
+  .tt-sub-out-class {
+    color: #868e96;
+    text-decoration: line-through;
+  }
+
+  .tt-sub-out-text {
+    color: #495057;
+  }
+
+  .tt-sub-teacher {
+    display: block;
+    margin-top: 2px;
+    font-size: 12px;
+    color: #9a3b00;
+    font-weight: 700;
   }
 
   .tt-wrap,
