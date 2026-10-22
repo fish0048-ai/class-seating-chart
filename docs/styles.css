@@ -2174,6 +2174,18 @@
     background: #d9480f;
   }
 
+  .tt-freed-note {
+    display: block;
+    margin-top: 2px;
+    font-size: 11px;
+    color: #5f3dc4;
+    font-weight: 600;
+  }
+
+  .tt-freed-note s {
+    color: #868e96;
+  }
+
   .tt-sub-out-class {
     color: #868e96;
     text-decoration: line-through;
