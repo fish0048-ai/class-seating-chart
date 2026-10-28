@@ -190,7 +190,33 @@
     if (!Array.isArray(book.labs)) book.labs = [];
     if (!Array.isArray(book.practicals)) book.practicals = [];
     if (!Array.isArray(book.homeworks)) book.homeworks = [];
+    moveContestToQuiz_(book);
     return book;
+  }
+
+  function isContestTitle_(title) {
+    return /學科競試/.test(String(title || ''));
+  }
+
+  /**
+   * 學科競試算平時考試（課堂考卷），不算段考。
+   * 雲端合併會把另一邊仍在段考的同 id 欄補回來，所以每次讀寫都要套用這條規則（Code.gs 同一套）。
+   */
+  function moveContestToQuiz_(book) {
+    if (!book || !Array.isArray(book.exams)) return false;
+    var contest = book.exams.filter(function (col) { return col && isContestTitle_(col.title); });
+    if (!contest.length) return false;
+    book.exams = book.exams.filter(function (col) { return !(col && isContestTitle_(col.title)); });
+    if (!Array.isArray(book.yellow)) book.yellow = [];
+    contest.forEach(function (col) {
+      var hit = book.yellow.filter(function (y) { return y && String(y.id) === String(col.id); })[0];
+      if (hit) {
+        hit.scores = mergeScoreMapPreserve_(hit.scores || {}, col.scores || {});
+      } else {
+        book.yellow.push(col);
+      }
+    });
+    return true;
   }
 
   function normalizeScoreMap_(raw) {
@@ -300,6 +326,7 @@
       homeworks: mergeGradeColumnsPreserve_(localBook.homeworks, remoteBook.homeworks, fillEmpty)
     };
     if (remoteBook.quizzes && (!out.yellow || !out.yellow.length)) out.yellow = remoteBook.quizzes;
+    moveContestToQuiz_(out);
     return out;
   }
 
@@ -640,6 +667,9 @@
     if (!parsed.daily) parsed.daily = {};
     if (!parsed.history) parsed.history = [];
     if (!parsed.grades) parsed.grades = {};
+    Object.keys(parsed.grades).forEach(function (cn) {
+      moveContestToQuiz_(parsed.grades[cn]);
+    });
     parsed.mockExam = normalizeMockExam_(parsed.mockExam);
     parsed.lessonLog = normalizeLessonLog_(parsed.lessonLog);
     parsed.scheduleChanges = normalizeScheduleChanges_(parsed.scheduleChanges);

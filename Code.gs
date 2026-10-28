@@ -730,7 +730,30 @@ function mergeCloudGradeColumns_(localList, remoteList, fillEmptyScores) {
   return local;
 }
 
+/**
+ * 學科競試算平時考試（課堂考卷），不算段考。前端 api.js 的 moveContestToQuiz_ 是同一套；
+ * 合併後一定要套用，不然舊分頁段考裡同 id 的欄會被補回來，變成兩份。
+ */
+function moveCloudContestToQuiz_(book) {
+  if (!book || !Array.isArray(book.exams)) return book;
+  var isContest = function (col) { return col && /學科競試/.test(String(col.title || '')); };
+  var contest = book.exams.filter(isContest);
+  if (!contest.length) return book;
+  book.exams = book.exams.filter(function (col) { return !isContest(col); });
+  if (!Array.isArray(book.yellow)) book.yellow = [];
+  contest.forEach(function (col) {
+    var hit = book.yellow.filter(function (y) { return y && String(y.id) === String(col.id); })[0];
+    if (hit) hit.scores = mergeCloudScoreMap_(hit.scores || {}, col.scores || {});
+    else book.yellow.push(col);
+  });
+  return book;
+}
+
 function mergeCloudGradeBook_(localBook, remoteBook) {
+  return moveCloudContestToQuiz_(mergeCloudGradeBookRaw_(localBook, remoteBook));
+}
+
+function mergeCloudGradeBookRaw_(localBook, remoteBook) {
   localBook = localBook || {};
   remoteBook = remoteBook || {};
   var lc = countCloudBookScores_(localBook);
@@ -779,6 +802,9 @@ function mergeProtectCloudStore_(incoming, existing) {
       return;
     }
     store.grades[cn] = mergeCloudGradeBook_(store.grades[cn], existing.grades[cn]);
+  });
+  Object.keys(store.grades).forEach(function (cn) {
+    moveCloudContestToQuiz_(store.grades[cn]);
   });
   store.daily = store.daily || {};
   Object.keys(existing.daily || {}).forEach(function (cn) {
@@ -1213,6 +1239,7 @@ function syncReadableGrades_(ss, store) {
   var dailySheet = ensureSheetWithHeaders_(ss, SHEETS.DAILY, HEADERS.DAILY);
   var classes = (store && store.classes) || {};
   var books = (store && store.grades) || {};
+  Object.keys(books).forEach(function (cn) { moveCloudContestToQuiz_(books[cn]); });
   var daily = (store && store.daily) || {};
   var names = Object.keys(classes);
   Object.keys(books).forEach(function (cn) {

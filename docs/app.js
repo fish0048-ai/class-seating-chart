@@ -9509,7 +9509,7 @@
       return;
     }
     var payload = {
-      type: 'exam',
+      type: 'yellow',
       title: title || '學科競試',
       date: App.activeDate || formatDateKey(new Date()),
       groups: order.map(function (code) { return { classCode: code, rows: groups[code] }; })
@@ -9519,12 +9519,12 @@
         toast('檔案裡的班級（' + order.join('、') + '）對不到網頁上的班級', 7000);
         return;
       }
-      var lines = ['要把「' + report.title + '」匯入「段考」嗎？', ''];
+      var lines = ['要把「' + report.title + '」匯入「平時考試（課堂考卷）」嗎？', ''];
       report.classes.forEach(function (c) { lines.push(c.className + '：' + c.count + ' 人'); });
       if (report.unmatchedClasses.length) lines.push('', '對不到網頁班級，會略過：' + report.unmatchedClasses.join('、'));
       if (report.missingSeats.length) lines.push('', '名單裡沒有這個座號，會略過：' + shortList(report.missingSeats, 8));
       if (report.nameMismatch.length) lines.push('', '座號對得到但姓名不同（仍依座號匯入，請確認）：' + shortList(report.nameMismatch, 8));
-      lines.push('', '各班共用同一個段考欄；同名欄位已存在時，會覆蓋檔案裡這些座號的分數。');
+      lines.push('', '各班共用同一個平時考試欄；同名欄位已存在時，會覆蓋檔案裡這些座號的分數。');
       if (!window.confirm(lines.join('\n'))) return;
       var className = teacherTargetClass();
       clearTimeout(gradeSaveTimer);
