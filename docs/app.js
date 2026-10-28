@@ -9460,7 +9460,21 @@
   }
 
   function isReadCardSheet(headers) {
-    return headers.indexOf('班級名稱') >= 0 && headers.indexOf('座號') >= 0 && headers.indexOf('成績') >= 0;
+    return headers.indexOf('班級名稱') >= 0 && headers.indexOf('座號') >= 0 &&
+      (headers.indexOf('成績') >= 0 || headers.indexOf('總成績') >= 0);
+  }
+
+  /** 有「總成績」（選擇題＋非選題）就用總成績；「成績」只有選擇題。 */
+  function readCardScoreColumn(headers) {
+    var total = headers.indexOf('總成績');
+    if (total >= 0) return { idx: total, label: '總成績（選擇題＋非選題）' };
+    return { idx: headers.indexOf('成績'), label: '成績' };
+  }
+
+  /** 學科競試算平時考試；期中考、期末考等算段考。 */
+  function readCardTarget(title) {
+    if (/學科競試/.test(String(title || ''))) return { type: 'yellow', label: '平時考試（課堂考卷）' };
+    return { type: 'exam', label: '段考' };
   }
 
   function readCardExamTitle(category) {
@@ -9478,7 +9492,8 @@
   function importReadCardRows(rows, headers) {
     var classIdx = headers.indexOf('班級名稱');
     var seatIdx = headers.indexOf('座號');
-    var scoreIdx = headers.indexOf('成績');
+    var scoreCol = readCardScoreColumn(headers);
+    var scoreIdx = scoreCol.idx;
     var nameIdx = headers.indexOf('學生姓名');
     var catIdx = headers.indexOf('試卷分類');
     var paperIdx = headers.indexOf('試卷名稱');
@@ -9508,8 +9523,9 @@
       toast('檔案裡沒有可匯入的成績');
       return;
     }
+    var target = readCardTarget(title);
     var payload = {
-      type: 'yellow',
+      type: target.type,
       title: title || '學科競試',
       date: App.activeDate || formatDateKey(new Date()),
       groups: order.map(function (code) { return { classCode: code, rows: groups[code] }; })
@@ -9519,12 +9535,12 @@
         toast('檔案裡的班級（' + order.join('、') + '）對不到網頁上的班級', 7000);
         return;
       }
-      var lines = ['要把「' + report.title + '」匯入「平時考試（課堂考卷）」嗎？', ''];
+      var lines = ['要把「' + report.title + '」匯入「' + target.label + '」嗎？', '分數使用檔案的「' + scoreCol.label + '」欄。', ''];
       report.classes.forEach(function (c) { lines.push(c.className + '：' + c.count + ' 人'); });
       if (report.unmatchedClasses.length) lines.push('', '對不到網頁班級，會略過：' + report.unmatchedClasses.join('、'));
       if (report.missingSeats.length) lines.push('', '名單裡沒有這個座號，會略過：' + shortList(report.missingSeats, 8));
       if (report.nameMismatch.length) lines.push('', '座號對得到但姓名不同（仍依座號匯入，請確認）：' + shortList(report.nameMismatch, 8));
-      lines.push('', '各班共用同一個平時考試欄；同名欄位已存在時，會覆蓋檔案裡這些座號的分數。');
+      lines.push('', '各班共用同一個' + target.label + '欄；同名欄位已存在時，會覆蓋檔案裡這些座號的分數。');
       if (!window.confirm(lines.join('\n'))) return;
       var className = teacherTargetClass();
       clearTimeout(gradeSaveTimer);
