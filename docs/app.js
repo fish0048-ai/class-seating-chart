@@ -2176,7 +2176,7 @@
     const groupBadge = gid ? '<span class="seat-group">第' + gid + '組</span>' : '';
     const missingBadge = hwMissingBadgeHtml(student.seatNo);
     return '<div class="seat">' +
-      '<article class="seat-card' + selected + helper + groupCls + pickedCls + missingCls + '" data-seat="' + escapeHtml(student.seatNo) + '"' + groupStyle + '>' +
+      '<article class="seat-card' + selected + helper + groupCls + pickedCls + missingCls + '" data-seat="' + escapeHtml(student.seatNo) + '"' + groupStyle + seatA11yAttrs(student) + '>' +
         groupBadge + missingBadge +
         '<span class="seat-no">' + escapeHtml(student.seatNo) + '</span>' +
         '<span class="seat-name">' + escapeHtml(student.name) + '</span>' +
@@ -2249,11 +2249,36 @@
     } catch (err) {}
   }
 
+  /** 讓座位卡可用鍵盤 Tab 選到、Enter／空白鍵等同點一下，螢幕閱讀器也念得出是誰。 */
+  function seatA11yAttrs(student) {
+    var missing = hwMissingLinesForSeat_(student.seatNo).length;
+    var label = student.seatNo + ' 號 ' + (student.name || '') + '，今日 ' + (Number(student.score) || 0) + ' 分' +
+      (missing ? '，缺交 ' + missing + ' 份' : '');
+    return ' tabindex="0" role="button" aria-label="' + escapeHtml(label) + '"';
+  }
+
+  function onSeatKeydown(event) {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    onSeatClick({ currentTarget: event.currentTarget });
+  }
+
+  document.addEventListener('focusin', function (event) {
+    var card = event.target && event.target.closest ? event.target.closest('.seat-card') : null;
+    App.focusSeat = card ? card.getAttribute('data-seat') : '';
+  });
+
   function bindSeatEvents() {
     els.board.querySelectorAll('.seat-card').forEach(function (card) {
       card.addEventListener('click', onSeatClick);
+      card.addEventListener('keydown', onSeatKeydown);
       if (isLabView()) card.addEventListener('pointerdown', onPointerDown);
     });
+    var active = document.activeElement;
+    if (App.focusSeat && (!active || active === document.body)) {
+      var again = els.board.querySelector('.seat-card[data-seat="' + String(App.focusSeat).replace(/"/g, '') + '"]');
+      if (again && again.focus) again.focus({ preventScroll: true });
+    }
   }
 
   function onSeatClick(event) {
@@ -2662,7 +2687,7 @@
     var helper = App.peerHelperSeatNo && String(student.seatNo) === String(App.peerHelperSeatNo) ? ' peer-helper' : '';
     var missingCls = isSeatHwMissing(student.seatNo) ? ' hw-missing' : '';
     var missingBadge = hwMissingBadgeHtml(student.seatNo);
-    return '<article class="seat-card has-group' + selected + helper + missingCls + '" data-seat="' + escapeHtml(student.seatNo) + '" style="--group-color:' + groupColor(gid) + '">' +
+    return '<article class="seat-card has-group' + selected + helper + missingCls + '" data-seat="' + escapeHtml(student.seatNo) + '" style="--group-color:' + groupColor(gid) + '"' + seatA11yAttrs(student) + '>' +
       missingBadge +
       '<span class="seat-no">' + escapeHtml(student.seatNo) + '</span>' +
       '<span class="seat-name">' + escapeHtml(student.name) + '</span>' +
