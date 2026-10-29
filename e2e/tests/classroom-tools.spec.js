@@ -109,6 +109,7 @@ test.describe('抽籤', function () {
 
 test.describe('定時器', function () {
   test('可以設定、暫停、重設，並在時間到後結束', async function ({ page }) {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
     await page.clock.install();
     const health = await signIn(page);
     await page.clock.fastForward(2210);
