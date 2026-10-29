@@ -470,6 +470,7 @@
     local.lessonLog = mergeLessonLogProtect_(local.lessonLog, remote.lessonLog);
     local.scheduleChanges = mergeScheduleChangesProtect_(local.scheduleChanges, remote.scheduleChanges);
     local.substitutes = mergeSubstitutesProtect_(local.substitutes, remote.substitutes);
+    local.classroomSources = newerClassroomSources_(local.classroomSources, remote.classroomSources);
     local.hwMissing = mergeHwMissingProtect_(local.hwMissing, remote.hwMissing);
     return local;
   }
@@ -674,6 +675,7 @@
     parsed.lessonLog = normalizeLessonLog_(parsed.lessonLog);
     parsed.scheduleChanges = normalizeScheduleChanges_(parsed.scheduleChanges);
     parsed.substitutes = normalizeSubstitutes_(parsed.substitutes);
+    parsed.classroomSources = normalizeClassroomSources_(parsed.classroomSources);
     parsed.hwMissing = normalizeHwMissing_(parsed.hwMissing);
     return parsed;
   }
@@ -936,6 +938,25 @@
     return normalizeSubstitutes_(list).filter(function (item) { return !item.deleted; });
   }
 
+  /** 各班 Google Classroom 成績表網址（學習講義匯入用）。 */
+  function normalizeClassroomSources_(raw) {
+    var urls = {};
+    var src = raw && raw.urls && typeof raw.urls === 'object' ? raw.urls : {};
+    Object.keys(src).forEach(function (cn) {
+      var url = String(src[cn] || '').trim().slice(0, 500);
+      if (cn && url) urls[String(cn)] = url;
+    });
+    return { urls: urls, updatedAt: String((raw && raw.updatedAt) || '') };
+  }
+
+  function newerClassroomSources_(local, remote) {
+    var hasL = local && local.urls;
+    var hasR = remote && remote.urls;
+    if (!hasL) return normalizeClassroomSources_(hasR ? remote : null);
+    if (!hasR) return normalizeClassroomSources_(local);
+    return normalizeClassroomSources_(String(local.updatedAt || '') >= String(remote.updatedAt || '') ? local : remote);
+  }
+
   function mergeSubstitutesProtect_(localList, remoteList) {
     return normalizeSubstitutes_((remoteList || []).concat(localList || []));
   }
@@ -1097,6 +1118,7 @@
     if (!memStore.lessonLog) memStore.lessonLog = emptyLessonLog_();
     if (!memStore.scheduleChanges) memStore.scheduleChanges = emptyScheduleChanges_();
     if (!memStore.substitutes) memStore.substitutes = [];
+    if (!memStore.classroomSources) memStore.classroomSources = normalizeClassroomSources_(null);
     if (!memStore.hwMissing) memStore.hwMissing = emptyHwMissing_();
     if (hydrated && ensureRolledScores_(memStore)) saveStore(memStore);
     return memStore;
@@ -2409,6 +2431,114 @@
         recentDays: recentDays,
         students: students
       }, store));
+    },
+    getClassroomSources: function () {
+      var store = loadStore();
+      return wrap({ ok: true, classroomSources: normalizeClassroomSources_(store.classroomSources) });
+    },
+    saveClassroomSources: function (body) {
+      var store = loadStore();
+      store.classroomSources = normalizeClassroomSources_({ urls: (body && body.urls) || {}, updatedAt: nowIso() });
+      saveStore(store);
+      var result = { ok: true, classroomSources: store.classroomSources };
+      if (!cloudOn() || !hydrated) return wrap(result);
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      return pushCloud_(memStore).then(function () {
+        result.synced = true;
+        return result;
+      }).catch(function (err) {
+        result.synced = false;
+        result.cloudError = err && err.message ? err.message : '雲端同步失敗';
+        return result;
+      });
+    },
+    readClassroomHandouts: function (url) {
+      if (!cloudOn()) return Promise.reject(new Error('尚未連上雲端，無法讀取 Classroom 成績表'));
+      return CloudStore.readClassroomHandouts(url);
+    },
+    /**
+     * 學習講義寫進作業欄：同名欄更新、沒有就新增；以 Classroom 為準覆蓋這些座號。
+     * 分數＝已繳交＋分數；'submitted'＝已繳交未打分；空白＝未繳交。
+     */
+    importClassroomHandouts: function (body) {
+      body = body || {};
+      var store = loadStore();
+      var cn = String(body.className || '').trim();
+      var room = cn && store.classes && store.classes[cn];
+      if (!room) throw new Error('網站上找不到班級 ' + cn);
+      var seatOf = {};
+      (room.students || []).forEach(function (s) {
+        seatAliasKeys_(s.seatNo).forEach(function (k) { seatOf[k] = String(s.seatNo); });
+      });
+      var book = ensureGrades_(store, cn);
+      var report = {
+        ok: true, className: cn, created: 0, updated: 0,
+        submitted: 0, pending: 0, missing: 0, blankColumns: [], unknownSeats: []
+      };
+      (body.columns || []).forEach(function (col) {
+        var title = String((col && col.title) || '').trim().slice(0, 80);
+        if (!title) return;
+        var hit = book.homeworks.filter(function (h) { return h && String(h.title || '').trim() === title; })[0];
+        if (hit) report.updated += 1; else report.created += 1;
+        if (!body.dryRun) {
+          var due = /^\d{4}-\d{2}-\d{2}$/.test(String(col.dueDate || '')) ? String(col.dueDate) : '';
+          if (!hit) {
+            hit = {
+              id: 'h' + Date.now() + Math.floor(Math.random() * 100000),
+              title: title,
+              date: due || todayKey_(),
+              dueDate: due || todayKey_(),
+              max: clampInt(col.max || 100, 1, 200, 100),
+              records: {}
+            };
+            book.homeworks.push(hit);
+          } else {
+            if (due) hit.dueDate = due;
+            hit.max = clampInt(col.max || hit.max || 100, 1, 200, 100);
+            hit.records = hit.records || {};
+          }
+        }
+        var any = false;
+        Object.keys(col.scores || {}).forEach(function (key) {
+          var seat = seatOf[String(key)];
+          if (!seat) {
+            var label = cn + ' ' + key + ' 號';
+            if (report.unknownSeats.indexOf(label) < 0) report.unknownSeats.push(label);
+            return;
+          }
+          var v = col.scores[key];
+          var rec;
+          if (typeof v === 'number' && isFinite(v)) {
+            rec = { status: 'submitted', score: v };
+            report.submitted += 1;
+            any = true;
+          } else if (v === 'submitted') {
+            rec = { status: 'submitted' };
+            report.pending += 1;
+            any = true;
+          } else {
+            rec = { status: 'missing' };
+            report.missing += 1;
+          }
+          if (!body.dryRun) hit.records[seat] = rec;
+        });
+        if (!any) report.blankColumns.push(title);
+      });
+      if (body.dryRun) return wrap(report);
+      book.homeworks = normalizeHomeworkColumns_(book.homeworks);
+      saveStore(store);
+      if (!cloudOn() || !hydrated) return wrap(report);
+      clearTimeout(saveTimer);
+      saveTimer = null;
+      return pushCloud_(memStore).then(function () {
+        report.synced = true;
+        return report;
+      }).catch(function (err) {
+        report.synced = false;
+        report.cloudError = err && err.message ? err.message : '雲端同步失敗';
+        return report;
+      });
     },
     getGradebook: function (className) {
       var store = loadStore();

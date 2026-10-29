@@ -267,6 +267,8 @@ function handleRequest_(req) {
         return putCloudStore(req.store || payload);
       case 'repairGroups':
         return repairGroupsApi_();
+      case 'readClassroomHandouts':
+        return readClassroomHandoutsApi_(req.url || (payload && payload.url));
       default:
         if (HW_TEACHER_ACTIONS_[action]) {
           ensureHwSheets_(getSs_());
@@ -365,6 +367,138 @@ function getTimetableApi_(fresh) {
     }
   } catch (ignore2) {}
   return data;
+}
+
+/** 欄名含這些科名的「學習講義」是別科的，不匯入（老師教理化）。 */
+const HANDOUT_OTHER_SUBJECTS_ = /公民|地理|歷史|社會|國文|國語|英文|英語|數學|本土語|閩南語|客語|健康|體育|音樂|美術|視覺|表演|童軍|家政|輔導|資訊|生科|科技/;
+
+function spreadsheetIdFromUrl_(url) {
+  var s = String(url || '').trim();
+  var m = s.match(/\/spreadsheets\/d\/([A-Za-z0-9_-]{20,})/);
+  if (m) return m[1];
+  return /^[A-Za-z0-9_-]{20,}$/.test(s) ? s : '';
+}
+
+/** 「9月17日」「2026/9/17」→ YYYY-MM-DD；沒寫年份時取最接近今天、不超過今天 60 天後的那一年。 */
+function classroomDueDate_(text, now) {
+  var s = String(text || '').trim();
+  var y = 0;
+  var m;
+  var d;
+  var full = s.match(/(\d{4})\s*[\/\-年]\s*(\d{1,2})\s*[\/\-月]\s*(\d{1,2})/);
+  var md = s.match(/(\d{1,2})\s*月\s*(\d{1,2})\s*日?/) || s.match(/^(\d{1,2})\/(\d{1,2})$/);
+  if (full) {
+    y = Number(full[1]); m = Number(full[2]); d = Number(full[3]);
+  } else if (md) {
+    m = Number(md[1]); d = Number(md[2]);
+    now = now || new Date();
+    y = now.getFullYear();
+    var limit = new Date(now.getTime() + 60 * 86400000);
+    if (new Date(y, m - 1, d) > limit) y -= 1;
+  } else {
+    return '';
+  }
+  var dt = new Date(y, m - 1, d);
+  if (isNaN(dt.getTime()) || dt.getMonth() !== m - 1 || dt.getDate() !== d) return '';
+  return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
+}
+
+/**
+ * 解析 Google Classroom 匯出的成績表：一欄是「801-01」這種班級座號，
+ * 標題列有作業名稱、上一列是期限、下一列是滿分。只挑理化的「學習講義」欄。
+ * 回傳的分數以「801-01」為鍵；不含姓名與 email。
+ */
+function parseClassroomHandouts_(values, now) {
+  values = values || [];
+  var codeRe = /^(\d{3})-(\d{1,2})$/;
+  var codeCol = -1;
+  values.some(function (row) {
+    return (row || []).some(function (cell, c) {
+      if (codeRe.test(String(cell || '').trim())) {
+        codeCol = c;
+        return true;
+      }
+      return false;
+    });
+  });
+  if (codeCol < 0) return { classCodes: [], students: 0, columns: [] };
+  var students = [];
+  values.forEach(function (row, r) {
+    var mm = String((row || [])[codeCol] || '').trim().match(codeRe);
+    if (mm) students.push({ r: r, code: mm[1] + '-' + ('0' + mm[2]).slice(-2), cls: mm[1] });
+  });
+  var classCodes = [];
+  students.forEach(function (s) {
+    if (classCodes.indexOf(s.cls) < 0) classCodes.push(s.cls);
+  });
+  var titleRow = -1;
+  for (var r = 0; r < students[0].r; r++) {
+    if ((values[r] || []).some(function (cell) { return /學習講義/.test(String(cell || '')); })) {
+      titleRow = r;
+      break;
+    }
+  }
+  var columns = [];
+  if (titleRow >= 0) {
+    (values[titleRow] || []).forEach(function (cell, c) {
+      var title = String(cell || '').replace(/\s+/g, ' ').trim();
+      if (!/學習講義/.test(title) || HANDOUT_OTHER_SUBJECTS_.test(title)) return;
+      var maxRaw = Number(String(((values[titleRow + 1] || [])[c]) || '').trim());
+      var scores = {};
+      var filled = 0;
+      students.forEach(function (s) {
+        var raw = String(((values[s.r] || [])[c]) || '').trim();
+        var n = raw === '' ? NaN : Number(raw);
+        if (isFinite(n)) {
+          scores[s.code] = n;
+          filled += 1;
+        } else if (/已繳|已交|繳交|turned\s*in|submitted/i.test(raw) && !/未繳|缺交|missing/i.test(raw)) {
+          // 交了但還沒打分數
+          scores[s.code] = 'submitted';
+          filled += 1;
+        } else {
+          scores[s.code] = '';
+        }
+      });
+      columns.push({
+        title: title.slice(0, 80),
+        dueDate: classroomDueDate_(titleRow > 0 ? (values[titleRow - 1] || [])[c] : '', now),
+        max: isFinite(maxRaw) && maxRaw > 0 ? maxRaw : 100,
+        filled: filled,
+        scores: scores
+      });
+    });
+  }
+  return { classCodes: classCodes, students: students.length, columns: columns };
+}
+
+/** 讀老師指定的 Classroom 成績表（只讀，絕不寫入那份試算表）。 */
+function readClassroomHandoutsApi_(url) {
+  var id = spreadsheetIdFromUrl_(url);
+  if (!id) throw new Error('網址看起來不是 Google 試算表，請貼上 Classroom 成績表的網址');
+  if (id === SPREADSHEET_ID || id === TIMETABLE_SPREADSHEET_ID) {
+    throw new Error('這是成績庫或課表，不是 Classroom 成績表');
+  }
+  var ss;
+  try {
+    ss = SpreadsheetApp.openById(id);
+  } catch (err) {
+    // 不帶 Google 原始英文訊息：前端看到 "permission" 會誤判成 /exec 部署設定問題
+    throw new Error('打不開這份 Classroom 成績表。請確認網址正確，而且部署 Apps Script 的教師帳號在瀏覽器裡能直接開啟這個檔案');
+  }
+  var best = null;
+  ss.getSheets().some(function (sh) {
+    var range = sh.getDataRange();
+    var parsed = parseClassroomHandouts_(range ? range.getDisplayValues() : [], new Date());
+    if (!parsed.students) return false;
+    parsed.sheetName = sh.getName();
+    if (!best || parsed.columns.length > best.columns.length) best = parsed;
+    return parsed.columns.length > 0;
+  });
+  if (!best) throw new Error('這份試算表找不到「801-01」這種班級座號，請確認是 Classroom 匯出的成績表');
+  best.ok = true;
+  best.title = ss.getName();
+  return best;
 }
 
 /** 從另一份「上課課表」試算表讀取最新內容（只讀，不寫入）。 */
@@ -849,6 +983,7 @@ function mergeProtectCloudStore_(incoming, existing) {
   store.lessonLog = mergeCloudLessonLog_(store.lessonLog, existing.lessonLog);
   store.scheduleChanges = mergeCloudScheduleChanges_(store.scheduleChanges, existing.scheduleChanges);
   store.substitutes = mergeCloudSubstitutes_(store.substitutes, existing.substitutes);
+  store.classroomSources = mergeCloudClassroomSources_(store.classroomSources, existing.classroomSources);
   store.hwMissing = mergeCloudHwMissing_(store.hwMissing, existing.hwMissing);
   return store;
 }
@@ -991,6 +1126,14 @@ function mergeCloudScheduleChanges_(localList, remoteList) {
   });
   if (out.length > 80) out = out.slice(0, 80);
   return out;
+}
+
+/** 各班 Classroom 成績表網址：較新的 updatedAt 為準；舊分頁沒有這份設定時保留雲端的。 */
+function mergeCloudClassroomSources_(local, remote) {
+  var ok = function (x) { return x && typeof x === 'object' && x.urls && typeof x.urls === 'object'; };
+  if (!ok(local)) return ok(remote) ? remote : { urls: {}, updatedAt: '' };
+  if (!ok(remote)) return local;
+  return String(local.updatedAt || '') >= String(remote.updatedAt || '') ? local : remote;
 }
 
 /** 代課：kind in＝我代別人、out＝別人代我、off＝學生活動停課（periods 多節）。所有欄位都要保留，舊分頁沒有代課資料也不能清掉雲端。 */

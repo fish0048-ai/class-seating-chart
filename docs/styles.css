@@ -3739,6 +3739,30 @@
     white-space: nowrap;
   }
 
+  .classroom-source-list {
+    display: grid;
+    gap: 8px;
+    margin: 8px 0;
+  }
+
+  .classroom-source-row {
+    display: grid;
+    grid-template-columns: 56px minmax(0, 1fr);
+    align-items: center;
+    gap: 8px;
+    font-weight: 700;
+  }
+
+  .classroom-source-row input {
+    min-width: 0;
+    min-height: 36px;
+    padding: 6px 8px;
+    border: 1px solid #c9d4e0;
+    border-radius: 8px;
+    font: inherit;
+    font-weight: 400;
+  }
+
   /* 系統設定「減少動態效果」時：停掉會一直閃的動畫，其他動畫縮到幾乎瞬間 */
   @media (prefers-reduced-motion: reduce) {
     *,

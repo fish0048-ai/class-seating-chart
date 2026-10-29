@@ -310,6 +310,22 @@
         return data;
       });
     },
+    readClassroomHandouts: function (url) {
+      return enqueueCloud_(function () {
+        return withRetry_(function () {
+          return postOnce_('readClassroomHandouts', { url: url }, 90000);
+        }, 2);
+      }).then(function (data) {
+        if (data && data.ok === false) throw new Error(data.error || '讀取 Classroom 成績表失敗');
+        return data;
+      }, function (err) {
+        var msg = err && err.message ? err.message : String(err || '');
+        if (msg.indexOf('未知的操作') >= 0) {
+          throw new Error('後端還沒更新：請把最新 Code.gs 貼進 Apps Script，再「部署 → 管理部署 → 編輯」選新版本');
+        }
+        throw new Error(externalRequestError_(msg) || msg);
+      });
+    },
     request: function (action, body) {
       return enqueueCloud_(function () {
         return withRetry_(function () {
