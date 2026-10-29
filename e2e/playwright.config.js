@@ -19,12 +19,13 @@ module.exports = defineConfig({
     timezoneId: 'Asia/Taipei',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
-    video: 'retain-on-failure'
+    video: 'off'
   },
   webServer: {
-    command: 'npx serve -l 4173 ..',
+    command: 'python3 -m http.server 4173 --bind 127.0.0.1',
+    cwd: '..',
     url: 'http://127.0.0.1:4173/docs/index.html',
-    timeout: 120000,
+    timeout: 20000,
     reuseExistingServer: false
   },
   projects: [

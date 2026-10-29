@@ -76,12 +76,18 @@ async function expectHealthy(health) {
 }
 
 async function blockOutside(page) {
-  await page.route('https://accounts.google.com/**', function (route) {
-    return route.fulfill({
-      status: 200,
-      contentType: 'application/javascript; charset=utf-8',
-      body: '/* e2e skips the real Google script */'
-    });
+  await page.route('**/*', function (route) {
+    const url = route.request().url();
+    if (/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//.test(url)) return route.continue();
+    const type = route.request().resourceType();
+    if (type === 'script') {
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/javascript; charset=utf-8',
+        body: '/* e2e skips outside scripts */'
+      });
+    }
+    return route.fulfill({ status: 204, body: '' });
   });
 }
 
@@ -161,15 +167,13 @@ async function stubGoogle(page, email) {
 }
 
 async function openApp(page) {
-  const css = page.waitForResponse(function (response) {
-    return response.url().includes('/docs/styles.css');
-  });
-  const script = page.waitForResponse(function (response) {
-    return response.url().includes('/docs/app.js');
-  });
-  await page.goto('/docs/index.html', { waitUntil: 'domcontentloaded' });
-  expect((await css).ok()).toBe(true);
-  expect((await script).ok()).toBe(true);
+  const response = await page.goto('/docs/index.html', { waitUntil: 'domcontentloaded', timeout: 10000 });
+  expect(response, '座位表沒有回應').toBeTruthy();
+  expect(response.ok(), '座位表頁面應成功載入').toBe(true);
+  const css = await page.request.get('/docs/styles.css');
+  const script = await page.request.get('/docs/app.js');
+  expect(css.ok(), '樣式檔應載入').toBe(true);
+  expect(script.ok(), '主程式應載入').toBe(true);
 }
 
 async function expectTappable(locator) {
