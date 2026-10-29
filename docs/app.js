@@ -3333,25 +3333,22 @@
     return lines;
   }
 
+  /** 座位卡左下角（右上是組別、右下是分數）；天數放前面，名稱太長只截名稱。 */
   function hwMissingBadgeHtml(seatNo) {
-    var lines = hwMissingLinesForSeat_(seatNo);
+    var lines = hwMissingLinesForSeat_(seatNo).sort(function (a, b) { return b.days - a.days; });
     if (!lines.length) return '';
-    var severeLines = lines.filter(function (line) { return isHwMissingSevere_(line.days); });
-    var normalLines = lines.filter(function (line) { return !isHwMissingSevere_(line.days); });
-    var html = '';
-    if (severeLines.length) {
-      html += '<span class="seat-hw-missing-stack seat-hw-missing-stack-severe">' + severeLines.map(function (line) {
-        return '<span class="seat-hw-missing seat-hw-missing-severe">嚴重 ' +
-          escapeHtml(line.title) + ' ' + line.days + '天</span>';
-      }).join('') + '</span>';
-    }
-    if (normalLines.length) {
-      html += '<span class="seat-hw-missing-stack">' + normalLines.map(function (line) {
-        return '<span class="seat-hw-missing">缺交 ' + escapeHtml(line.title) + ' ' +
-          line.days + '天</span>';
-      }).join('') + '</span>';
-    }
-    return '<span class="seat-hw-missing-wrap">' + html + '</span>';
+    var shown = lines.slice(0, 2);
+    var more = lines.length - shown.length;
+    var full = lines.map(function (line) {
+      return (isHwMissingSevere_(line.days) ? '嚴重缺交 ' : '缺交 ') + line.title + ' ' + line.days + ' 天';
+    }).join('\n');
+    var html = shown.map(function (line) {
+      var severe = isHwMissingSevere_(line.days);
+      return '<span class="seat-hw-missing' + (severe ? ' seat-hw-missing-severe' : '') + '">' +
+        '<b>' + (severe ? '嚴重' : '缺') + line.days + '天</b><span class="hw-title"> ' + escapeHtml(line.title) + '</span></span>';
+    }).join('');
+    if (more > 0) html += '<span class="seat-hw-missing seat-hw-missing-more">還有 ' + more + ' 份</span>';
+    return '<span class="seat-hw-missing-wrap" title="' + escapeHtml(full) + '">' + html + '</span>';
   }
 
   function hwMissingSeatSet(className) {
