@@ -1,0 +1,46 @@
+name: Playwright
+
+on:
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: 座位表雲端測試
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: e2e
+    steps:
+      - name: 取出程式
+        uses: actions/checkout@v4
+
+      - name: 安裝 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 安裝測試套件
+        run: npm install
+
+      - name: 安裝 Playwright 瀏覽器
+        run: npx playwright install --with-deps chromium
+
+      - name: 執行測試
+        run: npx playwright test
+
+      - name: 保留失敗時的截圖、Trace 與報告
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-failure
+          path: |
+            e2e/playwright-report/
+            e2e/test-results/
+          retention-days: 14
+          if-no-files-found: ignore

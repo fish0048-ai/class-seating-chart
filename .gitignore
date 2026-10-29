@@ -5,6 +5,9 @@ Thumbs.db
 .env.*
 node_modules/
 .vercel
+test-results/
+playwright-report/
+blob-report/
 
 # 學生個資（讀卡成績、名單）不要進 git
 *.xls

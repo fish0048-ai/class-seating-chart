@@ -1,0 +1,12 @@
+{
+  "name": "class-seating-chart-e2e",
+  "private": true,
+  "description": "雲端 Playwright 測試。只在 GitHub Actions 安裝與執行，本機不要跑 npm。",
+  "scripts": {
+    "test:e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.55.0",
+    "serve": "14.2.4"
+  }
+}
