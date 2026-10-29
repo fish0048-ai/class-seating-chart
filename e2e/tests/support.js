@@ -77,7 +77,11 @@ async function expectHealthy(health) {
 
 async function blockOutside(page) {
   await page.route('https://accounts.google.com/**', function (route) {
-    return route.abort();
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/javascript; charset=utf-8',
+      body: '/* e2e skips the real Google script */'
+    });
   });
 }
 
@@ -158,12 +162,12 @@ async function stubGoogle(page, email) {
 
 async function openApp(page) {
   const css = page.waitForResponse(function (response) {
-    return response.url().includes('/docs/styles.css') && response.request().resourceType() === 'stylesheet';
+    return response.url().includes('/docs/styles.css');
   });
   const script = page.waitForResponse(function (response) {
     return response.url().includes('/docs/app.js');
   });
-  await page.goto('/docs/index.html');
+  await page.goto('/docs/index.html', { waitUntil: 'domcontentloaded' });
   expect((await css).ok()).toBe(true);
   expect((await script).ok()).toBe(true);
 }

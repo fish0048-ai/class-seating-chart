@@ -2,11 +2,12 @@ const { defineConfig, devices } = require('@playwright/test');
 
 module.exports = defineConfig({
   testDir: './tests',
-  timeout: 60000,
-  expect: { timeout: 15000 },
-  fullyParallel: false,
+  timeout: 30000,
+  expect: { timeout: 8000 },
+  fullyParallel: true,
+  workers: process.env.CI ? 2 : undefined,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 0,
+  retries: 0,
   reporter: [
     ['list'],
     ['html', { open: 'never', outputFolder: 'playwright-report' }]
@@ -14,6 +15,7 @@ module.exports = defineConfig({
   outputDir: 'test-results',
   use: {
     baseURL: 'http://127.0.0.1:4173',
+    navigationTimeout: 15000,
     timezoneId: 'Asia/Taipei',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
