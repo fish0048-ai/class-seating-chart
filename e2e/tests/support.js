@@ -96,6 +96,7 @@ function cloudPayload(action, store, body) {
   if (action === 'getStoreMeta') return { updatedAt: store.updatedAt || '', empty: false };
   if (action === 'verifyAuth') return { ok: true, teacher: true, email: TEACHER_EMAIL };
   if (action === 'putStore') return { ok: true, updatedAt: (body.store && body.store.updatedAt) || store.updatedAt || '' };
+  if (action === 'getTimetable') return { error: '測試不讀正式課表' };
   return { ok: true };
 }
 
