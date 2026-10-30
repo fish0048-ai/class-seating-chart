@@ -205,10 +205,9 @@
     gradeColType: document.getElementById('gradeColType'),
     gradeColDue: document.getElementById('gradeColDue'),
     gradeDueWrap: document.getElementById('gradeDueWrap'),
-    ruleBase: document.getElementById('ruleBase'),
-    ruleClassW: document.getElementById('ruleClassW'),
-    ruleQuizW: document.getElementById('ruleQuizW'),
-    ruleExamW: document.getElementById('ruleExamW'),
+    ruleUsualW: document.getElementById('ruleUsualW'),
+    ruleTermExamW: document.getElementById('ruleTermExamW'),
+    ruleBonusMax: document.getElementById('ruleBonusMax'),
     ruleHolidays: document.getElementById('ruleHolidays'),
   };
 
@@ -722,7 +721,7 @@
     gradeTermWrap.addEventListener('change', onGradeCellChange);
     gradeTermWrap.addEventListener('input', onGradeCellInput);
   }
-  ['ruleBase', 'ruleClassW', 'ruleQuizW', 'ruleExamW', 'ruleHolidays'].forEach(function (id) {
+  ['ruleUsualW', 'ruleTermExamW', 'ruleBonusMax', 'ruleHolidays'].forEach(function (id) {
     var field = document.getElementById(id);
     if (!field) return;
     field.addEventListener('change', scheduleAutoRuleSave);
@@ -6002,15 +6001,10 @@
 
   function defaultGradeRules() {
     return {
-      base: 60,
-      classWeight: 40,
-      quizWeight: 30,
-      examWeight: 30,
-      latePenalty: 10,
-      lateWorkDays: 1,
-      holidays: [],
-      min: 0,
-      max: 100
+      termUsualWeight: 60,
+      termExamWeight: 40,
+      classBonusMax: 10,
+      holidays: []
     };
   }
 
@@ -6055,10 +6049,72 @@
     return Math.round(Number(n) * 10) / 10;
   }
 
-  function usualFromRaw(raw) {
-    var rules = gradeRules();
-    var n = (Number(rules.base) || 0) + (Number(raw) || 0);
-    return Math.max(rules.min || 0, Math.min(rules.max || 100, n));
+  /**
+   * 全站唯一的成績算法（學期成績、每週成績、圖表、需要關心、整年級成績簿都用這套）：
+   * 平時成績 ＝（作業平均 ＋ 平時考試平均）÷ 2 ＋ 上課加分（最高 100）
+   * 上課加分 ＝ 期間上課加扣合計 ÷ 全班最高 × 上限（0 以下不加）
+   * 學期／結算成績 ＝ 平時 × 平時％ ＋ 段考 × 段考％（缺一項就用另一項）；實作不列入。
+   */
+  function termWeights(rules) {
+    rules = rules || gradeRules();
+    function num(key, def) {
+      var n = Number(rules[key]);
+      return isFinite(n) && n >= 0 ? n : def;
+    }
+    return { usual: num('termUsualWeight', 60), exam: num('termExamWeight', 40), bonusMax: num('classBonusMax', 10) };
+  }
+
+  function classBonusFrom(net, top, bonusMax) {
+    return top > 0 && net > 0 ? round1(net / top * bonusMax) : 0;
+  }
+
+  function usualFromParts(hwAvg, quizAvg, bonus) {
+    var parts = [hwAvg, quizAvg].filter(function (v) { return v != null; });
+    if (!parts.length) return null;
+    return Math.min(100, round1(parts.reduce(function (a, b) { return a + b; }, 0) / parts.length + (bonus || 0)));
+  }
+
+  function termTotal(usual, exam, w) {
+    if (usual != null && exam != null) {
+      var sum = w.usual + w.exam;
+      return sum ? round1((usual * w.usual + exam * w.exam) / sum) : null;
+    }
+    if (usual != null) return usual;
+    return exam != null ? exam : null;
+  }
+
+  function termFormula(p, w) {
+    w = w || termWeights();
+    if (p.total == null) return '尚無成績';
+    var base = [];
+    if (p.hwAvg != null) base.push('作業 ' + p.hwAvg);
+    if (p.quiz != null) base.push('平時考試 ' + p.quiz);
+    var usualText = p.usual == null ? '' :
+      '平時（' + (base.length > 1 ? '(' + base.join(' ＋ ') + ')÷2' : base.join('')) +
+      (p.classBonus ? ' ＋ 上課加分 ' + p.classBonus : '') + ' ＝ ' + p.usual + '）';
+    if (p.usual != null && p.exam != null) {
+      return usualText + '×' + w.usual + '% ＋ 段考 ' + p.exam + '×' + w.exam + '% → ' + p.total;
+    }
+    if (p.usual != null) return usualText + '（無段考，只算平時） → ' + p.total;
+    return '段考 ' + p.exam + '（無平時成績，只算段考） → ' + p.total;
+  }
+
+  var classNetTopCache = { key: '', days: null, top: 0 };
+
+  /** 這段期間全班上課加扣合計的最高分（給上課加分等比例換算）。 */
+  function classNetTop(mondayKey) {
+    var key = (mondayKey || '') + '|' + teacherTargetClass();
+    if (classNetTopCache.days === App.dailyDays && classNetTopCache.key === key) return classNetTopCache.top;
+    var seats = {};
+    (App.dailyDays || []).forEach(function (day) {
+      (day.students || []).forEach(function (s) { seats[String(s.seatNo)] = true; });
+    });
+    var top = 0;
+    Object.keys(seats).forEach(function (seat) {
+      top = Math.max(top, classActivity(seat, mondayKey).raw);
+    });
+    classNetTopCache = { key: key, days: App.dailyDays, top: top };
+    return top;
   }
 
   function isLeaveScore(v) {
@@ -6168,59 +6224,8 @@
     return { raw: sum, has: has };
   }
 
-  function usualBundle(seatNo, classRaw, hasClass, labs, practicals, homeworks) {
-    var parts = [];
-    if (hasClass) parts.push({ label: '上課', v: usualFromRaw(classRaw) });
-    var labAvg = average100(labs, seatNo);
-    if (labAvg != null) parts.push({ label: '實作評量', v: labAvg });
-    var pracAvg = average100(practicals, seatNo);
-    if (pracAvg != null) parts.push({ label: '實作成績', v: pracAvg });
-    if ((homeworks || []).length) {
-      var hwAvg = averageHomework(homeworks, seatNo);
-      if (hwAvg != null) parts.push({ label: '作業', v: hwAvg });
-    }
-    if (!parts.length) return { usual: null, parts: [] };
-    return {
-      usual: round1(parts.reduce(function (sum, p) { return sum + p.v; }, 0) / parts.length),
-      parts: parts
-    };
-  }
-
   function quizExamAvg(yellow, morning, seatNo) {
     return average100((yellow || []).concat(morning || []), seatNo);
-  }
-
-  function weightedScore(usual, quiz, exam) {
-    var rules = gradeRules();
-    var parts = [];
-    if (usual != null) parts.push({ v: usual, w: Number(rules.classWeight) || 0 });
-    if (quiz != null) parts.push({ v: quiz, w: Number(rules.quizWeight) || 0 });
-    if (exam != null) parts.push({ v: exam, w: Number(rules.examWeight) || 0 });
-    var wsum = parts.reduce(function (sum, p) { return sum + p.w; }, 0);
-    if (!wsum) return null;
-    return round1(parts.reduce(function (sum, p) { return sum + p.v * p.w; }, 0) / wsum);
-  }
-
-  function scoreFormula(usual, quiz, exam) {
-    var rules = gradeRules();
-    var parts = [];
-    if (usual != null) parts.push({ label: '平時', v: usual, w: Number(rules.classWeight) || 0 });
-    if (quiz != null) parts.push({ label: '平時考試', v: quiz, w: Number(rules.quizWeight) || 0 });
-    if (exam != null) parts.push({ label: '段考', v: exam, w: Number(rules.examWeight) || 0 });
-    var wsum = parts.reduce(function (sum, p) { return sum + p.w; }, 0);
-    var total = weightedScore(usual, quiz, exam);
-    if (!wsum || total == null) return '尚無成績';
-    var bits = parts.map(function (p) {
-      return p.label + ' ' + p.v + '×' + round1(p.w / wsum * 100) + '%';
-    });
-    var missing = [];
-    if (usual == null) missing.push('無平時成績，只算平時考試');
-    else if (quiz == null) missing.push('平時考試無');
-    if (exam == null) missing.push('段考無');
-    var note = '';
-    if (usual == null) note = '（無平時成績，只算平時考試' + (exam == null ? '' : '與段考') + '，比重重算）';
-    else if (missing.length) note = '（' + missing.join('、') + '，比重重算）';
-    return bits.join(' ＋ ') + note + ' → ' + total;
   }
 
   function mondayOf(dateKey) {
@@ -6370,10 +6375,10 @@
 
   function fillRuleInputs() {
     var rules = gradeRules();
-    if (els.ruleBase) els.ruleBase.value = rules.base;
-    if (els.ruleClassW) els.ruleClassW.value = rules.classWeight;
-    if (els.ruleQuizW) els.ruleQuizW.value = rules.quizWeight;
-    if (els.ruleExamW) els.ruleExamW.value = rules.examWeight;
+    var w = termWeights(rules);
+    if (els.ruleUsualW) els.ruleUsualW.value = w.usual;
+    if (els.ruleTermExamW) els.ruleTermExamW.value = w.exam;
+    if (els.ruleBonusMax) els.ruleBonusMax.value = w.bonusMax;
     if (els.ruleHolidays) els.ruleHolidays.value = (rules.holidays || []).join(', ');
   }
 
@@ -6432,30 +6437,32 @@
     var take = mondayKey
       ? function (cols) { return columnsInWeek(cols, mondayKey); }
       : function (cols) { return cols || []; };
-    var act = mondayKey
-      ? classActivity(stu.seatNo, mondayKey)
-      : { raw: stu.total, has: !!(Number(stu.plusSum) || Number(stu.minusSum) || Number(stu.total)) };
+    var act = classActivity(stu.seatNo, mondayKey);
+    var w = termWeights();
     var labs = take(book.labs);
     var practicals = take(book.practicals);
     var homeworks = take(book.homeworks);
     var yellow = take(book.yellow);
     var morning = take(book.morning);
     var exams = take(book.exams);
-    var usual = usualBundle(stu.seatNo, act.raw, act.has, labs, practicals, homeworks);
+    var hwAvg = averageHomework(homeworks, stu.seatNo);
     var quiz = quizExamAvg(yellow, morning, stu.seatNo);
+    var bonus = classBonusFrom(act.raw, classNetTop(mondayKey), w.bonusMax);
+    var usual = usualFromParts(hwAvg, quiz, bonus);
     var examAvg = average100(exams, stu.seatNo);
     return {
       classRaw: act.raw,
       hasClass: act.has,
+      classBonus: bonus,
       labAvg: average100(labs, stu.seatNo),
       pracAvg: average100(practicals, stu.seatNo),
-      hwAvg: homeworks.length ? averageHomework(homeworks, stu.seatNo) : null,
-      usual: usual.usual,
+      hwAvg: hwAvg,
+      usual: usual,
       yellowAvg: average100(yellow, stu.seatNo),
       morningAvg: average100(morning, stu.seatNo),
       quiz: quiz,
       exam: examAvg,
-      total: weightedScore(usual.usual, quiz, examAvg)
+      total: termTotal(usual, examAvg, w)
     };
   }
 
@@ -6612,20 +6619,20 @@
     });
     rows.sort(seatOrder);
 
-    var usualHead = '<th>上課加扣</th><th>換算分</th>' +
+    var usualHead = '<th>上課加扣</th><th>上課加分</th>' +
       labs.map(function (col) { return gradeColHead(col, 'lab'); }).join('') +
-      (labs.length ? '<th>實作評量平均</th>' : '') +
+      (labs.length ? '<th>實作評量平均<small>不列入</small></th>' : '') +
       practicals.map(function (col) { return gradeColHead(col, 'practical'); }).join('') +
-      (practicals.length ? '<th>實作成績平均</th>' : '') +
+      (practicals.length ? '<th>實作成績平均<small>不列入</small></th>' : '') +
       homeworks.map(function (col) {
         return gradeColHead(col, 'homework', ' · 期限 ' + shortDate(col.dueDate || col.date));
       }).join('') +
       (homeworks.length ? '<th>作業平均</th>' : '') +
-      '<th class="col-total">平時平均</th>';
+      '<th class="col-total">平時成績</th>';
     var usualBody = rows.map(function (row) {
       return '<tr>' + studentBodyCells(row) +
         '<td class="' + scoreCellClass(row.classRaw) + '">' + scoreCellText(row.classRaw) + '</td>' +
-        '<td>' + (row.hasClass ? usualFromRaw(row.classRaw) : '—') + '</td>' +
+        '<td>' + (row.classBonus ? row.classBonus : '0') + '</td>' +
         labs.map(function (col) { return scoreCellHtml('lab', col, row.seatNo, false); }).join('') +
         (labs.length ? '<td>' + fmtScore(row.labAvg) + '</td>' : '') +
         practicals.map(function (col) { return scoreCellHtml('practical', col, row.seatNo, false); }).join('') +
@@ -6657,13 +6664,16 @@
         '<td class="col-total">' + fmtScore(row.exam) + '</td></tr>';
     }).join('');
 
-    var sumHead = '<th>平時</th><th>平時考試</th><th>段考</th><th class="col-total">加權總分</th><th>名次</th>';
+    var sumHead = '<th>作業平均</th><th>平時考試</th><th>上課加分</th><th>平時成績</th><th>段考平均</th>' +
+      '<th class="col-total">學期成績</th><th>名次</th>';
     var sumBody = rows.map(function (row) {
       return '<tr>' + studentBodyCells(row) +
-        '<td>' + fmtScore(row.usual) + '</td>' +
+        '<td>' + fmtScore(row.hwAvg) + '</td>' +
         '<td>' + fmtScore(row.quiz) + '</td>' +
+        '<td>' + (row.classBonus || 0) + '</td>' +
+        '<td>' + fmtScore(row.usual) + '</td>' +
         '<td>' + fmtScore(row.exam) + '</td>' +
-        '<td class="col-total">' + fmtScore(row.total) + '</td>' +
+        '<td class="col-total" title="' + escapeHtml(termFormula(row)) + '">' + fmtScore(row.total) + '</td>' +
         '<td>' + row.rank + '</td></tr>';
     }).join('');
 
@@ -6689,12 +6699,11 @@
     var students = (model.rows || []).slice().sort(seatOrder);
     els.gradeWeekHead.innerHTML = '<tr>' +
       '<th class="sticky-1">座號</th><th class="sticky-2">姓名</th>' +
-      '<th>上課加扣</th><th>實作評量</th><th>實作成績</th><th>作業</th><th>平時</th>' +
-      '<th>黃卷</th><th>早自習</th><th>平時考試</th><th>段考</th>' +
+      '<th>上課加扣</th><th>上課加分</th><th>作業</th><th>平時考試</th><th>平時成績</th><th>段考</th>' +
       '<th class="col-total">每週成績</th><th>計算過程</th>' +
       '</tr>';
     if (!students.length) {
-      els.gradeWeekBody.innerHTML = '<tr><td colspan="13">這個班還沒有學生</td></tr>';
+      els.gradeWeekBody.innerHTML = '<tr><td colspan="10">這個班還沒有學生</td></tr>';
       return;
     }
     els.gradeWeekBody.innerHTML = students.map(function (stu) {
@@ -6703,40 +6712,36 @@
         '<td class="sticky-1">' + escapeHtml(stu.seatNo) + '</td>' +
         '<td class="sticky-2 name-col">' + escapeHtml(stu.name) + '</td>' +
         '<td class="' + scoreCellClass(parts.classRaw) + '">' + scoreCellText(parts.classRaw) + '</td>' +
-        '<td>' + (parts.labAvg == null ? '無' : parts.labAvg) + '</td>' +
-        '<td>' + (parts.pracAvg == null ? '無' : parts.pracAvg) + '</td>' +
+        '<td>' + (parts.classBonus || 0) + '</td>' +
         '<td>' + (parts.hwAvg == null ? '無' : parts.hwAvg) + '</td>' +
-        '<td>' + (parts.usual == null ? '無' : parts.usual) + '</td>' +
-        '<td>' + (parts.yellowAvg == null ? '無' : parts.yellowAvg) + '</td>' +
-        '<td>' + (parts.morningAvg == null ? '無' : parts.morningAvg) + '</td>' +
         '<td>' + (parts.quiz == null ? '無' : parts.quiz) + '</td>' +
+        '<td>' + (parts.usual == null ? '無' : parts.usual) + '</td>' +
         '<td>' + (parts.exam == null ? '無' : parts.exam) + '</td>' +
         '<td class="col-total">' + fmtScore(parts.total) + '</td>' +
-        '<td class="formula-col">' + escapeHtml(scoreFormula(parts.usual, parts.quiz, parts.exam)) + '</td>' +
+        '<td class="formula-col">' + escapeHtml(termFormula(parts)) + '</td>' +
         '</tr>';
     }).join('');
   }
 
   function renderGradeRules() {
     if (!els.gradeRuleBox) return;
-    var rules = gradeRules();
+    var w = termWeights();
     els.gradeRuleBox.innerHTML =
       '<details class="rule-details">' +
-      '<summary>每週成績計算規則</summary>' +
+      '<summary>成績計算規則（學期成績、每週成績、整年級成績簿都用這套）</summary>' +
       '<ol>' +
-      '<li>平時表現包含：上課加扣、實作評量（實驗室）、實作成績（回家做）、作業。有幾項就平均幾項。</li>' +
-      '<li>上課換算分 ＝ 底分 ' + rules.base + ' ＋ 該週上課加扣合計，最低 ' + rules.min + '、最高 ' + rules.max + '。該週沒有加扣分就不列入平時。</li>' +
-      '<li>小組加分會加進每位組員的上課加扣，所以會列入平時成績；小組計分板只記整組分數，不會再加一次。</li>' +
-      '<li>平時考試 ＝ 黃卷與早自習平均（換算成 100 分制）。請假不計入。</li>' +
-      '<li>段考平均同樣換算成 100 分制，請假不計入。</li>' +
+      '<li><strong>平時成績</strong> ＝（作業平均 ＋ 平時考試平均）÷ 2 ＋ 上課加分，最高 100；只有其中一項就用那一項。</li>' +
+      '<li><strong>上課加分</strong>：期間內上課加扣合計，全班最高的人加 ' + w.bonusMax + ' 分，其他人依比例（合計 ÷ 全班最高 × ' +
+        w.bonusMax + '），0 以下不加。小組分已算在每位組員的加扣裡。</li>' +
+      '<li><strong>學期成績</strong> ＝ 平時成績 × ' + w.usual + '% ＋ 段考平均 × ' + w.exam + '%；缺一項就只算另一項。</li>' +
+      '<li>平時考試 ＝ 黃卷、早自習、學科競試平均（換算成 100 分制），請假不計入。段考平均同樣換算成 100 分制。</li>' +
+      '<li>實作評量、實作成績只記錄，不列入成績。勾了「暫不計」的欄也不列入。</li>' +
       '<li>作業可記未繳交／已繳交，繳交後登錄成績；遲交扣分請打分數時自己算好，網站不另外扣。' +
       '有繳交的作業保底 ' + HW_SUBMITTED_FLOOR + ' 分：調整後 ＝ ' + HW_SUBMITTED_FLOOR + ' ＋ 原始 × ' +
       ((100 - HW_SUBMITTED_FLOOR) / 100) + '（原始 0 → ' + HW_SUBMITTED_FLOOR + '、50 → ' + adjustSubmittedHomework(50) +
       '、100 → 100），計算平均用調整後；未繳交仍以 0 分計。</li>' +
-      '<li>每週成績 ＝ 平時×' + rules.classWeight + '% ＋ 平時考試×' + rules.quizWeight + '% ＋ 段考×' + rules.examWeight + '%。</li>' +
-      '<li>若本週完全沒有平時成績，就不使用底分，只算平時考試（有段考仍一併加權）。缺的項目不計，其餘比重按比例重算。</li>' +
       '</ol>' +
-      '<p class="rule-note">學期成績用同一套規則，只是改成全部日期與全部欄位。額外假日填在下方，缺交作業的工作天數就不算那些日子。</p>' +
+      '<p class="rule-note">每週成績只算那一週的欄位與加扣；學期成績算全部；整年級成績簿算兩次段考之間。比重與加分上限在下方調整（每班各自設定）。額外假日填在下方，缺交作業的工作天數就不算那些日子。</p>' +
       '</details>';
   }
 
@@ -6964,10 +6969,9 @@
     if (!className) return;
     var body = collectGradebookFromTable();
     body.rules = {
-      base: Number(els.ruleBase && els.ruleBase.value),
-      classWeight: Number(els.ruleClassW && els.ruleClassW.value),
-      quizWeight: Number(els.ruleQuizW && els.ruleQuizW.value),
-      examWeight: Number(els.ruleExamW && els.ruleExamW.value),
+      termUsualWeight: Number(els.ruleUsualW && els.ruleUsualW.value),
+      termExamWeight: Number(els.ruleTermExamW && els.ruleTermExamW.value),
+      classBonusMax: Number(els.ruleBonusMax && els.ruleBonusMax.value),
       holidays: els.ruleHolidays ? els.ruleHolidays.value : ''
     };
     api('saveGradebook', [body]).then(function (data) {
@@ -8308,22 +8312,22 @@
     var formulaEl = document.getElementById('personFormula');
     if (formulaEl) {
       var usualBits = [];
-      if (person.hasClass) usualBits.push('上課 ' + usualFromRaw(person.classRaw));
-      if (person.labAvg != null) usualBits.push('實作評量 ' + person.labAvg);
-      if (person.pracAvg != null) usualBits.push('實作成績 ' + person.pracAvg);
       if (person.hwAvg != null) usualBits.push('作業 ' + person.hwAvg);
+      if (person.quiz != null) usualBits.push('平時考試 ' + person.quiz);
       var quizBits = [];
       if (person.yellowAvg != null) quizBits.push('黃卷平均 ' + person.yellowAvg);
       if (person.morningAvg != null) quizBits.push('早自習平均 ' + person.morningAvg);
       var notes = (person.check && person.check.notes) || [];
       formulaEl.innerHTML = '<ul class="formula-list">' +
         '<li><strong>平時 ' + escapeHtml(fmtMaybe(person.usual)) + '</strong>　' +
-          escapeHtml(usualBits.length ? usualBits.join('、') + ' 的平均' : '沒有上課加扣、實作或作業') + '</li>' +
+          escapeHtml(usualBits.length
+            ? usualBits.join('、') + ' 的平均' + (person.classBonus ? ' ＋ 上課加分 ' + person.classBonus : '')
+            : '沒有作業或平時考試') + '</li>' +
         '<li><strong>平時考試 ' + escapeHtml(fmtMaybe(person.quiz)) + '</strong>　' +
           escapeHtml(quizBits.length ? quizBits.join('、') + '（每張一起平均）' : '沒有黃卷或早自習分數') + '</li>' +
         '<li><strong>段考 ' + escapeHtml(fmtMaybe(person.exam)) + '</strong>　' +
           escapeHtml(person.exam != null ? '各次段考平均' : '沒有段考分數') + '</li>' +
-        '<li><strong>學期總分</strong>　' + escapeHtml(scoreFormula(person.usual, person.quiz, person.exam)) + '</li>' +
+        '<li><strong>學期成績</strong>　' + escapeHtml(termFormula(person)) + '</li>' +
         '</ul>' +
         (notes.length
           ? '<p class="formula-warn">要核對：' + escapeHtml(notes.join('；')) + '</p>'
@@ -9227,21 +9231,20 @@
   }
 
   function buildTermSheetRows(students) {
-    var rows = [['座號', '姓名', '上課加扣', '換算分', '實作評量平均', '實作成績平均', '作業平均', '平時平均', '黃卷平均', '早自習平均', '平時考試平均', '段考平均', '加權總分']];
+    var rows = [['座號', '姓名', '上課加扣', '上課加分', '作業平均', '黃卷平均', '早自習平均', '平時考試平均', '平時成績', '段考平均', '學期成績', '實作評量平均（不列入）', '實作成績平均（不列入）']];
     students.forEach(function (stu) {
       var p = studentGradeParts(stu, '');
       rows.push([
-        stu.seatNo, stu.name, p.classRaw,
-        p.hasClass ? usualFromRaw(p.classRaw) : '',
-        p.labAvg == null ? '' : p.labAvg,
-        p.pracAvg == null ? '' : p.pracAvg,
+        stu.seatNo, stu.name, p.classRaw, p.classBonus || 0,
         p.hwAvg == null ? '' : p.hwAvg,
-        p.usual == null ? '' : p.usual,
         p.yellowAvg == null ? '' : p.yellowAvg,
         p.morningAvg == null ? '' : p.morningAvg,
         p.quiz == null ? '' : p.quiz,
+        p.usual == null ? '' : p.usual,
         p.exam == null ? '' : p.exam,
-        p.total == null ? '' : p.total
+        p.total == null ? '' : p.total,
+        p.labAvg == null ? '' : p.labAvg,
+        p.pracAvg == null ? '' : p.pracAvg
       ]);
     });
     return rows;
@@ -9250,21 +9253,17 @@
   function buildWeekSheetRows(students) {
     var monday = App.weekKey || mondayOf(formatDateKey(new Date()));
     var rows = [['週次', formatZhDate(monday) + '～' + formatZhDate(sundayOf(monday))]];
-    rows.push(['座號', '姓名', '上課加扣', '實作評量', '實作成績', '作業', '平時', '黃卷', '早自習', '平時考試', '段考', '每週成績', '計算過程']);
+    rows.push(['座號', '姓名', '上課加扣', '上課加分', '作業', '平時考試', '平時成績', '段考', '每週成績', '計算過程']);
     students.forEach(function (stu) {
       var p = studentGradeParts(stu, monday);
       rows.push([
-        stu.seatNo, stu.name, p.classRaw,
-        p.labAvg == null ? '' : p.labAvg,
-        p.pracAvg == null ? '' : p.pracAvg,
+        stu.seatNo, stu.name, p.classRaw, p.classBonus || 0,
         p.hwAvg == null ? '' : p.hwAvg,
-        p.usual == null ? '' : p.usual,
-        p.yellowAvg == null ? '' : p.yellowAvg,
-        p.morningAvg == null ? '' : p.morningAvg,
         p.quiz == null ? '' : p.quiz,
+        p.usual == null ? '' : p.usual,
         p.exam == null ? '' : p.exam,
         p.total == null ? '' : p.total,
-        scoreFormula(p.usual, p.quiz, p.exam)
+        termFormula(p)
       ]);
     });
     return rows;
@@ -9314,17 +9313,13 @@
     });
   }
 
-  var TERM_USUAL_WEIGHT = 0.6;
-  var TERM_EXAM_WEIGHT = 0.4;
-  var TERM_CLASS_BONUS_MAX = 10;
-
   function termSeatKey(seatNo) {
     var s = String(seatNo == null ? '' : seatNo).trim();
     return /^\d+$/.test(s) ? String(Number(s)) : s;
   }
 
-  /** 期間內每位學生上課加扣合計，以及依全班最高者換算的加分（最高 10，0 以下不加）。 */
-  function termClassBonus(cls, opt) {
+  /** 期間內每位學生上課加扣合計，以及依全班最高者換算的加分（上限看該班規則，0 以下不加）。 */
+  function termClassBonus(cls, opt, bonusMax) {
     var net = {};
     (cls.days || []).forEach(function (day) {
       if (!day || !inTermRange(String(day.date || ''), opt)) return;
@@ -9341,8 +9336,7 @@
       top: top,
       netOf: function (seatNo) { return net[termSeatKey(seatNo)] || 0; },
       bonusOf: function (seatNo) {
-        var n = net[termSeatKey(seatNo)] || 0;
-        return top > 0 && n > 0 ? round1(n / top * TERM_CLASS_BONUS_MAX) : 0;
+        return classBonusFrom(net[termSeatKey(seatNo)] || 0, top, bonusMax);
       }
     };
   }
@@ -9429,13 +9423,14 @@
       return inTermRange(String(c.date || ''), opt);
     });
     var exam = (book.exams || []).filter(function (c) { return String(c.title || '').trim() === opt.title; })[0] || null;
-    var bonus = termClassBonus(cls, opt);
+    var w = termWeights(Object.assign(defaultGradeRules(), book.rules || {}));
+    var bonus = termClassBonus(cls, opt, w.bonusMax);
     var rows = [
       [cls.className + '　' + opt.title + '　結算'],
       ['結算期間：' + (opt.start || '學期開始') + ' ～ ' + opt.end + '　本班期間上課加扣最高 ' + bonus.top + ' 分'],
       ['平時成績 ＝（作業平均 ＋ 平時考試平均）÷ 2 ＋ 上課加分（最高 100）；上課加分 ＝ 期間加扣合計 ÷ 全班最高 × ' +
-        TERM_CLASS_BONUS_MAX + '（0 以下不加）；結算成績 ＝ 平時成績 × ' + (TERM_USUAL_WEIGHT * 100) +
-        '% ＋ 段考 × ' + (TERM_EXAM_WEIGHT * 100) + '%。作業有繳交保底 ' + HW_SUBMITTED_FLOOR +
+        w.bonusMax + '（0 以下不加）；結算成績 ＝ 平時成績 × ' + w.usual +
+        '% ＋ 段考 × ' + w.exam + '%。作業有繳交保底 ' + HW_SUBMITTED_FLOOR +
         '（' + HW_SUBMITTED_FLOOR + '＋原始×' + ((100 - HW_SUBMITTED_FLOOR) / 100) + '）、未繳交 0；請假不計；實作不列入。'],
       []
     ];
@@ -9464,11 +9459,8 @@
       });
       var hwAvg = hwVals.length ? round1(hwVals.reduce(function (a, b) { return a + b; }, 0) / hwVals.length) : null;
       var quizAvg = average100(quizzes, seat);
-      var parts = [hwAvg, quizAvg].filter(function (v) { return v != null; });
       var plus = bonus.bonusOf(seat);
-      var usual = parts.length
-        ? Math.min(100, round1(parts.reduce(function (a, b) { return a + b; }, 0) / parts.length + plus))
-        : null;
+      var usual = usualFromParts(hwAvg, quizAvg, plus);
       var examRaw = exam ? readSeatScore(exam.scores, seat) : '';
       var examCell = '';
       var examScore = null;
@@ -9480,7 +9472,7 @@
       var total = '';
       var note = [];
       if (usual != null && examScore != null) {
-        total = round1(usual * TERM_USUAL_WEIGHT + examScore * TERM_EXAM_WEIGHT);
+        total = termTotal(usual, examScore, w);
       } else {
         if (examScore == null) note.push(examCell === '請假' ? '段考請假' : '缺段考');
         if (usual == null) note.push('無平時成績');
@@ -9979,10 +9971,12 @@
       });
     }
     var raw = (act.raw || 0) - todayOld + live;
-    var has = act.has || live !== 0;
     var book = App.gradebook || emptyGradebook();
-    var bundle = usualBundle(student.seatNo, raw, has, book.labs || [], book.practicals || [], book.homeworks || []);
-    return bundle.usual == null ? 60 : bundle.usual;
+    var hwAvg = averageHomework(book.homeworks || [], student.seatNo);
+    var quiz = quizExamAvg(book.yellow, book.morning, student.seatNo);
+    var bonus = classBonusFrom(raw, Math.max(classNetTop(''), raw), termWeights().bonusMax);
+    var usual = usualFromParts(hwAvg, quiz, bonus);
+    return usual == null ? 60 : usual;
   }
 
   function setPeerTeach(on) {
