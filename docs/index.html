@@ -862,28 +862,7 @@
           </div>
 
           <div id="tabMissing" class="teacher-panel missing-panel" hidden>
-            <p class="hint">登記各班缺交作業名單。儲存後會顯示在上課模式該班畫面（只顯示座號）。已建立的項目可直接點座號增減，不必刪掉重存。</p>
-            <div class="form-grid missing-form">
-              <label>作業名稱
-                <input id="missingTitle" type="text" maxlength="60" placeholder="例如 講義第 3 回" />
-              </label>
-              <label>繳交期限
-                <input id="missingDue" type="date" required />
-              </label>
-              <label>備註
-                <input id="missingNote" type="text" maxlength="120" placeholder="選填" />
-              </label>
-              <label>座號（可打字，逗號分隔）
-                <input id="missingSeatsText" type="text" maxlength="200" placeholder="例如 01,05,12" />
-              </label>
-            </div>
-            <p class="hint">或直接點下面座號切換缺交：</p>
-            <div id="missingSeatPick" class="missing-seat-pick" role="group" aria-label="缺交座號"></div>
-            <div class="modal-actions">
-              <button type="button" class="tool primary" id="btnMissingSave">儲存缺交名單</button>
-              <button type="button" class="tool" id="btnMissingClearPick">清除已選座號</button>
-            </div>
-            <p id="missingDueWarn" class="missing-due-warn" hidden></p>
+            <p class="hint">缺交作業由「成績 → 學期成績」的作業欄自動產生：過了繳交期限仍是「未繳交」的學生會列在這裡，也會顯示在上課模式的座位卡與缺交條。勾了「暫不計」的作業不列入。要修改請到學期成績改「已繳交／未繳交」。</p>
             <div id="missingList" class="missing-list" aria-live="polite"></div>
           </div>
 

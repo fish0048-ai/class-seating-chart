@@ -1909,7 +1909,7 @@
       App.substitutes = mergeSubstitutesClient_(App.substitutes, data.substitutes);
     }
     if (data.hwMissing) {
-      App.hwMissing = mergeHwMissingClient_(App.hwMissing, data.hwMissing);
+      App.hwMissing = data.hwMissing;
     }
     renderAll();
     if (App.classroom) refreshClassStats();
@@ -3431,9 +3431,7 @@
   function loadHwMissingTab() {
     var className = teacherTargetClass();
     api('getHwMissing', [className]).then(function (data) {
-      if (data && data.hwMissing) {
-        App.hwMissing = mergeHwMissingClient_(App.hwMissing, data.hwMissing);
-      }
+      if (data && data.hwMissing) App.hwMissing = data.hwMissing;
       renderHwMissingTab();
       renderHwMissingBanner();
     }).catch(function () {
@@ -3441,104 +3439,60 @@
     });
   }
 
+  /** 缺交作業（唯讀）：由成績簿作業欄自動產生，要修改請到學期成績改「已繳交／未繳交」。 */
   function renderHwMissingTab() {
     var className = teacherTargetClass();
-    renderHwMissingSeatPick();
     var list = document.getElementById('missingList');
-    var warn = document.getElementById('missingDueWarn');
     if (!list) return;
     if (!className) {
-      if (warn) {
-        warn.hidden = true;
-        warn.textContent = '';
-      }
       list.innerHTML = '<p class="hint">請先在上方選班級。</p>';
       return;
     }
-    var incomplete = activeHwMissingItems(className).filter(function (item) {
-      return !hasHwDueDate_(item);
-    }).length;
-    if (warn) {
-      if (incomplete > 0) {
-        warn.hidden = false;
-        warn.textContent = '有 ' + incomplete + ' 筆缺交還沒填繳交期限，補齊前不會出現在座位表。';
-      } else {
-        warn.hidden = true;
-        warn.textContent = '';
-      }
-    }
-    var items = activeHwMissingItems(className);
+    var items = completeHwMissingItems(className);
     if (!items.length) {
-      list.innerHTML = '<p class="hint">這班還沒有缺交名單。點座號或輸入座號後按「儲存缺交名單」。</p>';
+      list.innerHTML = '<p class="hint">這班目前沒有過期未繳的作業。</p>';
       return;
     }
-    var roster = studentsForMissingClass_(className);
+    var nameOf = {};
+    studentsForMissingClass_(className).forEach(function (s) {
+      nameOf[normalizeDisplaySeat_(s.seatNo)] = s.name || '';
+    });
     function itemCardHtml_(item) {
-      var selected = {};
-      (item.seats || []).forEach(function (seat) {
-        selected[normalizeDisplaySeat_(seat)] = true;
-      });
-      var dueOk = hasHwDueDate_(item);
-      var daysLate = dueOk ? hwMissingDaysLate_(item) : 0;
-      var severe = dueOk && isHwMissingSevere_(daysLate);
-      var dueHtml = dueOk
-        ? ('<span class="missing-due' + (severe ? ' missing-due-severe' : '') + '">期限 ' +
-          escapeHtml(item.dueDate) + '（已缺 ' + daysLate + ' 工作天）' +
-          (severe ? '｜嚴重（' + HW_MISSING_SEVERE_NOTE + '）' : '') + '</span>')
-        : ('<span class="missing-due missing-due-need">請補期限</span>' +
-          '<label class="missing-due-patch">補繳交期限' +
-          '<input type="date" data-missing-due-id="' + escapeHtml(item.id) +
-          '" data-missing-due-class="' + escapeHtml(className) + '" />' +
-          '<button type="button" class="tool" data-missing-due-save="' + escapeHtml(item.id) +
-          '" data-missing-due-class="' + escapeHtml(className) + '">儲存期限</button></label>');
-      var seatHtml = roster.length
-        ? roster.map(function (s) {
-            var seat = normalizeDisplaySeat_(s.seatNo);
-            var on = selected[seat] ? ' tab-on' : '';
-            var disabled = dueOk ? '' : ' disabled';
-            var title = dueOk ? (s.name || '') : '請先補繳交期限';
-            return '<button type="button" class="tool missing-seat-btn' + on +
-              '" data-missing-edit-seat="' + escapeHtml(seat) +
-              '" data-missing-edit-id="' + escapeHtml(item.id) +
-              '" data-missing-edit-class="' + escapeHtml(className) +
-              '" title="' + escapeHtml(title) + '"' + disabled + '>' + escapeHtml(seat) + '</button>';
-          }).join('')
-        : '<span class="missing-seats">缺交座號：' + escapeHtml((item.seats || []).join('、')) +
-          '</span><p class="hint">這班名單未載入，請先到上課模式選此班，或上方新建時用輸入框改。</p>';
-      return '<div class="missing-item' + (severe ? ' missing-item-severe' : '') +
-        '" data-missing-item="' + escapeHtml(item.id) + '">' +
+      var daysLate = hwMissingDaysLate_(item);
+      var severe = isHwMissingSevere_(daysLate);
+      var seats = (item.seats || []).map(function (seat) {
+        var s = normalizeDisplaySeat_(seat);
+        return '<span class="missing-seat-chip" title="' + escapeHtml(nameOf[s] || '') + '">' + escapeHtml(s) +
+          (nameOf[s] ? ' ' + escapeHtml(nameOf[s]) : '') + '</span>';
+      }).join('');
+      return '<div class="missing-item' + (severe ? ' missing-item-severe' : '') + '">' +
         '<div class="missing-item-head">' +
-          '<strong>' + escapeHtml(item.title || '缺交作業') +
-          (severe ? '｜嚴重缺交' : '') + '</strong>' +
-          dueHtml +
-          '<button type="button" class="tool danger" data-missing-del="' + escapeHtml(item.id) +
-            '" data-missing-class="' + escapeHtml(className) + '">刪除</button>' +
+          '<strong>' + escapeHtml(item.title || '作業') + (severe ? '｜嚴重缺交' : '') + '</strong>' +
+          '<span class="missing-due' + (severe ? ' missing-due-severe' : '') + '">期限 ' +
+            escapeHtml(item.dueDate) + '（已缺 ' + daysLate + ' 工作天）' +
+            (severe ? '｜嚴重（' + HW_MISSING_SEVERE_NOTE + '）' : '') + '</span>' +
+          '<span class="missing-count">未繳 ' + (item.seats || []).length + ' 人</span>' +
         '</div>' +
-        (item.note ? '<span class="missing-note">' + escapeHtml(item.note) + '</span>' : '') +
-        '<p class="hint missing-edit-hint">點座號即可增減缺交（會立刻儲存）</p>' +
-        '<div class="missing-seat-pick missing-item-seats" role="group" aria-label="' +
-          escapeHtml((item.title || '缺交') + ' 座號') + '">' + seatHtml + '</div>' +
+        '<div class="missing-seat-chips">' + seats + '</div>' +
         '</div>';
     }
     var severeItems = [];
     var otherItems = [];
     items.forEach(function (item) {
-      if (hasHwDueDate_(item) && isHwMissingSevere_(hwMissingDaysLate_(item))) severeItems.push(item);
+      if (isHwMissingSevere_(hwMissingDaysLate_(item))) severeItems.push(item);
       else otherItems.push(item);
     });
     var html = '';
     if (severeItems.length) {
       html += '<h3 class="subhead missing-severe-head">' + escapeHtml(hwMissingSevereTitle_()) +
-        '</h3><div class="missing-severe-list">' +
-        severeItems.map(itemCardHtml_).join('') + '</div>';
+        '</h3><div class="missing-severe-list">' + severeItems.map(itemCardHtml_).join('') + '</div>';
     }
     if (otherItems.length) {
-      html += '<h3 class="subhead">' + (severeItems.length ? '其他缺交' : '本班缺交名單') + '</h3>' +
+      html += '<h3 class="subhead">' + (severeItems.length ? '其他缺交' : '本班缺交') + '</h3>' +
         otherItems.map(itemCardHtml_).join('');
     }
     list.innerHTML = html;
   }
-
   function studentsForMissingClass_(className) {
     className = String(className || '').trim();
     if (!className) return [];
@@ -6409,6 +6363,7 @@
     };
     App.gradebookClass = String(data.className || '');
     App.gradebookReady = true;
+    if (data.hwMissing) App.hwMissing = data.hwMissing;
     clearGradeDirty();
     fillRuleInputs();
   }
@@ -7061,7 +7016,7 @@
   function homeworkFlags(seatNo) {
     var missing = 0;
     var late = 0;
-    ((App.gradebook && App.gradebook.homeworks) || []).forEach(function (col) {
+    countedCols(App.gradebook && App.gradebook.homeworks).forEach(function (col) {
       var result = homeworkResult(col, seatNo);
       if (result.status === 'missing') missing += 1;
       if (result.late) late += 1;
@@ -7421,7 +7376,6 @@
     var out = [];
     if (row.total != null && row.total < 60) out.push({ key: 'fail', label: '學期未滿 60（' + row.total + '）' });
     if (row.hwMissing > 0) out.push({ key: 'hw', label: '未繳作業 ' + row.hwMissing + ' 次' });
-    if ((row.rosterMissing || 0) > 0) out.push({ key: 'roster', label: '缺交登錄 ' + row.rosterMissing + ' 份' });
     (row.types || []).forEach(function (t) {
       if (t.key === 'examLow' || t.key === 'decline' || t.key === 'unstable') {
         out.push({ key: t.key, label: typeLabel(t.key) + '（' + t.detail + '）' });
@@ -7435,7 +7389,6 @@
     return [
       ['fail', '學期未滿 60'],
       ['hw', '未繳作業'],
-      ['roster', '缺交登錄'],
       ['examLow', '段考失常'],
       ['decline', '連續退步'],
       ['unstable', '成績不穩'],

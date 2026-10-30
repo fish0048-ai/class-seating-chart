@@ -1575,6 +1575,35 @@
     background: #fbe9e7;
   }
 
+  .missing-seat-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+  }
+
+  .missing-seat-chip {
+    padding: 3px 10px;
+    border-radius: 999px;
+    background: #fff3d6;
+    border: 1px solid #e0a44a;
+    font-size: 13px;
+    font-weight: 700;
+    color: #7a4500;
+  }
+
+  .missing-item-severe .missing-seat-chip {
+    background: #fde8e8;
+    border-color: #d64545;
+    color: #8a1f1f;
+  }
+
+  .missing-count {
+    font-size: 13px;
+    color: var(--muted);
+    font-weight: 700;
+  }
+
   .col-skip {
     display: flex;
     align-items: center;
