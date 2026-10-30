@@ -49,8 +49,6 @@
     ttOffPeriods: [],
     ttView: 'add',
     hwMissing: {},
-    missingPick: {},
-    missingSeatSaving: false,
     groupPanel: false,
     groupAssign: false,
     groupPick: 1,
@@ -840,72 +838,6 @@
       requireTeacher(function () {
         deleteLessonEvent(btn.getAttribute('data-journal-event-class'), btn.getAttribute('data-journal-event-del'));
       });
-    });
-  }
-  var btnMissingSave = document.getElementById('btnMissingSave');
-  if (btnMissingSave) {
-    btnMissingSave.addEventListener('click', function () {
-      requireTeacher(saveHwMissingFromForm);
-    });
-  }
-  var btnMissingClearPick = document.getElementById('btnMissingClearPick');
-  if (btnMissingClearPick) {
-    btnMissingClearPick.addEventListener('click', function () {
-      App.missingPick = {};
-      var text = document.getElementById('missingSeatsText');
-      if (text) text.value = '';
-      renderHwMissingSeatPick();
-    });
-  }
-  var missingSeatPick = document.getElementById('missingSeatPick');
-  if (missingSeatPick) {
-    missingSeatPick.addEventListener('click', function (event) {
-      var btn = event.target.closest('[data-missing-seat]');
-      if (!btn) return;
-      var seat = btn.getAttribute('data-missing-seat');
-      if (!seat) return;
-      if (App.missingPick[seat]) delete App.missingPick[seat];
-      else App.missingPick[seat] = true;
-      syncMissingSeatsTextFromPick();
-      renderHwMissingSeatPick();
-    });
-  }
-  var missingList = document.getElementById('missingList');
-  if (missingList) {
-    missingList.addEventListener('click', function (event) {
-      var dueSave = event.target.closest('[data-missing-due-save]');
-      if (dueSave) {
-        requireTeacher(function () {
-          saveHwMissingDuePatch(dueSave.getAttribute('data-missing-due-class'), dueSave.getAttribute('data-missing-due-save'));
-        });
-        return;
-      }
-      var del = event.target.closest('[data-missing-del]');
-      if (del) {
-        requireTeacher(function () {
-          deleteHwMissingItem(del.getAttribute('data-missing-class'), del.getAttribute('data-missing-del'));
-        });
-        return;
-      }
-      var seatBtn = event.target.closest('[data-missing-edit-seat]');
-      if (!seatBtn || seatBtn.disabled) return;
-      var itemId = seatBtn.getAttribute('data-missing-edit-id');
-      var seat = seatBtn.getAttribute('data-missing-edit-seat');
-      var className = seatBtn.getAttribute('data-missing-edit-class') || teacherTargetClass();
-      if (!itemId || !seat || !className) return;
-      requireTeacher(function () {
-        toggleHwMissingItemSeat(className, itemId, seat);
-      });
-    });
-  }
-  var missingSeatsText = document.getElementById('missingSeatsText');
-  if (missingSeatsText) {
-    missingSeatsText.addEventListener('input', function () {
-      App.missingPick = {};
-      parseMissingSeatsText(missingSeatsText.value).forEach(function (seat) {
-        App.missingPick[seat] = true;
-      });
-      renderHwMissingSeatPick();
     });
   }
   var cloudBtn = document.getElementById('btnCloudConnect');
@@ -1918,31 +1850,6 @@
     }
     renderAll();
     if (App.classroom) refreshClassStats();
-  }
-
-  function mergeHwMissingClient_(localMap, remoteMap) {
-    localMap = localMap && typeof localMap === 'object' ? localMap : {};
-    remoteMap = remoteMap && typeof remoteMap === 'object' ? remoteMap : {};
-    var names = {};
-    Object.keys(localMap).forEach(function (cn) { names[cn] = true; });
-    Object.keys(remoteMap).forEach(function (cn) { names[cn] = true; });
-    var out = {};
-    Object.keys(names).forEach(function (cn) {
-      var byId = {};
-      ((remoteMap[cn] || []).concat(localMap[cn] || [])).forEach(function (item) {
-        if (!item || !item.id) return;
-        var prev = byId[item.id];
-        if (!prev || String(item.updatedAt || item.createdAt || '') >= String(prev.updatedAt || prev.createdAt || '')) {
-          byId[item.id] = item;
-        }
-      });
-      out[cn] = Object.keys(byId).map(function (id) { return byId[id]; }).filter(function (item) {
-        return !item.deleted;
-      }).sort(function (a, b) {
-        return String(b.updatedAt || '').localeCompare(String(a.updatedAt || ''));
-      });
-    });
-    return out;
   }
 
   function mergeScheduleChangesClient_(localList, remoteList) {
@@ -3337,10 +3244,6 @@
     return s;
   }
 
-  function parseMissingSeatsText(text) {
-    return String(text || '').split(/[,，\s]+/).map(normalizeDisplaySeat_).filter(Boolean);
-  }
-
   function activeHwMissingItems(className) {
     className = className || (App.classroom && App.classroom.className) || '';
     return ((App.hwMissing && App.hwMissing[className]) || []).filter(function (item) {
@@ -3421,16 +3324,6 @@
     var set = hwMissingSeatSet(App.classroom.className);
     var seat = String(seatNo || '');
     return !!(set[normalizeDisplaySeat_(seat)] || set[seat] || set[String(Number(seat) || '')]);
-  }
-
-  function syncMissingSeatsTextFromPick() {
-    var text = document.getElementById('missingSeatsText');
-    if (!text) return;
-    var seats = Object.keys(App.missingPick || {}).filter(function (k) { return App.missingPick[k]; })
-      .map(normalizeDisplaySeat_).sort(function (a, b) {
-        return (parseInt(a, 10) || 0) - (parseInt(b, 10) || 0);
-      });
-    text.value = seats.join(',');
   }
 
   function loadHwMissingTab() {
@@ -3516,197 +3409,6 @@
       });
     }
     return [];
-  }
-
-  function renderHwMissingSeatPick() {
-    var wrap = document.getElementById('missingSeatPick');
-    if (!wrap) return;
-    var className = teacherTargetClass();
-    if (!className) {
-      wrap.innerHTML = '<p class="hint">請先選班級。</p>';
-      return;
-    }
-    var students = studentsForMissingClass_(className);
-    if (!students.length) {
-      wrap.innerHTML = '<p class="hint">這班還沒有名單，也可直接在上方輸入座號。</p>';
-      return;
-    }
-    wrap.innerHTML = students.map(function (s) {
-      var seat = normalizeDisplaySeat_(s.seatNo);
-      var on = App.missingPick[seat] ? ' tab-on' : '';
-      return '<button type="button" class="tool missing-seat-btn' + on + '" data-missing-seat="' +
-        escapeHtml(seat) + '" title="' + escapeHtml(s.name || '') + '">' + escapeHtml(seat) + '</button>';
-    }).join('');
-  }
-
-  function findHwMissingItem_(className, id) {
-    return ((App.hwMissing && App.hwMissing[className]) || []).filter(function (item) {
-      return item && item.id === id && !item.deleted;
-    })[0] || null;
-  }
-
-  function toggleHwMissingItemSeat(className, itemId, seat) {
-    className = String(className || '').trim();
-    itemId = String(itemId || '').trim();
-    seat = normalizeDisplaySeat_(seat);
-    if (!className || !itemId || !seat) return;
-    if (App.missingSeatSaving) {
-      toast('正在儲存，請稍候');
-      return;
-    }
-    var item = findHwMissingItem_(className, itemId);
-    if (!item) {
-      toast('找不到這筆缺交名單');
-      return;
-    }
-    if (!hasHwDueDate_(item)) {
-      toast('請先補這筆的繳交期限');
-      return;
-    }
-    var seats = (item.seats || []).map(normalizeDisplaySeat_).filter(Boolean);
-    var has = seats.indexOf(seat) >= 0;
-    var next = has
-      ? seats.filter(function (s) { return s !== seat; })
-      : seats.concat([seat]);
-    if (!next.length) {
-      toast('至少要留一位缺交座號；若要清空請刪除整筆');
-      return;
-    }
-    App.missingSeatSaving = true;
-    var list = document.getElementById('missingList');
-    if (list) {
-      list.querySelectorAll('[data-missing-edit-seat]').forEach(function (btn) {
-        if (btn.getAttribute('data-missing-edit-id') === itemId) btn.disabled = true;
-      });
-    }
-    api('saveHwMissing', [{
-      id: item.id,
-      className: className,
-      title: item.title || '',
-      note: item.note || '',
-      dueDate: item.dueDate || '',
-      seats: next,
-      createdAt: item.createdAt || ''
-    }]).then(function (data) {
-      if (data && data.hwMissing) {
-        App.hwMissing = mergeHwMissingClient_(App.hwMissing, data.hwMissing);
-      }
-      renderHwMissingTab();
-      renderHwMissingBanner();
-      if (App.classroom && App.classroom.className === className) renderBoard();
-      if (data && data.synced === false) {
-        toast((data.cloudError || '已更新，但還沒同步到雲端') + '。請按「立即同步」', 7000);
-      } else {
-        toast(has ? ('已移除座號 ' + seat) : ('已加入座號 ' + seat));
-      }
-    }).catch(function (err) {
-      toast(err && err.message ? err.message : '更新失敗');
-      renderHwMissingTab();
-    }).then(function () {
-      App.missingSeatSaving = false;
-    });
-  }
-
-  function saveHwMissingDuePatch(className, itemId) {
-    var item = findHwMissingItem_(className, itemId);
-    if (!item) {
-      toast('找不到這筆缺交名單');
-      return;
-    }
-    var input = document.querySelector(
-      'input[data-missing-due-id="' + itemId + '"][data-missing-due-class="' + className + '"]'
-    );
-    var dueDate = input ? String(input.value || '').trim() : '';
-    if (!dueDate) {
-      toast('請填繳交期限');
-      return;
-    }
-    api('saveHwMissing', [{
-      id: item.id,
-      className: className,
-      title: item.title || '',
-      note: item.note || '',
-      dueDate: dueDate,
-      seats: item.seats || [],
-      createdAt: item.createdAt || ''
-    }]).then(function (data) {
-      if (data && data.hwMissing) {
-        App.hwMissing = mergeHwMissingClient_(App.hwMissing, data.hwMissing);
-      }
-      renderHwMissingTab();
-      renderHwMissingBanner();
-      if (App.classroom && App.classroom.className === className) renderBoard();
-      toast('已補上繳交期限');
-    }).catch(function (err) {
-      toast(err && err.message ? err.message : '儲存失敗');
-    });
-  }
-
-  function saveHwMissingFromForm() {
-    var className = teacherTargetClass();
-    if (!className) {
-      toast('請先選班級');
-      return;
-    }
-    var titleEl = document.getElementById('missingTitle');
-    var dueEl = document.getElementById('missingDue');
-    var noteEl = document.getElementById('missingNote');
-    var textEl = document.getElementById('missingSeatsText');
-    var dueDate = dueEl ? String(dueEl.value || '').trim() : '';
-    if (!dueDate) {
-      toast('請填繳交期限');
-      return;
-    }
-    var seats = Object.keys(App.missingPick || {}).filter(function (k) { return App.missingPick[k]; });
-    if (!seats.length && textEl) seats = parseMissingSeatsText(textEl.value);
-    api('saveHwMissing', [{
-      className: className,
-      title: titleEl ? titleEl.value : '',
-      note: noteEl ? noteEl.value : '',
-      dueDate: dueDate,
-      seats: seats
-    }]).then(function (data) {
-      if (data && data.hwMissing) {
-        App.hwMissing = mergeHwMissingClient_(App.hwMissing, data.hwMissing);
-      }
-      App.missingPick = {};
-      if (textEl) textEl.value = '';
-      if (noteEl) noteEl.value = '';
-      if (dueEl) dueEl.value = '';
-      renderHwMissingTab();
-      renderHwMissingBanner();
-      if (App.classroom && App.classroom.className === className) renderBoard();
-      if (data && data.synced === false) {
-        toast((data.cloudError || '已暫存，但還沒同步到雲端') + '。請按「立即同步」', 7000);
-      } else {
-        toast(className + ' 缺交名單已儲存');
-      }
-    }).catch(function (err) {
-      toast(err && err.message ? err.message : '儲存失敗');
-    });
-  }
-
-  function deleteHwMissingItem(className, id) {
-    if (!window.confirm('刪掉這筆缺交名單？上課模式也不再顯示。')) return;
-    api('deleteHwMissing', [{ className: className, id: id }]).then(function (data) {
-      if (data && data.hwMissing) {
-        App.hwMissing = mergeHwMissingClient_(App.hwMissing, data.hwMissing);
-      } else if (App.hwMissing && App.hwMissing[className]) {
-        App.hwMissing[className] = (App.hwMissing[className] || []).filter(function (item) {
-          return item.id !== id;
-        });
-      }
-      renderHwMissingTab();
-      renderHwMissingBanner();
-      if (App.classroom && App.classroom.className === className) renderBoard();
-      if (data && data.synced === false) {
-        toast((data.cloudError || '已刪除，但還沒同步到雲端') + '。請按「立即同步」', 7000);
-      } else {
-        toast('已刪除缺交名單');
-      }
-    }).catch(function (err) {
-      toast(err && err.message ? err.message : '刪除失敗');
-    });
   }
 
   function hwMissingLineHtml_(item, severe) {
