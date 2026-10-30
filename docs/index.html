@@ -375,7 +375,7 @@
           </div>
 
           <div id="tabSummary" class="teacher-panel" hidden>
-            <p class="hint">點標題即可展開或收合。可用 Excel 輸入成績後再匯入。平時：上課加扣、實作、作業。平時考試：黃卷與早自習。考試可請假。該週沒有平時，就只算平時考試。</p>
+            <p class="hint">點標題即可展開或收合。可用 Excel 輸入成績後再匯入。平時成績 ＝（作業平均 ＋ 平時考試平均）÷ 2 ＋ 上課加分；學期成績 ＝ 平時 × 60% ＋ 段考 × 40%（比重可在「每週成績表現」調整）。實作只記錄、不列入。考試可請假。</p>
 
             <details class="grade-fold" id="gradeTermView" open>
               <summary>學期成績</summary>
@@ -412,17 +412,14 @@
               <summary>每週成績表現</summary>
               <div id="gradeRuleBox" class="rule-box"></div>
               <div class="grade-toolbar">
-                <label>底分
-                  <input id="ruleBase" type="number" min="0" max="100" />
-                </label>
-                <label>平時％
-                  <input id="ruleClassW" type="number" min="0" max="100" />
-                </label>
-                <label>平時考試％
-                  <input id="ruleQuizW" type="number" min="0" max="100" />
+                <label>平時成績％
+                  <input id="ruleUsualW" type="number" min="0" max="100" />
                 </label>
                 <label>段考％
-                  <input id="ruleExamW" type="number" min="0" max="100" />
+                  <input id="ruleTermExamW" type="number" min="0" max="100" />
+                </label>
+                <label>上課加分上限
+                  <input id="ruleBonusMax" type="number" min="0" max="30" />
                 </label>
                 <label>額外假日
                   <input id="ruleHolidays" type="text" placeholder="2026-10-10，用逗號分隔" />
@@ -1036,7 +1033,7 @@
           <select id="termExportExam"></select>
         </label>
         <p id="termExportRange" class="hint"></p>
-        <p class="hint">每班一個工作表。平時成績 ＝（作業平均 ＋ 平時考試平均）÷ 2 ＋ 上課加分（最高 100）；上課加分依期間加扣合計換算，全班最高的人加 10、其他人依比例、0 以下不加。結算成績 ＝ 平時成績 × 60% ＋ 段考 × 40%。作業有繳交保底 60、未繳交 0；請假不計；實作不列入。</p>
+        <p class="hint">每班一個工作表。平時成績 ＝（作業平均 ＋ 平時考試平均）÷ 2 ＋ 上課加分（最高 100）；上課加分依期間加扣合計換算，全班最高的人加滿上限（預設 10）、其他人依比例、0 以下不加。結算成績 ＝ 平時成績 × 平時％ ＋ 段考 × 段考％（預設 60／40，依各班成績規則）。作業有繳交保底 60、未繳交 0；請假不計；實作不列入。</p>
         <div class="modal-actions">
           <button type="button" class="tool" id="btnTermExportCancel">取消</button>
           <button type="button" class="tool primary" id="btnTermExportGo">下載 Excel</button>
