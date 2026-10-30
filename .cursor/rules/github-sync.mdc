@@ -1,15 +1,22 @@
 ---
-description: 每次更新後用繁體中文 commit，並推上 GitHub 同步
+description: 每次更新後用繁體中文 commit，推功能分支並開 PR（master 受保護）
 alwaysApply: true
 ---
 
-# 更新後同步 GitHub
+# 更新後同步 GitHub（走 PR）
+
+`master` 有 GitHub 規則：**只能透過 Pull Request 修改，且要通過「座位表雲端測試」**（`.github/workflows/playwright.yml`，測試在 `e2e/`）。直接 push master 會被拒絕。
 
 完成任何程式、畫面或說明的修改後，**不要等使用者再提醒**，立刻：
 
 1. 檢查 `git status`、`git diff`、最近 commit 風格
-2. 加入相關檔案並建立 commit
-3. `git push` 到現有 `origin`（目前為 `https://github.com/fish0048-ai/class-seating-chart.git`）
+2. 從最新的 `origin/master` 開功能分支（例如 `feat/…`、`fix/…`），或延用尚未合併的同主題分支
+3. 加入相關檔案並建立 commit
+4. `git push -u origin <分支>` 到現有 `origin`（`https://github.com/fish0048-ai/class-seating-chart.git`）
+5. 給老師 PR 連結：`https://github.com/fish0048-ai/class-seating-chart/pull/new/<分支>`（本機沒有 `gh` 時由老師按建立），提醒等「座位表雲端測試」通過再 Merge
+6. 合併後本機切回 `master` 並 `git pull`，再開下一個分支
+
+本機 `master` 只跟著 `origin/master`，不要在上面直接 commit。改 `Code.gs` 時另外提醒老師貼上 Apps Script 並部署新版本（合併 PR 不會更新後端）。
 
 ## Commit 訊息
 
@@ -29,6 +36,6 @@ fix: 修復更改資料腳本錯誤，本機可正常開啟
 ## 注意
 
 - 不要 commit 機密（`.env`、金鑰、憑證）
-- 不要 `--force`、不要改 git config、不要跳過 hooks
+- 不要 `--force`、不要改 git config、不要跳過 hooks、不要想辦法繞過分支規則
 - 沒有變更就不要空 commit
-- 若 push 失敗，用繁體中文說明原因與下一步
+- 若 push 或雲端測試失敗，用繁體中文說明原因與下一步

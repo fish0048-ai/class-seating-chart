@@ -248,6 +248,7 @@
           <button type="button" class="tool teacher-tab-only" data-for-tab="grades" data-grades-action="daily" id="btnExportSheet" hidden>下載成績表</button>
           <button type="button" class="tool teacher-tab-only" data-for-tab="grades" data-grades-action="summary" id="btnExportReport" hidden>下載 Excel</button>
           <button type="button" class="tool teacher-tab-only" data-for-tab="grades" data-grades-action="summary" id="btnImportGrades" hidden>從 Excel 匯入</button>
+          <button type="button" class="tool teacher-tab-only" data-for-tab="grades" data-grades-action="summary" id="btnClassroomHandouts" hidden>從 Classroom 更新學習講義</button>
           <input id="gradeExcelFile" type="file" accept=".xlsx,.xls,.csv" hidden />
           <button type="button" class="tool teacher-tab-only" data-for-tab="settings" id="btnUpload" hidden>選擇名單檔</button>
         </div>
@@ -910,6 +911,14 @@
                 <div id="googleSignInBtnSettings"></div>
                 <button type="button" class="tool primary" id="btnGoogleSignInFallback">按此登入教師帳號</button>
                 <p id="cloudReloginHint" class="hint" hidden></p>
+              </div>
+            </div>
+            <div class="cloud-box classroom-sources">
+              <h3>Classroom 成績表網址（學習講義）</h3>
+              <p class="hint">貼上各班 Google Classroom 匯出的成績表網址。在「成績 → 學期成績」按「從 Classroom 更新學習講義」，只會讀取欄名含「學習講義」的理化作業（其他科略過），寫進作業欄；不會改動那份試算表。</p>
+              <div id="classroomSourceList" class="classroom-source-list"></div>
+              <div class="modal-actions">
+                <button type="button" class="tool primary" id="btnClassroomSourcesSave">儲存網址</button>
               </div>
             </div>
             <h3 class="subhead">新增班級與學生</h3>

@@ -642,6 +642,18 @@
     var input = document.getElementById('gradeExcelFile');
     if (input) input.click();
   });
+  var classroomHandoutsBtn = document.getElementById('btnClassroomHandouts');
+  if (classroomHandoutsBtn) {
+    classroomHandoutsBtn.addEventListener('click', function () {
+      requireTeacher(importClassroomHandouts);
+    });
+  }
+  var classroomSourcesSave = document.getElementById('btnClassroomSourcesSave');
+  if (classroomSourcesSave) {
+    classroomSourcesSave.addEventListener('click', function () {
+      requireTeacher(saveClassroomSources);
+    });
+  }
   var gradeExcelOut = document.getElementById('btnGradeExcelOut');
   if (gradeExcelOut) gradeExcelOut.addEventListener('click', exportGradeExcel);
   var gradeExcelIn = document.getElementById('btnGradeExcelIn');
@@ -10537,6 +10549,157 @@
     App.pendingImport = null;
     renderUploadPreview(null);
     fillCloudSettings();
+    renderClassroomSources();
+  }
+
+  function classroomSourceClassNames() {
+    return (App.classNames || []).filter(function (n) { return n && n.indexOf('範例') < 0; });
+  }
+
+  function renderClassroomSources() {
+    var wrap = document.getElementById('classroomSourceList');
+    if (!wrap) return;
+    api('getClassroomSources', []).then(function (data) {
+      var urls = (data && data.classroomSources && data.classroomSources.urls) || {};
+      var names = classroomSourceClassNames();
+      wrap.innerHTML = names.length ? names.map(function (cn) {
+        return '<label class="classroom-source-row"><span>' + escapeHtml(cn) + '</span>' +
+          '<input type="url" data-classroom-src="' + escapeHtml(cn) + '" value="' + escapeHtml(urls[cn] || '') +
+          '" placeholder="https://docs.google.com/spreadsheets/d/…" autocomplete="off" spellcheck="false" /></label>';
+      }).join('') : '<p class="hint">還沒有班級，請先匯入名單。</p>';
+    }).catch(function () {
+      wrap.innerHTML = '<p class="hint">讀取網址設定失敗，請重新整理。</p>';
+    });
+  }
+
+  function saveClassroomSources() {
+    var urls = {};
+    var bad = [];
+    document.querySelectorAll('[data-classroom-src]').forEach(function (input) {
+      var v = String(input.value || '').trim();
+      if (!v) return;
+      if (!/docs\.google\.com\/spreadsheets\/d\//.test(v)) bad.push(input.getAttribute('data-classroom-src'));
+      urls[input.getAttribute('data-classroom-src')] = v;
+    });
+    if (bad.length) {
+      toast(bad.join('、') + ' 的網址不是 Google 試算表網址，請貼上 docs.google.com/spreadsheets/d/… 的網址', 7000);
+      return;
+    }
+    api('saveClassroomSources', [{ urls: urls }]).then(function (data) {
+      if (data && data.synced === false) {
+        toast((data.cloudError || '已暫存，但還沒同步到雲端') + '。請按「立即同步」', 7000);
+      } else {
+        toast('已儲存 ' + Object.keys(urls).length + ' 班的 Classroom 網址');
+      }
+    }).catch(function (err) {
+      toast(err && err.message ? err.message : '儲存失敗');
+    });
+  }
+
+  /** 讀各班 Classroom 成績表 → 先試算給老師確認 → 寫進作業欄。 */
+  function importClassroomHandouts() {
+    if (!App.gradebookReady) {
+      toast('成績還在載入，請稍後再試');
+      return;
+    }
+    if (App.classroomImporting) {
+      toast('正在讀取 Classroom，請稍候…');
+      return;
+    }
+    api('getClassroomSources', []).then(function (data) {
+      var urls = (data && data.classroomSources && data.classroomSources.urls) || {};
+      var names = classroomSourceClassNames().filter(function (cn) { return urls[cn]; });
+      if (!names.length) {
+        toast('還沒設定 Classroom 網址：請到「設定與上傳」貼上各班成績表網址', 7000);
+        return null;
+      }
+      App.classroomImporting = true;
+      toast('正在讀取 ' + names.join('、') + ' 的 Classroom 成績表…', 15000);
+      var plans = [];
+      var errors = [];
+      return names.reduce(function (chain, cn) {
+        return chain.then(function () {
+          return api('readClassroomHandouts', [urls[cn]]).then(function (sheet) {
+            var codes = (sheet && sheet.classCodes) || [];
+            if (codes.length && codes.indexOf(cn) < 0) {
+              errors.push(cn + '：這份表是 ' + codes.join('、') + ' 班，跟設定的班級不符，已略過');
+              return;
+            }
+            var columns = (sheet.columns || []).map(function (col) {
+              var scores = {};
+              Object.keys(col.scores || {}).forEach(function (code) {
+                var m = code.match(/^(\d{3})-(\d+)$/);
+                if (m && m[1] === cn) scores[m[2]] = col.scores[code];
+              });
+              return { title: col.title, dueDate: col.dueDate, max: col.max, scores: scores };
+            });
+            if (!columns.length) {
+              errors.push(cn + '：找不到欄名含「學習講義」的理化作業');
+              return;
+            }
+            return api('importClassroomHandouts', [{ className: cn, columns: columns, dryRun: true }]).then(function (rep) {
+              plans.push({ className: cn, columns: columns, report: rep });
+            });
+          }).catch(function (err) {
+            errors.push(cn + '：' + (err && err.message ? err.message : '讀取失敗'));
+          });
+        });
+      }, Promise.resolve()).then(function () {
+        return { plans: plans, errors: errors };
+      });
+    }).then(function (res) {
+      if (!res) return;
+      if (!res.plans.length) {
+        App.classroomImporting = false;
+        toast(res.errors.join('\n') || '沒有可匯入的學習講義', 9000);
+        return;
+      }
+      var lines = ['要把 Classroom 的學習講義寫進「作業」嗎？', ''];
+      res.plans.forEach(function (p) {
+        var r = p.report;
+        lines.push(p.className + '：' + p.columns.length + ' 份講義（新增 ' + r.created + '、更新 ' + r.updated + '）；' +
+          '已繳 ' + (r.submitted + r.pending) + ' 筆' + (r.pending ? '（其中 ' + r.pending + ' 筆還沒打分數）' : '') +
+          '、未繳 ' + r.missing + ' 筆');
+        if (r.blankColumns.length) {
+          lines.push('　⚠ 整欄空白，全班會記未繳（0 分）：' + r.blankColumns.join('、'));
+        }
+        if (r.unknownSeats.length) lines.push('　名單沒有這些座號，會略過：' + shortList(r.unknownSeats, 6));
+      });
+      if (res.errors.length) lines.push('', '略過：', res.errors.join('\n'));
+      lines.push('', '空白一律記「未繳交」；以 Classroom 為準，會覆蓋網站上同名講義的紀錄。');
+      if (!window.confirm(lines.join('\n'))) {
+        App.classroomImporting = false;
+        return;
+      }
+      var className = teacherTargetClass();
+      clearTimeout(gradeSaveTimer);
+      gradeSaveTimer = null;
+      var flush = App.gradeDirty && Object.keys(App.gradeDirty).length
+        ? api('saveGradebook', [collectGradebookFromTable({ dirtyOnly: true })])
+        : Promise.resolve();
+      return flush.then(function () {
+        return res.plans.reduce(function (chain, p) {
+          return chain.then(function () {
+            return api('importClassroomHandouts', [{ className: p.className, columns: p.columns }]);
+          });
+        }, Promise.resolve());
+      }).then(function (last) {
+        var refresh = className ? api('getGradebook', [className]) : Promise.resolve(null);
+        return refresh.then(function (book) {
+          if (book && teacherTargetClass() === className) {
+            applyGradebook(book);
+            renderGradebook();
+          }
+          App.classroomImporting = false;
+          var msg = '已更新學習講義：' + res.plans.map(function (p) { return p.className + ' ' + p.columns.length + ' 份'; }).join('、');
+          if (last && last.synced === false) msg += '。' + (last.cloudError || '還沒同步到雲端') + '，請按「立即同步」';
+          toast(msg, 8000);
+        });
+      });
+    }).catch(function (err) {
+      App.classroomImporting = false;
+      toast(err && err.message ? err.message : '匯入失敗', 8000);
+    });
   }
 
   function saveSettings() {
