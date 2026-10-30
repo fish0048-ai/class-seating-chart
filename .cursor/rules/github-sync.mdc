@@ -10,11 +10,16 @@ alwaysApply: true
 完成任何程式、畫面或說明的修改後，**不要等使用者再提醒**，立刻：
 
 1. 檢查 `git status`、`git diff`、最近 commit 風格
-2. 從最新的 `origin/master` 開功能分支（例如 `feat/…`、`fix/…`），或延用尚未合併的同主題分支
+2. `git fetch origin`，從最新的 `origin/master` 開功能分支（例如 `feat/…`、`fix/…`）
 3. 加入相關檔案並建立 commit
 4. `git push -u origin <分支>` 到現有 `origin`（`https://github.com/fish0048-ai/class-seating-chart.git`）
-5. 給老師 PR 連結：`https://github.com/fish0048-ai/class-seating-chart/pull/new/<分支>`（本機沒有 `gh` 時由老師按建立），提醒等「座位表雲端測試」通過再 Merge
-6. 合併後本機切回 `master` 並 `git pull`，再開下一個分支
+5. **自動開 PR 並設定自動合併，不要叫老師點連結**：
+   - `gh pr create --base master --head <分支> --title "<commit 主旨>" --body "<繁中說明：改了什麼、驗證結果、是否要部署 Code.gs>"`
+   - `gh pr merge <分支> --auto --merge`（倉庫已開「允許自動合併」與「合併後刪除分支」；「座位表雲端測試」通過後 GitHub 會自己合併）
+   - 用 `gh pr checks <分支> --watch`（或之後再查）確認測試結果；失敗就看 log 修正後推同一分支
+6. 合併後本機 `git checkout master`、`git pull --ff-only`，刪掉本機舊分支
+
+`gh` 已用老師的 GitHub 帳號登入（`gh auth status`）。新開的終端機直接用 `gh`；若找不到，路徑在 `%LOCALAPPDATA%\Microsoft\WinGet\Packages\GitHub.cli_Microsoft.Winget.Source_8wekyb3d8bbwe\bin\gh.exe`。只有 `gh` 不能用時，才改給老師 `https://github.com/fish0048-ai/class-seating-chart/pull/new/<分支>`。
 
 本機 `master` 只跟著 `origin/master`，不要在上面直接 commit。改 `Code.gs` 時另外提醒老師貼上 Apps Script 並部署新版本（合併 PR 不會更新後端）。
 
