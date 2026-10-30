@@ -6153,12 +6153,6 @@
     return count;
   }
 
-  function isLateHomework(dueKey, submittedKey, rules) {
-    var allow = Number((rules || gradeRules()).lateWorkDays);
-    if (!isFinite(allow)) allow = 1;
-    return workDaysLate(dueKey, submittedKey) >= Math.max(allow, 1);
-  }
-
   /** 有繳交的作業保底 60：原始 0～100 等比例換成 60～100，跟完全未繳交（0 分）分開。 */
   var HW_SUBMITTED_FLOOR = 60;
 
@@ -6166,9 +6160,9 @@
     return round1(HW_SUBMITTED_FLOOR + Math.max(0, Math.min(100, original)) * (100 - HW_SUBMITTED_FLOOR) / 100);
   }
 
-  function homeworkResult(col, seatNo, classRules) {
+  /** 遲交扣分由老師打分時自己算好，網站不再依繳交日期扣分。 */
+  function homeworkResult(col, seatNo) {
     var rec = ((col && col.records) || {})[seatNo] || {};
-    var rules = classRules || gradeRules();
     if (rec.status !== 'submitted') {
       return { status: 'missing', raw: null, original: 0, final: 0, late: false, penalty: 0 };
     }
@@ -6176,18 +6170,14 @@
       return { status: 'submitted', raw: null, original: null, final: null, late: false, penalty: 0 };
     }
     var max = Number(col.max) || 100;
-    var raw100 = round1(Number(rec.score) / max * 100);
-    var submittedAt = rec.submittedAt || col.dueDate || col.date;
-    var late = isLateHomework(col.dueDate || col.date, submittedAt, rules);
-    var penalty = late ? (Number(rules.latePenalty) || 10) : 0;
-    var original = Math.max(0, round1(raw100 - penalty));
+    var original = Math.max(0, round1(Number(rec.score) / max * 100));
     return {
       status: 'submitted',
       raw: Number(rec.score),
       original: original,
       final: adjustSubmittedHomework(original),
-      late: late,
-      penalty: penalty
+      late: false,
+      penalty: 0
     };
   }
 
@@ -6327,7 +6317,6 @@
     var mark = el.closest('[data-grade-mark]');
     var hwStatus = el.closest('[data-hw-status]');
     var hwScore = el.closest('[data-hw-score]');
-    var hwDate = el.closest('[data-hw-date]');
     if (score) {
       markGradeDirty(score.getAttribute('data-kind'), score.getAttribute('data-id'), score.getAttribute('data-seat'), 'score');
       return;
@@ -6342,10 +6331,6 @@
     }
     if (hwScore) {
       markGradeDirty('homework', hwScore.getAttribute('data-id'), hwScore.getAttribute('data-seat'), 'score');
-      return;
-    }
-    if (hwDate) {
-      markGradeDirty('homework', hwDate.getAttribute('data-id'), hwDate.getAttribute('data-seat'), 'date');
     }
   }
 
@@ -6375,12 +6360,7 @@
         var submitted = hwStatus.value === 'submitted';
         hwCell.setAttribute('data-submitted', submitted ? '1' : '0');
         var score = hwCell.querySelector('[data-hw-score]');
-        var date = hwCell.querySelector('[data-hw-date]');
         if (score) score.disabled = !submitted;
-        if (date) {
-          date.disabled = !submitted;
-          if (submitted && !date.value) date.value = formatDateKey(new Date());
-        }
       }
     }
     scheduleAutoGradeSave();
@@ -6588,7 +6568,6 @@
     var result = homeworkResult(col, seatNo);
     var note = '未繳 0';
     if (submitted && result.final == null) note = '已繳未評';
-    else if (submitted && result.late) note = '遲交−' + result.penalty + '：原始 ' + result.original + ' → 調整 ' + result.final;
     else if (submitted) note = '原始 ' + result.original + ' → 調整 ' + result.final;
     return '<td class="hw-cell" data-submitted="' + (submitted ? '1' : '0') + '">' +
       '<div class="cell-stack">' +
@@ -6600,10 +6579,8 @@
       '" type="number" min="0" max="' + (col.max || 100) + '" placeholder="成績" value="' +
       (rec.score == null || rec.score === '' ? '' : escapeHtml(String(rec.score))) + '"' +
       (submitted ? '' : ' disabled') + ' />' +
-      '<input class="mini-date" data-hw-date data-id="' + escapeHtml(col.id) + '" data-seat="' + escapeHtml(String(seatNo)) +
-      '" type="date" value="' + escapeHtml(rec.submittedAt || '') + '"' + (submitted ? '' : ' disabled') + ' />' +
       '</div>' +
-      '<span class="hw-final' + (result.late ? ' is-late' : '') + '">' + escapeHtml(note) + '</span>' +
+      '<span class="hw-final">' + escapeHtml(note) + '</span>' +
       '</div></td>';
   }
 
@@ -6783,15 +6760,14 @@
       '<li>小組加分會加進每位組員的上課加扣，所以會列入平時成績；小組計分板只記整組分數，不會再加一次。</li>' +
       '<li>平時考試 ＝ 黃卷與早自習平均（換算成 100 分制）。請假不計入。</li>' +
       '<li>段考平均同樣換算成 100 分制，請假不計入。</li>' +
-      '<li>作業可記未繳交／已繳交，繳交後再登錄成績與繳交日。超過期限 ' + rules.lateWorkDays +
-      ' 個工作天（週六日與國定假日不算）扣 ' + rules.latePenalty + ' 分。' +
+      '<li>作業可記未繳交／已繳交，繳交後登錄成績；遲交扣分請打分數時自己算好，網站不另外扣。' +
       '有繳交的作業保底 ' + HW_SUBMITTED_FLOOR + ' 分：調整後 ＝ ' + HW_SUBMITTED_FLOOR + ' ＋ 原始 × ' +
       ((100 - HW_SUBMITTED_FLOOR) / 100) + '（原始 0 → ' + HW_SUBMITTED_FLOOR + '、50 → ' + adjustSubmittedHomework(50) +
       '、100 → 100），計算平均用調整後；未繳交仍以 0 分計。</li>' +
       '<li>每週成績 ＝ 平時×' + rules.classWeight + '% ＋ 平時考試×' + rules.quizWeight + '% ＋ 段考×' + rules.examWeight + '%。</li>' +
       '<li>若本週完全沒有平時成績，就不使用底分，只算平時考試（有段考仍一併加權）。缺的項目不計，其餘比重按比例重算。</li>' +
       '</ol>' +
-      '<p class="rule-note">學期成績用同一套規則，只是改成全部日期與全部欄位。額外假日填在下方，作業遲交就不算那些日子。</p>' +
+      '<p class="rule-note">學期成績用同一套規則，只是改成全部日期與全部欄位。額外假日填在下方，缺交作業的工作天數就不算那些日子。</p>' +
       '</details>';
   }
 
@@ -6868,7 +6844,6 @@
       if (!col) return;
       var cell = sel.closest('td');
       var score = cell && cell.querySelector('[data-hw-score]');
-      var date = cell && cell.querySelector('[data-hw-date]');
       seatKeyAliases(seat).forEach(function (k) { delete col.records[k]; });
       if (sel.value !== 'submitted') {
         col.records[String(seat)] = { status: 'missing' };
@@ -6876,7 +6851,6 @@
       }
       var rec = { status: 'submitted' };
       if (score && score.value !== '') rec.score = Number(score.value);
-      if (date && date.value) rec.submittedAt = date.value;
       col.records[String(seat)] = rec;
     });
     return {
@@ -8374,9 +8348,9 @@
     if (els.chartPersonHw) {
       var hwTotal = ((App.gradebook && App.gradebook.homeworks) || []).length;
       els.chartPersonHw.innerHTML = svgBars(
-        ['已繳作業', '未繳作業', '遲交', '請假'],
-        [Math.max(0, hwTotal - (person.hwMissing || 0)), person.hwMissing || 0, person.hwLate || 0, person.leaveCount || 0],
-        { zeroLine: false, barColors: ['#2c7a4b', '#b4413c', '#d9852b', '#7eb6d6'] }
+        ['已繳作業', '未繳作業', '請假'],
+        [Math.max(0, hwTotal - (person.hwMissing || 0)), person.hwMissing || 0, person.leaveCount || 0],
+        { zeroLine: false, barColors: ['#2c7a4b', '#b4413c', '#7eb6d6'] }
       );
     }
     if (els.chartPersonAssess) {
@@ -9198,10 +9172,9 @@
       });
     });
     (book.homeworks || []).forEach(function (col) {
-      headers.push(hwExcelHeader('status', col), hwExcelHeader('score', col), hwExcelHeader('date', col));
+      headers.push(hwExcelHeader('status', col), hwExcelHeader('score', col));
       fields.push({ kind: 'homework-status', col: col });
       fields.push({ kind: 'homework-score', col: col });
-      fields.push({ kind: 'homework-date', col: col });
     });
     var rows = [headers];
     students.forEach(function (stu) {
@@ -9210,8 +9183,7 @@
         if (field.kind.indexOf('homework') === 0) {
           var rec = readHwRecord(field.col.records, stu.seatNo);
           if (field.kind === 'homework-status') line.push(rec.status === 'submitted' ? '已繳交' : (rec.status === 'missing' ? '未繳交' : ''));
-          else if (field.kind === 'homework-score') line.push(rec.score == null || rec.score === '' ? '' : rec.score);
-          else line.push(rec.submittedAt || '');
+          else line.push(rec.score == null || rec.score === '' ? '' : rec.score);
           return;
         }
         var v = readSeatScore(field.col.scores, stu.seatNo);
@@ -9287,7 +9259,7 @@
       [''],
       ['1. 請在「成績輸入」工作表填分數，不要改第一列欄名。'],
       ['2. 黃卷、早自習、段考、實作：填數字；請假請填「請假」。'],
-      ['3. 作業分三欄：作業繳交填「已繳交」或「未繳交」；作業成績填分數；作業日期填 YYYY-MM-DD。'],
+      ['3. 作業分兩欄：作業繳交填「已繳交」或「未繳交」；作業成績填分數（遲交扣分請先自己算好再填）。'],
       ['4. 空白格＝不改動，匯入時會保留雲端已有分數，不會用空白蓋掉。若要在網頁清除某格，請到成績表手動清空後儲存。'],
       ['5. 填完後，回到網頁按「從 Excel 匯入」，選這個檔。'],
       ['6. 「學期總表」「每週成績」是計算結果，匯入時會略過，改了也不會寫回。'],
@@ -9435,7 +9407,6 @@
 
   function buildTermClassRows(cls, opt) {
     var book = cls.gradebook || {};
-    var rules = book.rules || defaultGradeRules();
     var hws = byColDate(book.homeworks).filter(function (c) { return inTermRange(colDateKey(c), opt); });
     var quizzes = byColDate((book.yellow || []).concat(book.morning || [])).filter(function (c) {
       return inTermRange(String(c.date || ''), opt);
@@ -9459,7 +9430,7 @@
       var seat = s.seatNo;
       var hwVals = [];
       var hwCells = hws.map(function (col) {
-        var r = homeworkResult(col, seat, rules);
+        var r = homeworkResult(col, seat);
         if (r.status === 'missing') {
           hwVals.push(0);
           return 0;
