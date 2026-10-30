@@ -4367,8 +4367,39 @@
     };
   }
 
-  /** 115 學年度相關國定假日／補假（含週末日供對照；課表只標週一～五）。 */
+  /**
+   * 全站唯一的國定假日／補假清單：課表標放假、調代課擋日期、缺交工作天都用這份。
+   * 老師另外的停課日放在成績規則 holidays。新學年要補上新的日期。
+   */
   var NATIONAL_HOLIDAYS = [
+    { date: '2025-01-01', name: '開國紀念日' },
+    { date: '2025-01-27', name: '春節調整放假' },
+    { date: '2025-01-28', name: '除夕' },
+    { date: '2025-01-29', name: '春節' },
+    { date: '2025-01-30', name: '春節' },
+    { date: '2025-01-31', name: '春節' },
+    { date: '2025-02-28', name: '和平紀念日' },
+    { date: '2025-04-03', name: '兒童節補假' },
+    { date: '2025-04-04', name: '兒童節、清明節' },
+    { date: '2025-05-01', name: '勞動節' },
+    { date: '2025-05-30', name: '端午節補假' },
+    { date: '2025-05-31', name: '端午節' },
+    { date: '2025-10-06', name: '中秋節' },
+    { date: '2025-10-10', name: '國慶日' },
+    { date: '2026-01-01', name: '開國紀念日' },
+    { date: '2026-02-16', name: '除夕' },
+    { date: '2026-02-17', name: '春節' },
+    { date: '2026-02-18', name: '春節' },
+    { date: '2026-02-19', name: '春節' },
+    { date: '2026-02-20', name: '春節補假' },
+    { date: '2026-02-27', name: '和平紀念日補假' },
+    { date: '2026-02-28', name: '和平紀念日' },
+    { date: '2026-04-03', name: '兒童節補假' },
+    { date: '2026-04-04', name: '兒童節' },
+    { date: '2026-04-05', name: '清明節' },
+    { date: '2026-04-06', name: '清明補假' },
+    { date: '2026-05-01', name: '勞動節' },
+    { date: '2026-06-19', name: '端午節' },
     { date: '2026-09-25', name: '中秋節' },
     { date: '2026-09-28', name: '教師節' },
     { date: '2026-10-09', name: '國慶日補假' },
@@ -4392,8 +4423,14 @@
     { date: '2027-04-06', name: '清明補假' },
     { date: '2027-04-30', name: '勞動節補假' },
     { date: '2027-05-01', name: '勞動節' },
-    { date: '2027-06-09', name: '端午節' }
+    { date: '2027-06-09', name: '端午節' },
+    { date: '2027-09-15', name: '中秋節' },
+    { date: '2027-10-10', name: '國慶日' },
+    { date: '2027-10-11', name: '國慶日補假' }
   ];
+
+  var NATIONAL_HOLIDAY_NAME = {};
+  NATIONAL_HOLIDAYS.forEach(function (h) { NATIONAL_HOLIDAY_NAME[h.date] = h.name; });
 
   function dateKeyFromParts(y, m, d) {
     return y + '-' + String(m).padStart(2, '0') + '-' + String(d).padStart(2, '0');
@@ -4412,9 +4449,7 @@
     var i;
     for (i = 0; i < 5; i++) {
       var key = addDaysToKey(weekStart, i);
-      NATIONAL_HOLIDAYS.forEach(function (h) {
-        if (h.date === key) map[i] = h;
-      });
+      if (NATIONAL_HOLIDAY_NAME[key]) map[i] = { date: key, name: NATIONAL_HOLIDAY_NAME[key] };
     }
     return map;
   }
@@ -4545,8 +4580,7 @@
     if (!/^\d{4}-\d{2}-\d{2}$/.test(String(key || ''))) return '請選日期';
     var wd = parseDateKey(key).getDay();
     if (wd === 0 || wd === 6) return key + ' 是週末，不能排課';
-    var holiday = NATIONAL_HOLIDAYS.filter(function (h) { return h.date === key; })[0];
-    if (holiday) return key + ' 是' + holiday.name + '（放假），不能排課';
+    if (NATIONAL_HOLIDAY_NAME[key]) return key + ' 是' + NATIONAL_HOLIDAY_NAME[key] + '（放假），不能排課';
     return '';
   }
 
@@ -6035,18 +6069,6 @@
     homework: '作業'
   };
 
-  var TW_HOLIDAYS = {
-    '2025-01-01': 1, '2025-01-27': 1, '2025-01-28': 1, '2025-01-29': 1, '2025-01-30': 1, '2025-01-31': 1,
-    '2025-02-28': 1, '2025-04-03': 1, '2025-04-04': 1, '2025-05-01': 1, '2025-05-30': 1, '2025-05-31': 1,
-    '2025-10-06': 1, '2025-10-10': 1,
-    '2026-01-01': 1, '2026-02-16': 1, '2026-02-17': 1, '2026-02-18': 1, '2026-02-19': 1, '2026-02-20': 1,
-    '2026-02-27': 1, '2026-02-28': 1, '2026-04-03': 1, '2026-04-04': 1, '2026-04-05': 1, '2026-04-06': 1,
-    '2026-05-01': 1, '2026-06-19': 1, '2026-09-25': 1, '2026-09-26': 1, '2026-10-09': 1, '2026-10-10': 1,
-    '2027-01-01': 1, '2027-02-04': 1, '2027-02-05': 1, '2027-02-06': 1, '2027-02-07': 1, '2027-02-08': 1,
-    '2027-02-27': 1, '2027-02-28': 1, '2027-04-04': 1, '2027-04-05': 1, '2027-05-01': 1, '2027-06-09': 1,
-    '2027-09-15': 1, '2027-10-10': 1, '2027-10-11': 1
-  };
-
   function gradeRules() {
     return (App.gradebook && App.gradebook.rules) || defaultGradeRules();
   }
@@ -6156,7 +6178,7 @@
     var d = parseDateKey(dateKey);
     var wd = d.getDay();
     if (wd === 0 || wd === 6) return true;
-    if (TW_HOLIDAYS[dateKey]) return true;
+    if (NATIONAL_HOLIDAY_NAME[dateKey]) return true;
     var extra = gradeRules().holidays || [];
     return extra.indexOf(dateKey) >= 0;
   }
