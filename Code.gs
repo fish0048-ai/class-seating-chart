@@ -473,9 +473,20 @@ function classroomSeatCode_(profile) {
   return '';
 }
 
+/** 老師按「發還」時沒交的學生也會變 RETURNED，要看繳交紀錄裡有沒有 TURNED_IN。 */
+function classroomTurnedIn_(sub) {
+  if (!sub) return false;
+  if (sub.state === 'TURNED_IN') return true;
+  if (sub.state !== 'RETURNED') return false;
+  if (!Array.isArray(sub.submissionHistory)) return true;
+  return sub.submissionHistory.some(function (h) {
+    return h && h.stateHistory && h.stateHistory.state === 'TURNED_IN';
+  });
+}
+
 /**
  * 把 Classroom API 的名單、作業、繳交狀態整理成和 parseClassroomHandouts_ 一樣的格式。
- * 有分數（已發還或草稿）＝分數；已繳交未打分＝'submitted'；其他＝空白（未繳交）。
+ * 有分數（已發還或草稿）＝分數；有繳交過但未打分＝'submitted'；其他＝空白（未繳交）。
  * 沒指派給某位學生的作業，那位學生不列入。
  */
 function classroomCourseColumns_(students, courseWork, submissions) {
@@ -510,7 +521,7 @@ function classroomCourseColumns_(students, courseWork, submissions) {
       if (grade != null && isFinite(Number(grade))) {
         scores[code] = Number(grade);
         filled += 1;
-      } else if (sub.state === 'TURNED_IN' || sub.state === 'RETURNED') {
+      } else if (classroomTurnedIn_(sub)) {
         scores[code] = 'submitted';
         filled += 1;
       } else {
