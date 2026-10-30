@@ -9327,6 +9327,36 @@
 
   var TERM_USUAL_WEIGHT = 0.6;
   var TERM_EXAM_WEIGHT = 0.4;
+  var TERM_CLASS_BONUS_MAX = 10;
+
+  function termSeatKey(seatNo) {
+    var s = String(seatNo == null ? '' : seatNo).trim();
+    return /^\d+$/.test(s) ? String(Number(s)) : s;
+  }
+
+  /** 期間內每位學生上課加扣合計，以及依全班最高者換算的加分（最高 10，0 以下不加）。 */
+  function termClassBonus(cls, opt) {
+    var net = {};
+    (cls.days || []).forEach(function (day) {
+      if (!day || !inTermRange(String(day.date || ''), opt)) return;
+      (day.students || []).forEach(function (s) {
+        var k = termSeatKey(s.seatNo);
+        net[k] = (net[k] || 0) + (Number(s.score) || 0);
+      });
+    });
+    var top = 0;
+    (cls.students || []).forEach(function (s) {
+      top = Math.max(top, net[termSeatKey(s.seatNo)] || 0);
+    });
+    return {
+      top: top,
+      netOf: function (seatNo) { return net[termSeatKey(seatNo)] || 0; },
+      bonusOf: function (seatNo) {
+        var n = net[termSeatKey(seatNo)] || 0;
+        return top > 0 && n > 0 ? round1(n / top * TERM_CLASS_BONUS_MAX) : 0;
+      }
+    };
+  }
 
   /** 各班段考欄（同名視為同一次），依日期排；結算期間＝上一次段考隔天～這次段考當天。 */
   function termExamOptions(classes) {
@@ -9411,18 +9441,20 @@
       return inTermRange(String(c.date || ''), opt);
     });
     var exam = (book.exams || []).filter(function (c) { return String(c.title || '').trim() === opt.title; })[0] || null;
+    var bonus = termClassBonus(cls, opt);
     var rows = [
       [cls.className + '　' + opt.title + '　結算'],
-      ['結算期間：' + (opt.start || '學期開始') + ' ～ ' + opt.end],
-      ['平時成績 ＝（作業平均 ＋ 平時考試平均）÷ 2；結算成績 ＝ 平時成績 × ' + (TERM_USUAL_WEIGHT * 100) +
+      ['結算期間：' + (opt.start || '學期開始') + ' ～ ' + opt.end + '　本班期間上課加扣最高 ' + bonus.top + ' 分'],
+      ['平時成績 ＝（作業平均 ＋ 平時考試平均）÷ 2 ＋ 上課加分（最高 100）；上課加分 ＝ 期間加扣合計 ÷ 全班最高 × ' +
+        TERM_CLASS_BONUS_MAX + '（0 以下不加）；結算成績 ＝ 平時成績 × ' + (TERM_USUAL_WEIGHT * 100) +
         '% ＋ 段考 × ' + (TERM_EXAM_WEIGHT * 100) + '%。作業有繳交保底 ' + HW_SUBMITTED_FLOOR +
-        '（' + HW_SUBMITTED_FLOOR + '＋原始×' + ((100 - HW_SUBMITTED_FLOOR) / 100) + '）、未繳交 0；請假不計；上課加扣與實作不列入。'],
+        '（' + HW_SUBMITTED_FLOOR + '＋原始×' + ((100 - HW_SUBMITTED_FLOOR) / 100) + '）、未繳交 0；請假不計；實作不列入。'],
       []
     ];
     rows.push(['座號', '姓名']
       .concat(hws.map(function (c) { return '作業｜' + (c.title || '作業'); }))
       .concat(quizzes.map(function (c) { return '平時考試｜' + (c.title || '考卷'); }))
-      .concat(['作業平均', '平時考試平均', '平時成績', opt.title, '結算成績', '備註']));
+      .concat(['作業平均', '平時考試平均', '上課加扣合計', '上課加分', '平時成績', opt.title, '結算成績', '備註']));
     (cls.students || []).slice().sort(seatOrder).forEach(function (s) {
       var seat = s.seatNo;
       var hwVals = [];
@@ -9445,7 +9477,10 @@
       var hwAvg = hwVals.length ? round1(hwVals.reduce(function (a, b) { return a + b; }, 0) / hwVals.length) : null;
       var quizAvg = average100(quizzes, seat);
       var parts = [hwAvg, quizAvg].filter(function (v) { return v != null; });
-      var usual = parts.length ? round1(parts.reduce(function (a, b) { return a + b; }, 0) / parts.length) : null;
+      var plus = bonus.bonusOf(seat);
+      var usual = parts.length
+        ? Math.min(100, round1(parts.reduce(function (a, b) { return a + b; }, 0) / parts.length + plus))
+        : null;
       var examRaw = exam ? readSeatScore(exam.scores, seat) : '';
       var examCell = '';
       var examScore = null;
@@ -9465,8 +9500,8 @@
       rows.push([seat, s.name || '']
         .concat(hwCells)
         .concat(quizCells)
-        .concat([hwAvg == null ? '' : hwAvg, quizAvg == null ? '' : quizAvg, usual == null ? '' : usual,
-          examCell, total, note.join('、')]));
+        .concat([hwAvg == null ? '' : hwAvg, quizAvg == null ? '' : quizAvg, bonus.netOf(seat), plus,
+          usual == null ? '' : usual, examCell, total, note.join('、')]));
     });
     return { rows: rows, headerRow: 4 };
   }
