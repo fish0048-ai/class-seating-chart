@@ -165,15 +165,10 @@
 
   function defaultGradeRules_() {
     return {
-      base: 60,
-      classWeight: 40,
-      quizWeight: 30,
-      examWeight: 30,
-      latePenalty: 10,
-      lateWorkDays: 1,
-      holidays: [],
-      min: 0,
-      max: 100
+      termUsualWeight: 60,
+      termExamWeight: 40,
+      classBonusMax: 10,
+      holidays: []
     };
   }
 
@@ -2782,17 +2777,12 @@
       if (!className) throw new Error('缺少班級名稱');
       var book = ensureGrades_(store, className);
       if (body.rules) {
-        book.rules = Object.assign({}, defaultGradeRules_(), {
-          base: clampInt(body.rules.base, 0, 100, 60),
-          classWeight: clampInt(body.rules.classWeight, 0, 100, 40),
-          quizWeight: clampInt(body.rules.quizWeight, 0, 100, 30),
-          examWeight: clampInt(body.rules.examWeight, 0, 100, 30),
-          latePenalty: clampInt(body.rules.latePenalty, 0, 100, 10),
-          lateWorkDays: clampInt(body.rules.lateWorkDays, 0, 10, 1),
-          holidays: normalizeHolidayList_(body.rules.holidays),
-          min: 0,
-          max: 100
-        });
+        book.rules = {
+          termUsualWeight: clampInt(body.rules.termUsualWeight, 0, 100, 60),
+          termExamWeight: clampInt(body.rules.termExamWeight, 0, 100, 40),
+          classBonusMax: clampInt(body.rules.classBonusMax, 0, 30, 10),
+          holidays: normalizeHolidayList_(body.rules.holidays)
+        };
       }
       if (body.yellow) book.yellow = replaceGradeListIfSafe_(body.yellow, book.yellow);
       if (body.morning) book.morning = replaceGradeListIfSafe_(body.morning, book.morning);
