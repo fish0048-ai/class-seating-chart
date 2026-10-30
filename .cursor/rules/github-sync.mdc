@@ -13,10 +13,11 @@ alwaysApply: true
 2. `git fetch origin`，從最新的 `origin/master` 開功能分支（例如 `feat/…`、`fix/…`）
 3. 加入相關檔案並建立 commit
 4. `git push -u origin <分支>` 到現有 `origin`（`https://github.com/fish0048-ai/class-seating-chart.git`）
-5. **自動開 PR 並設定自動合併，不要叫老師點連結**：
+5. **自動開 PR、測試通過後由我合併，不要叫老師點連結**：
    - `gh pr create --base master --head <分支> --title "<commit 主旨>" --body "<繁中說明：改了什麼、驗證結果、是否要部署 Code.gs>"`
-   - `gh pr merge <分支> --auto --merge`（倉庫已開「允許自動合併」與「合併後刪除分支」；「座位表雲端測試」通過後 GitHub 會自己合併）
-   - 用 `gh pr checks <分支> --watch`（或之後再查）確認測試結果；失敗就看 log 修正後推同一分支
+   - `gh pr checks <分支> --watch --interval 15` 等「座位表雲端測試」跑完（約 1～2 分鐘）
+   - 全部通過就 `gh pr merge <分支> --merge --delete-branch`（GitHub 的 `--auto` 自動合併實測不會觸發，不要依賴）
+   - 測試失敗：用 `gh run view <run-id> --log-failed` 看原因，修正後推同一分支再等一次；不要繞過規則
 6. 合併後本機 `git checkout master`、`git pull --ff-only`，刪掉本機舊分支
 
 `gh` 已用老師的 GitHub 帳號登入（`gh auth status`）。新開的終端機直接用 `gh`；若找不到，路徑在 `%LOCALAPPDATA%\Microsoft\WinGet\Packages\GitHub.cli_Microsoft.Winget.Source_8wekyb3d8bbwe\bin\gh.exe`。只有 `gh` 不能用時，才改給老師 `https://github.com/fish0048-ai/class-seating-chart/pull/new/<分支>`。
