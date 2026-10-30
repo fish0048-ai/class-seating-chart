@@ -669,7 +669,8 @@
       exams: clone(book.exams || []),
       labs: clone(book.labs || []),
       practicals: clone(book.practicals || []),
-      homeworks: clone(book.homeworks || [])
+      homeworks: clone(book.homeworks || []),
+      hwMissing: memStore ? derivedHwMissingMap_(memStore) : undefined
     });
   }
 
@@ -1755,6 +1756,62 @@
     return hits;
   }
 
+  /**
+   * 缺交作業一律由成績簿作業欄產生（手動名單已停用）：
+   * 期限已過（今天 > 期限）且不是「已繳交」的學生才算缺交；勾了「暫不計」或已刪除的作業不列入。
+   */
+  function derivedHwMissingForClass_(store, cn) {
+    var book = store && store.grades && store.grades[cn];
+    var room = store && store.classes && store.classes[cn];
+    if (!book || !room) return [];
+    var removed = (book && book.removedCols) || {};
+    var today = todayKey_();
+    var out = [];
+    (book.homeworks || []).forEach(function (col) {
+      if (!col || col.excluded || removed[String(col.id)]) return;
+      var due = String(col.dueDate || col.date || '');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(due) || due >= today) return;
+      var seats = [];
+      (room.students || []).forEach(function (s) {
+        var rec = null;
+        seatAliasKeys_(s.seatNo).some(function (k) {
+          if (col.records && col.records[k]) {
+            rec = col.records[k];
+            return true;
+          }
+          return false;
+        });
+        if (!rec || rec.status !== 'submitted') {
+          var seat = String(s.seatNo || '').trim();
+          seats.push(/^\d+$/.test(seat) ? seat.padStart(2, '0') : seat);
+        }
+      });
+      if (!seats.length) return;
+      out.push({
+        id: 'gb-' + col.id,
+        className: cn,
+        title: String(col.title || '作業'),
+        seats: seats,
+        dueDate: due,
+        note: '',
+        source: 'gradebook',
+        deleted: false,
+        createdAt: '',
+        updatedAt: ''
+      });
+    });
+    out.sort(function (a, b) { return String(a.dueDate).localeCompare(String(b.dueDate)); });
+    return out;
+  }
+
+  function derivedHwMissingMap_(store) {
+    var map = {};
+    classNames(store).forEach(function (cn) {
+      map[cn] = derivedHwMissingForClass_(store, cn);
+    });
+    return map;
+  }
+
   function payload(store, className) {
     var room = ensureClass(store, className);
     autoPlace(room);
@@ -1768,7 +1825,7 @@
       lessonLog: store.lessonLog || emptyLessonLog_(),
       scheduleChanges: activeScheduleChanges_(store.scheduleChanges),
       substitutes: activeSubstitutes_(store.substitutes),
-      hwMissing: store.hwMissing || emptyHwMissing_(),
+      hwMissing: derivedHwMissingMap_(store),
       plusHits: plusHitsForClass_(store, className)
     }, store);
   }
@@ -3060,10 +3117,11 @@
     getHwMissing: function (className) {
       var store = loadStore();
       var cn = String(className || '').trim();
+      var map = derivedHwMissingMap_(store);
       return wrap({
         ok: true,
-        hwMissing: store.hwMissing || emptyHwMissing_(),
-        items: cn ? activeHwMissingForClass_(store, cn) : [],
+        hwMissing: map,
+        items: cn ? (map[cn] || []) : [],
         className: cn,
         classNames: classNames(store)
       });

@@ -20,7 +20,7 @@ test('教師模式可查看名單、成績、日誌、缺交與課表', async fu
   await support.expectTappable(page.getByRole('button', { name: '名單', exact: true }));
 
   await page.getByRole('button', { name: '缺交作業', exact: true }).click();
-  await expect(page.locator('#missingList')).toContainText('還沒有缺交名單');
+  await expect(page.locator('#missingList')).toContainText('沒有過期未繳的作業');
 
   await page.getByRole('button', { name: '教學日誌', exact: true }).click();
   await expect(page.locator('#journalOverview')).toContainText('測試班');
