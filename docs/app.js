@@ -665,12 +665,18 @@
       requireTeacher(saveClassroomSources);
     });
   }
-  var gradeExcelOut = document.getElementById('btnGradeExcelOut');
-  if (gradeExcelOut) gradeExcelOut.addEventListener('click', exportGradeExcel);
-  var gradeExcelIn = document.getElementById('btnGradeExcelIn');
-  if (gradeExcelIn) gradeExcelIn.addEventListener('click', function () {
-    var input = document.getElementById('gradeExcelFile');
-    if (input) input.click();
+  document.addEventListener('click', function (event) {
+    document.querySelectorAll('details.tool-menu[open]').forEach(function (menu) {
+      if (!menu.contains(event.target) || event.target.closest('.tool-menu-item')) menu.open = false;
+    });
+  });
+  document.addEventListener('keydown', function (event) {
+    if (event.key !== 'Escape') return;
+    document.querySelectorAll('details.tool-menu[open]').forEach(function (menu) {
+      menu.open = false;
+      var summary = menu.querySelector('summary');
+      if (summary) summary.focus();
+    });
   });
   var gradeExcelFile = document.getElementById('gradeExcelFile');
   if (gradeExcelFile) {
@@ -9277,7 +9283,7 @@
       ['2. 黃卷、早自習、段考、實作：填數字；請假請填「請假」。'],
       ['3. 作業分兩欄：作業繳交填「已繳交」或「未繳交」；作業成績填分數（遲交扣分請先自己算好再填）。'],
       ['4. 空白格＝不改動，匯入時會保留雲端已有分數，不會用空白蓋掉。若要在網頁清除某格，請到成績表手動清空後儲存。'],
-      ['5. 填完後，回到網頁按「從 Excel 匯入」，選這個檔。'],
+      ['5. 填完後，回到網頁按「匯入成績 → 從 Excel 匯入」，選這個檔。'],
       ['6. 「學期總表」「每週成績」是計算結果，匯入時會略過，改了也不會寫回。'],
       ['7. 若要在 Excel 新增一欄，欄名格式請用：黃卷｜第三次　或　段考｜第一次段考　或　作業繳交｜第一次作業。'],
       ['8. 座號要和網頁名單一致，系統用座號對應學生。']
