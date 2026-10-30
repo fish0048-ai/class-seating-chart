@@ -10668,19 +10668,27 @@
         toast(res.errors.join('\n') || '沒有可匯入的學習講義', 9000);
         return;
       }
+      res.plans.forEach(function (p) {
+        p.used = p.report.created + p.report.updated;
+      });
+      if (!res.plans.some(function (p) { return p.used > 0; })) {
+        App.classroomImporting = false;
+        toast('Classroom 表裡的學習講義都還沒有分數（整欄空白），這次沒有可匯入的。若已批改，請在 Classroom 重新「複製到 Google 試算表」並更新網址', 10000);
+        return;
+      }
       var lines = ['要把 Classroom 的學習講義寫進「作業」嗎？', ''];
       res.plans.forEach(function (p) {
         var r = p.report;
-        lines.push(p.className + '：' + p.columns.length + ' 份講義（新增 ' + r.created + '、更新 ' + r.updated + '）；' +
+        lines.push(p.className + '：' + p.used + ' 份講義（新增 ' + r.created + '、更新 ' + r.updated + '）；' +
           '已繳 ' + (r.submitted + r.pending) + ' 筆' + (r.pending ? '（其中 ' + r.pending + ' 筆還沒打分數）' : '') +
           '、未繳 ' + r.missing + ' 筆');
         if (r.blankColumns.length) {
-          lines.push('　⚠ 整欄空白，全班會記未繳（0 分）：' + r.blankColumns.join('、'));
+          lines.push('　整欄空白（可能還沒批改），先跳過、不改網站紀錄：' + r.blankColumns.join('、'));
         }
         if (r.unknownSeats.length) lines.push('　名單沒有這些座號，會略過：' + shortList(r.unknownSeats, 6));
       });
       if (res.errors.length) lines.push('', '略過：', res.errors.join('\n'));
-      lines.push('', '空白一律記「未繳交」；以 Classroom 為準，會覆蓋網站上同名講義的紀錄。');
+      lines.push('', '有分數的講義裡，空白格記「未繳交」；以 Classroom 為準，會覆蓋網站上同名講義的紀錄。');
       if (!window.confirm(lines.join('\n'))) {
         App.classroomImporting = false;
         return;
@@ -10705,7 +10713,7 @@
             renderGradebook();
           }
           App.classroomImporting = false;
-          var msg = '已更新學習講義：' + res.plans.map(function (p) { return p.className + ' ' + p.columns.length + ' 份'; }).join('、');
+          var msg = '已更新學習講義：' + res.plans.map(function (p) { return p.className + ' ' + p.used + ' 份'; }).join('、');
           if (last && last.synced === false) msg += '。' + (last.cloudError || '還沒同步到雲端') + '，請按「立即同步」';
           toast(msg, 8000);
         });
