@@ -648,6 +648,18 @@
       requireTeacher(importClassroomHandouts);
     });
   }
+  var termExportBtn = document.getElementById('btnTermExport');
+  if (termExportBtn) {
+    termExportBtn.addEventListener('click', function () {
+      requireTeacher(openTermExport);
+    });
+  }
+  var termExportExam = document.getElementById('termExportExam');
+  if (termExportExam) termExportExam.addEventListener('change', renderTermExportRange);
+  var termExportCancel = document.getElementById('btnTermExportCancel');
+  if (termExportCancel) termExportCancel.addEventListener('click', closeTermExport);
+  var termExportGo = document.getElementById('btnTermExportGo');
+  if (termExportGo) termExportGo.addEventListener('click', downloadTermExport);
   var classroomSourcesSave = document.getElementById('btnClassroomSourcesSave');
   if (classroomSourcesSave) {
     classroomSourcesSave.addEventListener('click', function () {
@@ -6141,8 +6153,8 @@
     return count;
   }
 
-  function isLateHomework(dueKey, submittedKey) {
-    var allow = Number(gradeRules().lateWorkDays);
+  function isLateHomework(dueKey, submittedKey, rules) {
+    var allow = Number((rules || gradeRules()).lateWorkDays);
     if (!isFinite(allow)) allow = 1;
     return workDaysLate(dueKey, submittedKey) >= Math.max(allow, 1);
   }
@@ -6154,9 +6166,9 @@
     return round1(HW_SUBMITTED_FLOOR + Math.max(0, Math.min(100, original)) * (100 - HW_SUBMITTED_FLOOR) / 100);
   }
 
-  function homeworkResult(col, seatNo) {
+  function homeworkResult(col, seatNo, classRules) {
     var rec = ((col && col.records) || {})[seatNo] || {};
-    var rules = gradeRules();
+    var rules = classRules || gradeRules();
     if (rec.status !== 'submitted') {
       return { status: 'missing', raw: null, original: 0, final: 0, late: false, penalty: 0 };
     }
@@ -6166,7 +6178,7 @@
     var max = Number(col.max) || 100;
     var raw100 = round1(Number(rec.score) / max * 100);
     var submittedAt = rec.submittedAt || col.dueDate || col.date;
-    var late = isLateHomework(col.dueDate || col.date, submittedAt);
+    var late = isLateHomework(col.dueDate || col.date, submittedAt, rules);
     var penalty = late ? (Number(rules.latePenalty) || 10) : 0;
     var original = Math.max(0, round1(raw100 - penalty));
     return {
@@ -9310,6 +9322,181 @@
       X.utils.book_append_sheet(wb, aoaToSheet(X, buildMapSheetRows(App.gradebook)), '欄位對照');
       X.writeFile(wb, (teacherTargetClass() || '成績') + '-成績簿.xlsx');
       toast('已下載 Excel，可直接在裡面輸入成績後再匯入');
+    });
+  }
+
+  var TERM_USUAL_WEIGHT = 0.6;
+  var TERM_EXAM_WEIGHT = 0.4;
+
+  /** 各班段考欄（同名視為同一次），依日期排；結算期間＝上一次段考隔天～這次段考當天。 */
+  function termExamOptions(classes) {
+    var byTitle = {};
+    (classes || []).forEach(function (c) {
+      ((c.gradebook && c.gradebook.exams) || []).forEach(function (col) {
+        var title = String((col && col.title) || '').trim();
+        if (!title) return;
+        var date = String((col && col.date) || '');
+        var prev = byTitle[title];
+        if (!prev || (date && (!prev.date || date < prev.date))) byTitle[title] = { title: title, date: date };
+      });
+    });
+    var list = Object.keys(byTitle).map(function (k) { return byTitle[k]; }).filter(function (o) { return o.date; });
+    list.sort(function (a, b) { return a.date.localeCompare(b.date) || a.title.localeCompare(b.title); });
+    list.forEach(function (o, i) {
+      o.start = i > 0 ? addDaysToKey(list[i - 1].date, 1) : '';
+      o.end = o.date;
+    });
+    return list;
+  }
+
+  function openTermExport() {
+    var flush = App.gradeDirty && Object.keys(App.gradeDirty).length
+      ? api('saveGradebook', [collectGradebookFromTable({ dirtyOnly: true })])
+      : Promise.resolve();
+    flush.then(function () {
+      return api('listSchoolOverview', []);
+    }).then(function (data) {
+      var classes = ((data && data.classes) || []).filter(function (c) {
+        return c && c.className && c.className.indexOf('範例') < 0;
+      });
+      var options = termExamOptions(classes);
+      if (!options.length) {
+        toast('還沒有段考欄（例如第1次期中考），請先在學期成績匯入或新增段考', 7000);
+        return;
+      }
+      App.termExport = { classes: classes, options: options };
+      var sel = document.getElementById('termExportExam');
+      if (sel) {
+        sel.innerHTML = options.map(function (o, i) {
+          return '<option value="' + i + '">' + escapeHtml(o.title + '（' + o.date + '）') + '</option>';
+        }).join('');
+        sel.value = String(options.length - 1);
+      }
+      renderTermExportRange();
+      var modal = document.getElementById('termExportModal');
+      if (modal) modal.hidden = false;
+    }).catch(function (err) {
+      toast(err && err.message ? err.message : '讀取全年級成績失敗');
+    });
+  }
+
+  function closeTermExport() {
+    var modal = document.getElementById('termExportModal');
+    if (modal) modal.hidden = true;
+  }
+
+  function selectedTermOption() {
+    var sel = document.getElementById('termExportExam');
+    var opts = (App.termExport && App.termExport.options) || [];
+    return opts[Number(sel ? sel.value : 0)] || null;
+  }
+
+  function renderTermExportRange() {
+    var el = document.getElementById('termExportRange');
+    var opt = selectedTermOption();
+    if (!el || !opt) return;
+    el.textContent = '結算期間：' + (opt.start || '學期開始') + ' ～ ' + opt.end + '（這段期間的作業與平時考試）';
+  }
+
+  function inTermRange(dateKey, opt) {
+    if (!dateKey) return false;
+    return (!opt.start || dateKey >= opt.start) && dateKey <= opt.end;
+  }
+
+  function buildTermClassRows(cls, opt) {
+    var book = cls.gradebook || {};
+    var rules = book.rules || defaultGradeRules();
+    var hws = byColDate(book.homeworks).filter(function (c) { return inTermRange(colDateKey(c), opt); });
+    var quizzes = byColDate((book.yellow || []).concat(book.morning || [])).filter(function (c) {
+      return inTermRange(String(c.date || ''), opt);
+    });
+    var exam = (book.exams || []).filter(function (c) { return String(c.title || '').trim() === opt.title; })[0] || null;
+    var rows = [
+      [cls.className + '　' + opt.title + '　結算'],
+      ['結算期間：' + (opt.start || '學期開始') + ' ～ ' + opt.end],
+      ['平時成績 ＝（作業平均 ＋ 平時考試平均）÷ 2；結算成績 ＝ 平時成績 × ' + (TERM_USUAL_WEIGHT * 100) +
+        '% ＋ 段考 × ' + (TERM_EXAM_WEIGHT * 100) + '%。作業有繳交保底 ' + HW_SUBMITTED_FLOOR +
+        '（' + HW_SUBMITTED_FLOOR + '＋原始×' + ((100 - HW_SUBMITTED_FLOOR) / 100) + '）、未繳交 0；請假不計；上課加扣與實作不列入。'],
+      []
+    ];
+    rows.push(['座號', '姓名']
+      .concat(hws.map(function (c) { return '作業｜' + (c.title || '作業'); }))
+      .concat(quizzes.map(function (c) { return '平時考試｜' + (c.title || '考卷'); }))
+      .concat(['作業平均', '平時考試平均', '平時成績', opt.title, '結算成績', '備註']));
+    (cls.students || []).slice().sort(seatOrder).forEach(function (s) {
+      var seat = s.seatNo;
+      var hwVals = [];
+      var hwCells = hws.map(function (col) {
+        var r = homeworkResult(col, seat, rules);
+        if (r.status === 'missing') {
+          hwVals.push(0);
+          return 0;
+        }
+        if (r.final == null) return '已繳未評';
+        hwVals.push(r.final);
+        return r.final;
+      });
+      var quizCells = quizzes.map(function (col) {
+        var raw = readSeatScore(col.scores, seat);
+        if (isLeaveScore(raw)) return '請假';
+        var v = columnScore100(col, seat);
+        return v == null ? '' : v;
+      });
+      var hwAvg = hwVals.length ? round1(hwVals.reduce(function (a, b) { return a + b; }, 0) / hwVals.length) : null;
+      var quizAvg = average100(quizzes, seat);
+      var parts = [hwAvg, quizAvg].filter(function (v) { return v != null; });
+      var usual = parts.length ? round1(parts.reduce(function (a, b) { return a + b; }, 0) / parts.length) : null;
+      var examRaw = exam ? readSeatScore(exam.scores, seat) : '';
+      var examCell = '';
+      var examScore = null;
+      if (isLeaveScore(examRaw)) examCell = '請假';
+      else {
+        examScore = exam ? columnScore100(exam, seat) : null;
+        examCell = examScore == null ? '' : examScore;
+      }
+      var total = '';
+      var note = [];
+      if (usual != null && examScore != null) {
+        total = round1(usual * TERM_USUAL_WEIGHT + examScore * TERM_EXAM_WEIGHT);
+      } else {
+        if (examScore == null) note.push(examCell === '請假' ? '段考請假' : '缺段考');
+        if (usual == null) note.push('無平時成績');
+      }
+      rows.push([seat, s.name || '']
+        .concat(hwCells)
+        .concat(quizCells)
+        .concat([hwAvg == null ? '' : hwAvg, quizAvg == null ? '' : quizAvg, usual == null ? '' : usual,
+          examCell, total, note.join('、')]));
+    });
+    return { rows: rows, headerRow: 4 };
+  }
+
+  function downloadTermExport() {
+    var opt = selectedTermOption();
+    var classes = (App.termExport && App.termExport.classes) || [];
+    if (!opt || !classes.length) {
+      toast('請先選擇要結算的段考');
+      return;
+    }
+    withXlsx(function (X) {
+      var wb = X.utils.book_new();
+      classes.slice().sort(function (a, b) {
+        return String(a.className).localeCompare(String(b.className));
+      }).forEach(function (cls) {
+        var built = buildTermClassRows(cls, opt);
+        var sheet = X.utils.aoa_to_sheet(built.rows);
+        var header = built.rows[built.headerRow] || [];
+        sheet['!cols'] = header.map(function (name, i) {
+          if (i === 0) return { wch: 6 };
+          if (i === 1) return { wch: 10 };
+          return { wch: Math.max(8, Math.min(22, String(name || '').length + 2)) };
+        });
+        var name = String(cls.className).replace(/[\\\/\?\*\[\]:]/g, '').slice(0, 31) || '班級';
+        X.utils.book_append_sheet(wb, sheet, name);
+      });
+      X.writeFile(wb, '整年級成績簿-' + opt.title.replace(/[\\\/\?\*\[\]:]/g, '') + '.xlsx');
+      closeTermExport();
+      toast('已下載「' + opt.title + '」整年級成績簿（' + classes.length + ' 班）');
     });
   }
 

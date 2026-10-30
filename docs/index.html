@@ -249,6 +249,7 @@
           <button type="button" class="tool teacher-tab-only" data-for-tab="grades" data-grades-action="summary" id="btnExportReport" hidden>下載 Excel</button>
           <button type="button" class="tool teacher-tab-only" data-for-tab="grades" data-grades-action="summary" id="btnImportGrades" hidden>從 Excel 匯入</button>
           <button type="button" class="tool teacher-tab-only" data-for-tab="grades" data-grades-action="summary" id="btnClassroomHandouts" hidden>從 Classroom 更新學習講義</button>
+          <button type="button" class="tool teacher-tab-only" data-for-tab="grades" data-grades-action="summary" id="btnTermExport" hidden>下載整年級成績簿</button>
           <input id="gradeExcelFile" type="file" accept=".xlsx,.xls,.csv" hidden />
           <button type="button" class="tool teacher-tab-only" data-for-tab="settings" id="btnUpload" hidden>選擇名單檔</button>
         </div>
@@ -1045,6 +1046,21 @@
           <button type="button" class="tool" id="btnLotteryReset">重置</button>
           <button type="button" class="tool" id="btnLotteryClose">關閉</button>
           <button type="button" class="tool primary" id="btnLotteryAgain">再抽一次</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="termExportModal" class="modal" hidden role="dialog" aria-modal="true" aria-label="下載整年級成績簿">
+      <div class="modal-card term-export-card">
+        <p class="modal-kicker">整年級成績簿</p>
+        <label class="term-export-field">結算哪一次段考
+          <select id="termExportExam"></select>
+        </label>
+        <p id="termExportRange" class="hint"></p>
+        <p class="hint">每班一個工作表。平時成績 ＝（作業平均 ＋ 平時考試平均）÷ 2；結算成績 ＝ 平時成績 × 60% ＋ 段考 × 40%。作業有繳交保底 60、未繳交 0；請假不計；上課加扣與實作不列入。</p>
+        <div class="modal-actions">
+          <button type="button" class="tool" id="btnTermExportCancel">取消</button>
+          <button type="button" class="tool primary" id="btnTermExportGo">下載 Excel</button>
         </div>
       </div>
     </div>
