@@ -883,8 +883,32 @@ function moveCloudContestToQuiz_(book) {
   return book;
 }
 
+/**
+ * 已刪除的成績欄 id（removedCols）。合併會把另一邊仍有的欄補回來，所以兩邊的刪除紀錄要合併，
+ * 再把這些 id 從所有成績類別排除（前端 api.js 的 applyRemovedCols_ 是同一套）。
+ */
+function removeCloudDeletedCols_(book) {
+  if (!book) return book;
+  var rm = {};
+  Object.keys(book.removedCols && typeof book.removedCols === 'object' ? book.removedCols : {}).forEach(function (id) {
+    if (id) rm[String(id)] = String(book.removedCols[id] || '1');
+  });
+  book.removedCols = rm;
+  if (!Object.keys(rm).length) return book;
+  ['yellow', 'morning', 'exams', 'labs', 'practicals', 'homeworks'].forEach(function (key) {
+    if (Array.isArray(book[key])) {
+      book[key] = book[key].filter(function (col) { return !(col && rm[String(col.id)]); });
+    }
+  });
+  return book;
+}
+
 function mergeCloudGradeBook_(localBook, remoteBook) {
-  return moveCloudContestToQuiz_(mergeCloudGradeBookRaw_(localBook, remoteBook));
+  var merged = mergeCloudGradeBookRaw_(localBook, remoteBook);
+  merged.removedCols = Object.assign({},
+    (remoteBook && remoteBook.removedCols) || {},
+    (localBook && localBook.removedCols) || {});
+  return moveCloudContestToQuiz_(removeCloudDeletedCols_(merged));
 }
 
 function mergeCloudGradeBookRaw_(localBook, remoteBook) {
@@ -938,6 +962,7 @@ function mergeProtectCloudStore_(incoming, existing) {
     store.grades[cn] = mergeCloudGradeBook_(store.grades[cn], existing.grades[cn]);
   });
   Object.keys(store.grades).forEach(function (cn) {
+    removeCloudDeletedCols_(store.grades[cn]);
     moveCloudContestToQuiz_(store.grades[cn]);
   });
   store.daily = store.daily || {};
@@ -1382,7 +1407,10 @@ function syncReadableGrades_(ss, store) {
   var dailySheet = ensureSheetWithHeaders_(ss, SHEETS.DAILY, HEADERS.DAILY);
   var classes = (store && store.classes) || {};
   var books = (store && store.grades) || {};
-  Object.keys(books).forEach(function (cn) { moveCloudContestToQuiz_(books[cn]); });
+  Object.keys(books).forEach(function (cn) {
+    removeCloudDeletedCols_(books[cn]);
+    moveCloudContestToQuiz_(books[cn]);
+  });
   var daily = (store && store.daily) || {};
   var names = Object.keys(classes);
   Object.keys(books).forEach(function (cn) {
@@ -1412,7 +1440,7 @@ function syncReadableGrades_(ss, store) {
     var book = books[cn] || {};
     kinds.forEach(function (kind) {
       (book[kind.key] || []).forEach(function (col) {
-        var title = String((col && col.title) || '').trim() || '未命名';
+        var title = (String((col && col.title) || '').trim() || '未命名') + (col && col.excluded ? '（暫不計算）' : '');
         var date = String((col && col.date) || '');
         var max = col && col.max != null ? col.max : 100;
         var scores = (col && col.scores) || {};
@@ -1435,7 +1463,7 @@ function syncReadableGrades_(ss, store) {
       });
     });
     (book.homeworks || []).forEach(function (col) {
-      var title = String((col && col.title) || '').trim() || '作業';
+      var title = (String((col && col.title) || '').trim() || '作業') + (col && col.excluded ? '（暫不計算）' : '');
       var date = String((col && col.dueDate) || (col && col.date) || '');
       var max = col && col.max != null ? col.max : 100;
       var records = (col && col.records) || {};
