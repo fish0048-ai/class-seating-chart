@@ -10556,18 +10556,47 @@
     }
     api('getClassroomSources', []).then(function (data) {
       var urls = (data && data.classroomSources && data.classroomSources.urls) || {};
-      var names = classroomSourceClassNames().filter(function (cn) { return urls[cn]; });
+      var names = classroomSourceClassNames();
       if (!names.length) {
-        toast('還沒設定 Classroom 網址：請到「設定與上傳」貼上各班成績表網址', 7000);
+        toast('還沒有班級，請先匯入名單', 7000);
         return null;
       }
       App.classroomImporting = true;
-      toast('正在讀取 ' + names.join('、') + ' 的 Classroom 成績表…', 15000);
+      toast('正在讀取 ' + names.join('、') + ' 的 Classroom 學習講義…', 15000);
       var plans = [];
       var errors = [];
+      var liveOff = false;
+      var liveOffReason = '';
+      function readClass(cn) {
+        if (liveOff) return readSnapshot(cn, liveOffReason);
+        return api('readClassroomCourse', [cn]).then(function (sheet) {
+          sheet.sourceLabel = 'Classroom 即時';
+          return sheet;
+        }, function (err) {
+          var msg = err && err.message ? err.message : '';
+          var reason = msg.replace(/^CLASSROOM_[A-Z_]+：/, '');
+          if (/^CLASSROOM_(SERVICE_OFF|DENIED)|未知的操作|後端還沒更新/.test(msg)) {
+            liveOff = true;
+            liveOffReason = /未知的操作|後端還沒更新/.test(msg) ? '後端還沒更新成可直接讀 Classroom 的版本' : reason;
+            return readSnapshot(cn, liveOffReason);
+          }
+          return readSnapshot(cn, reason);
+        });
+      }
+      function readSnapshot(cn, liveReason) {
+        if (!urls[cn]) {
+          if (liveReason && !liveOff) errors.push(cn + '：' + liveReason);
+          return null;
+        }
+        return api('readClassroomHandouts', [urls[cn]]).then(function (sheet) {
+          sheet.sourceLabel = '成績表快照';
+          return sheet;
+        });
+      }
       return names.reduce(function (chain, cn) {
         return chain.then(function () {
-          return api('readClassroomHandouts', [urls[cn]]).then(function (sheet) {
+          return readClass(cn).then(function (sheet) {
+            if (!sheet) return;
             var codes = (sheet && sheet.classCodes) || [];
             if (codes.length && codes.indexOf(cn) < 0) {
               errors.push(cn + '：這份表是 ' + codes.join('、') + ' 班，跟設定的班級不符，已略過');
@@ -10586,20 +10615,22 @@
               return;
             }
             return api('importClassroomHandouts', [{ className: cn, columns: columns, dryRun: true }]).then(function (rep) {
-              plans.push({ className: cn, columns: columns, report: rep });
+              plans.push({ className: cn, columns: columns, report: rep, source: sheet.sourceLabel, unmatched: sheet.unmatched || 0 });
             });
           }).catch(function (err) {
             errors.push(cn + '：' + (err && err.message ? err.message : '讀取失敗'));
           });
         });
       }, Promise.resolve()).then(function () {
-        return { plans: plans, errors: errors };
+        return { plans: plans, errors: errors, liveOffReason: liveOffReason };
       });
     }).then(function (res) {
       if (!res) return;
       if (!res.plans.length) {
         App.classroomImporting = false;
-        toast(res.errors.join('\n') || '沒有可匯入的學習講義', 9000);
+        var why = res.errors.slice();
+        if (res.liveOffReason) why.unshift('無法直接讀 Classroom：' + res.liveOffReason + '。也沒有設定成績表網址可改讀。');
+        toast(why.join('\n') || '沒有可匯入的學習講義', 10000);
         return;
       }
       res.plans.forEach(function (p) {
@@ -10607,19 +10638,23 @@
       });
       if (!res.plans.some(function (p) { return p.used > 0; })) {
         App.classroomImporting = false;
-        toast('Classroom 表裡的學習講義都還沒有分數（整欄空白），這次沒有可匯入的。若已批改，請在 Classroom 重新「複製到 Google 試算表」並更新網址', 10000);
+        var snapshotOnly = res.plans.every(function (p) { return p.source === '成績表快照'; });
+        toast('Classroom 的學習講義都還沒有分數（整欄空白），這次沒有可匯入的。' +
+          (snapshotOnly ? '若已批改，請在 Classroom 重新「複製到 Google 試算表」並更新網址' : ''), 10000);
         return;
       }
       var lines = ['要把 Classroom 的學習講義寫進「作業」嗎？', ''];
+      if (res.liveOffReason) lines.push('（無法直接讀 Classroom：' + res.liveOffReason + '，改讀成績表快照）', '');
       res.plans.forEach(function (p) {
         var r = p.report;
-        lines.push(p.className + '：' + p.used + ' 份講義（新增 ' + r.created + '、更新 ' + r.updated + '）；' +
+        lines.push(p.className + '（' + p.source + '）：' + p.used + ' 份講義（新增 ' + r.created + '、更新 ' + r.updated + '）；' +
           '已繳 ' + (r.submitted + r.pending) + ' 筆' + (r.pending ? '（其中 ' + r.pending + ' 筆還沒打分數）' : '') +
           '、未繳 ' + r.missing + ' 筆');
         if (r.blankColumns.length) {
           lines.push('　整欄空白（可能還沒批改），先跳過、不改網站紀錄：' + r.blankColumns.join('、'));
         }
         if (r.unknownSeats.length) lines.push('　名單沒有這些座號，會略過：' + shortList(r.unknownSeats, 6));
+        if (p.unmatched) lines.push('　有 ' + p.unmatched + ' 位 Classroom 學生的姓名看不出座號（不是「801-01」這種格式），略過');
       });
       if (res.errors.length) lines.push('', '略過：', res.errors.join('\n'));
       lines.push('', '有分數的講義裡，空白格記「未繳交」；以 Classroom 為準，會覆蓋網站上同名講義的紀錄。');

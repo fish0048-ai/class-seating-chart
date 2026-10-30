@@ -2531,6 +2531,10 @@
       if (!cloudOn()) return Promise.reject(new Error('尚未連上雲端，無法讀取 Classroom 成績表'));
       return CloudStore.readClassroomHandouts(url);
     },
+    readClassroomCourse: function (className) {
+      if (!cloudOn()) return Promise.reject(new Error('CLASSROOM_SERVICE_OFF：尚未連上雲端'));
+      return CloudStore.readClassroomCourse(className);
+    },
     /**
      * 學習講義寫進作業欄：同名欄更新、沒有就新增；以 Classroom 為準覆蓋這些座號。
      * 分數＝已繳交＋分數；'submitted'＝已繳交未打分；空白＝未繳交。

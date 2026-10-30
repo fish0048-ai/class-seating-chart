@@ -250,7 +250,7 @@
             <summary class="tool">匯入成績 ▾</summary>
             <div class="tool-menu-list">
               <button type="button" class="tool-menu-item" id="btnImportGrades">從 Excel 匯入<small>本班成績表，或學校讀卡檔（小考、期中考 XLS）</small></button>
-              <button type="button" class="tool-menu-item" id="btnClassroomHandouts">從 Classroom 更新學習講義<small>讀「設定與上傳」填的各班 Classroom 成績表</small></button>
+              <button type="button" class="tool-menu-item" id="btnClassroomHandouts">從 Classroom 更新學習講義<small>直接讀 Classroom 最新成績（讀不到時改用設定的成績表）</small></button>
             </div>
           </details>
           <details class="tool-menu teacher-tab-only" data-for-tab="grades" data-grades-action="summary" hidden>
@@ -899,8 +899,8 @@
               </div>
             </div>
             <div class="cloud-box classroom-sources">
-              <h3>Classroom 成績表網址（學習講義）</h3>
-              <p class="hint">貼上各班 Google Classroom 匯出的成績表網址。在「成績 → 學期成績」按「匯入成績 → 從 Classroom 更新學習講義」，只會讀取欄名含「學習講義」的理化作業（其他科略過），寫進作業欄；不會改動那份試算表。</p>
+              <h3>Classroom 學習講義</h3>
+              <p class="hint">在「成績 → 學期成績」按「匯入成績 → 從 Classroom 更新學習講義」，會直接讀 Classroom 裡課程名稱含班級（例如 801）的最新學習講義成績（只讀，其他科略過），寫進作業欄。後端還沒開啟 Classroom 讀取時，改讀下面貼的成績表網址（Classroom「複製到 Google 試算表」的快照，可不填）。</p>
               <div id="classroomSourceList" class="classroom-source-list"></div>
               <div class="modal-actions">
                 <button type="button" class="tool primary" id="btnClassroomSourcesSave">儲存網址</button>

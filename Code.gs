@@ -231,6 +231,8 @@ function handleRequest_(req) {
         return repairGroupsApi_();
       case 'readClassroomHandouts':
         return readClassroomHandoutsApi_(req.url || (payload && payload.url));
+      case 'readClassroomCourse':
+        return readClassroomCourseApi_(req.className || (payload && payload.className));
       default:
         return { ok: false, error: '未知的操作：' + action };
     }
@@ -457,6 +459,159 @@ function readClassroomHandoutsApi_(url) {
   best.ok = true;
   best.title = ss.getName();
   return best;
+}
+
+/** Classroom 學生帳號的姓名（通常姓氏就是「801-01」）→「801-01」；認不出回空字串。 */
+function classroomSeatCode_(profile) {
+  profile = profile || {};
+  var name = profile.name || {};
+  var tries = [name.familyName, name.fullName, name.givenName];
+  for (var i = 0; i < tries.length; i++) {
+    var m = String(tries[i] || '').match(/(?:^|\D)(\d{3})-(\d{1,2})(?!\d)/);
+    if (m) return m[1] + '-' + ('0' + m[2]).slice(-2);
+  }
+  return '';
+}
+
+/**
+ * 把 Classroom API 的名單、作業、繳交狀態整理成和 parseClassroomHandouts_ 一樣的格式。
+ * 有分數（已發還或草稿）＝分數；已繳交未打分＝'submitted'；其他＝空白（未繳交）。
+ * 沒指派給某位學生的作業，那位學生不列入。
+ */
+function classroomCourseColumns_(students, courseWork, submissions) {
+  var codeOf = {};
+  var classCodes = [];
+  var unmatched = 0;
+  (students || []).forEach(function (s) {
+    var code = classroomSeatCode_(s.profile);
+    if (!code) {
+      unmatched += 1;
+      return;
+    }
+    codeOf[s.userId] = code;
+    var cls = code.slice(0, 3);
+    if (classCodes.indexOf(cls) < 0) classCodes.push(cls);
+  });
+  var subsByWork = {};
+  (submissions || []).forEach(function (sub) {
+    if (!sub || !sub.courseWorkId) return;
+    (subsByWork[sub.courseWorkId] = subsByWork[sub.courseWorkId] || []).push(sub);
+  });
+  var columns = [];
+  (courseWork || []).forEach(function (cw) {
+    var title = String((cw && cw.title) || '').replace(/\s+/g, ' ').trim();
+    if (!/學習講義/.test(title) || HANDOUT_OTHER_SUBJECTS_.test(title)) return;
+    var scores = {};
+    var filled = 0;
+    (subsByWork[cw.id] || []).forEach(function (sub) {
+      var code = codeOf[sub.userId];
+      if (!code) return;
+      var grade = sub.assignedGrade != null ? sub.assignedGrade : sub.draftGrade;
+      if (grade != null && isFinite(Number(grade))) {
+        scores[code] = Number(grade);
+        filled += 1;
+      } else if (sub.state === 'TURNED_IN' || sub.state === 'RETURNED') {
+        scores[code] = 'submitted';
+        filled += 1;
+      } else {
+        scores[code] = '';
+      }
+    });
+    var due = cw.dueDate && cw.dueDate.year
+      ? cw.dueDate.year + '-' + ('0' + cw.dueDate.month).slice(-2) + '-' + ('0' + cw.dueDate.day).slice(-2)
+      : '';
+    var max = Number(cw.maxPoints);
+    columns.push({
+      title: title.slice(0, 80),
+      dueDate: due,
+      max: isFinite(max) && max > 0 ? max : 100,
+      filled: filled,
+      scores: scores
+    });
+  });
+  return { classCodes: classCodes, students: Object.keys(codeOf).length, unmatched: unmatched, columns: columns };
+}
+
+function classroomListAll_(fn, key) {
+  var out = [];
+  var token = '';
+  for (var guard = 0; guard < 50; guard++) {
+    var res = fn(token) || {};
+    out = out.concat(res[key] || []);
+    token = res.nextPageToken || '';
+    if (!token) break;
+  }
+  return out;
+}
+
+/** 直接從 Classroom 讀這班的學習講義（只讀；要先在 Apps Script「服務」加入 Google Classroom API）。 */
+function readClassroomCourseApi_(className) {
+  var cn = String(className || '').trim();
+  if (!/^\d{3}$/.test(cn)) throw new Error('班級名稱要是三位數，例如 801');
+  if (typeof Classroom === 'undefined') {
+    throw new Error('CLASSROOM_SERVICE_OFF：Apps Script 還沒加入 Google Classroom API 服務');
+  }
+  // 不帶 Google 原始英文訊息：前端看到 permission 字樣會誤判成 /exec 部署問題
+  try {
+    return readClassroomCourseInner_(cn);
+  } catch (err) {
+    var msg = String(err && err.message ? err.message : err);
+    if (/^CLASSROOM_/.test(msg)) throw err;
+    throw new Error('CLASSROOM_DENIED：讀不到 Classroom，請在 Apps Script 執行 authorizeClassroom 並按允許；若仍不行，可能是學校限制 Classroom API');
+  }
+}
+
+function readClassroomCourseInner_(cn) {
+  var courses = classroomListAll_(function (token) {
+    return Classroom.Courses.list({ teacherId: 'me', courseStates: ['ACTIVE'], pageSize: 100, pageToken: token || undefined });
+  }, 'courses');
+  var matched = courses.filter(function (c) {
+    return (String(c.name || '') + ' ' + String(c.section || '')).indexOf(cn) >= 0;
+  });
+  if (!matched.length) throw new Error('CLASSROOM_NO_COURSE：Classroom 找不到名稱含「' + cn + '」的課程');
+  var best = { classCodes: [], students: 0, unmatched: 0, columns: [] };
+  var byTitle = {};
+  matched.forEach(function (course) {
+    var students = classroomListAll_(function (token) {
+      return Classroom.Courses.Students.list(course.id, { pageSize: 100, pageToken: token || undefined });
+    }, 'students');
+    var work = classroomListAll_(function (token) {
+      return Classroom.Courses.CourseWork.list(course.id, { courseWorkStates: ['PUBLISHED'], pageSize: 100, pageToken: token || undefined });
+    }, 'courseWork').filter(function (cw) {
+      return /學習講義/.test(String(cw.title || '')) && !HANDOUT_OTHER_SUBJECTS_.test(String(cw.title || ''));
+    });
+    if (!work.length) return;
+    var subs = classroomListAll_(function (token) {
+      return Classroom.Courses.CourseWork.StudentSubmissions.list(course.id, '-', { pageSize: 1000, pageToken: token || undefined });
+    }, 'studentSubmissions');
+    var parsed = classroomCourseColumns_(students, work, subs);
+    parsed.classCodes.forEach(function (code) {
+      if (best.classCodes.indexOf(code) < 0) best.classCodes.push(code);
+    });
+    best.students = Math.max(best.students, parsed.students);
+    best.unmatched = Math.max(best.unmatched, parsed.unmatched);
+    parsed.columns.forEach(function (col) {
+      var prev = byTitle[col.title];
+      if (!prev || col.filled > prev.filled) byTitle[col.title] = col;
+    });
+  });
+  best.columns = Object.keys(byTitle).map(function (t) { return byTitle[t]; }).sort(function (a, b) {
+    return String(a.dueDate || '9999').localeCompare(String(b.dueDate || '9999'));
+  });
+  best.ok = true;
+  best.source = 'classroom';
+  best.title = matched.map(function (c) { return c.name; }).join('、');
+  return best;
+}
+
+/** 在 Apps Script 編輯器執行一次，允許「讀取 Classroom 課程、名單與作業」權限。 */
+function authorizeClassroom() {
+  if (typeof Classroom === 'undefined') {
+    throw new Error('請先在左側「服務」按＋，加入 Google Classroom API，再執行一次');
+  }
+  var res = Classroom.Courses.list({ teacherId: 'me', courseStates: ['ACTIVE'], pageSize: 50 });
+  var names = ((res && res.courses) || []).map(function (c) { return c.name; });
+  Logger.log('已允許 Classroom 讀取。找到 ' + names.length + ' 門課程：' + names.join('、'));
 }
 
 /** 從另一份「上課課表」試算表讀取最新內容（只讀，不寫入）。 */
