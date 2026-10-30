@@ -6147,24 +6147,33 @@
     return workDaysLate(dueKey, submittedKey) >= Math.max(allow, 1);
   }
 
+  /** 有繳交的作業保底 60：原始 0～100 等比例換成 60～100，跟完全未繳交（0 分）分開。 */
+  var HW_SUBMITTED_FLOOR = 60;
+
+  function adjustSubmittedHomework(original) {
+    return round1(HW_SUBMITTED_FLOOR + Math.max(0, Math.min(100, original)) * (100 - HW_SUBMITTED_FLOOR) / 100);
+  }
+
   function homeworkResult(col, seatNo) {
     var rec = ((col && col.records) || {})[seatNo] || {};
     var rules = gradeRules();
     if (rec.status !== 'submitted') {
-      return { status: 'missing', raw: null, final: 0, late: false, penalty: 0 };
+      return { status: 'missing', raw: null, original: 0, final: 0, late: false, penalty: 0 };
     }
     if (rec.score === '' || rec.score == null || !isFinite(Number(rec.score))) {
-      return { status: 'submitted', raw: null, final: null, late: false, penalty: 0 };
+      return { status: 'submitted', raw: null, original: null, final: null, late: false, penalty: 0 };
     }
     var max = Number(col.max) || 100;
     var raw100 = round1(Number(rec.score) / max * 100);
     var submittedAt = rec.submittedAt || col.dueDate || col.date;
     var late = isLateHomework(col.dueDate || col.date, submittedAt);
     var penalty = late ? (Number(rules.latePenalty) || 10) : 0;
+    var original = Math.max(0, round1(raw100 - penalty));
     return {
       status: 'submitted',
       raw: Number(rec.score),
-      final: Math.max(0, round1(raw100 - penalty)),
+      original: original,
+      final: adjustSubmittedHomework(original),
       late: late,
       penalty: penalty
     };
@@ -6567,8 +6576,8 @@
     var result = homeworkResult(col, seatNo);
     var note = '未繳 0';
     if (submitted && result.final == null) note = '已繳未評';
-    else if (submitted && result.late) note = '遲交−' + result.penalty + ' → ' + result.final;
-    else if (submitted) note = '實得 ' + result.final;
+    else if (submitted && result.late) note = '遲交−' + result.penalty + '：原始 ' + result.original + ' → 調整 ' + result.final;
+    else if (submitted) note = '原始 ' + result.original + ' → 調整 ' + result.final;
     return '<td class="hw-cell" data-submitted="' + (submitted ? '1' : '0') + '">' +
       '<div class="cell-stack">' +
       '<select data-hw-status data-id="' + escapeHtml(col.id) + '" data-seat="' + escapeHtml(String(seatNo)) + '">' +
@@ -6763,7 +6772,10 @@
       '<li>平時考試 ＝ 黃卷與早自習平均（換算成 100 分制）。請假不計入。</li>' +
       '<li>段考平均同樣換算成 100 分制，請假不計入。</li>' +
       '<li>作業可記未繳交／已繳交，繳交後再登錄成績與繳交日。超過期限 ' + rules.lateWorkDays +
-      ' 個工作天（週六日與國定假日不算）扣 ' + rules.latePenalty + ' 分。未繳交以 0 分計。</li>' +
+      ' 個工作天（週六日與國定假日不算）扣 ' + rules.latePenalty + ' 分。' +
+      '有繳交的作業保底 ' + HW_SUBMITTED_FLOOR + ' 分：調整後 ＝ ' + HW_SUBMITTED_FLOOR + ' ＋ 原始 × ' +
+      ((100 - HW_SUBMITTED_FLOOR) / 100) + '（原始 0 → ' + HW_SUBMITTED_FLOOR + '、50 → ' + adjustSubmittedHomework(50) +
+      '、100 → 100），計算平均用調整後；未繳交仍以 0 分計。</li>' +
       '<li>每週成績 ＝ 平時×' + rules.classWeight + '% ＋ 平時考試×' + rules.quizWeight + '% ＋ 段考×' + rules.examWeight + '%。</li>' +
       '<li>若本週完全沒有平時成績，就不使用底分，只算平時考試（有段考仍一併加權）。缺的項目不計，其餘比重按比例重算。</li>' +
       '</ol>' +
@@ -7551,7 +7563,8 @@
         if (spec.homework) {
           var hw = homeworkResult(spec.col, row.seatNo);
           if (hw.status === 'missing') return '<td class="grid-low" title="未繳">未繳</td>';
-          return '<td' + (hw.final != null && hw.final < 60 ? ' class="grid-low"' : '') + '>' + fmtMaybe(hw.final) + '</td>';
+          return '<td' + (hw.final != null && hw.final < 60 ? ' class="grid-low"' : '') +
+            (hw.final != null ? ' title="原始 ' + hw.original + ' → 調整 ' + hw.final + '"' : '') + '>' + fmtMaybe(hw.final) + '</td>';
         }
         var raw = readSeatScore(spec.col.scores, row.seatNo);
         if (isLeaveScore(raw)) return '<td class="grid-leave">假</td>';
@@ -8226,7 +8239,8 @@
         title: col.title || '作業',
         mine: mine,
         classAvg: info.avg,
-        note: result.status === 'missing' ? '未繳' : (result.late ? '遲交' : (result.final == null ? '已繳未評' : ''))
+        note: result.status === 'missing' ? '未繳' : (result.final == null ? '已繳未評' :
+          ((result.late ? '遲交，' : '') + '原始 ' + result.original))
       });
     });
     return items;
