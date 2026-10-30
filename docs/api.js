@@ -790,13 +790,6 @@
     return out;
   }
 
-  function activeHwMissingForClass_(storeOrMap, className) {
-    var map = storeOrMap && storeOrMap.hwMissing ? storeOrMap.hwMissing : storeOrMap;
-    return ((map && map[className]) || []).filter(function (item) {
-      return item && !item.deleted && (item.seats || []).length;
-    });
-  }
-
   function mergeHwMissingProtect_(localMap, remoteMap) {
     localMap = localMap && typeof localMap === 'object' ? localMap : {};
     remoteMap = remoteMap && typeof remoteMap === 'object' ? remoteMap : {};
@@ -1816,7 +1809,6 @@
       ok: true,
       classNames: classNames(store),
       classroom: clone(room),
-      mockExam: store.mockExam || emptyMockExam_(),
       lessonLog: store.lessonLog || emptyLessonLog_(),
       scheduleChanges: activeScheduleChanges_(store.scheduleChanges),
       substitutes: activeSubstitutes_(store.substitutes),
@@ -2863,26 +2855,6 @@
       saveStore(store);
       return wrap(report);
     },
-    importMockExam: function (pack) {
-      var store = loadStore();
-      store.mockExam = normalizeMockExam_(pack);
-      saveStore(store);
-      return wrap({
-        ok: true,
-        mockExam: store.mockExam,
-        classNames: classNames(store)
-      });
-    },
-    clearMockExam: function () {
-      var store = loadStore();
-      store.mockExam = emptyMockExam_();
-      saveStore(store);
-      return wrap({ ok: true, mockExam: store.mockExam });
-    },
-    getMockExam: function () {
-      var store = loadStore();
-      return wrap({ ok: true, mockExam: store.mockExam || emptyMockExam_() });
-    },
     getLessonLog: function () {
       var store = loadStore();
       return wrap({
@@ -3114,94 +3086,6 @@
         items: cn ? (map[cn] || []) : [],
         className: cn,
         classNames: classNames(store)
-      });
-    },
-    saveHwMissing: function (body) {
-      var store = loadStore();
-      var className = String((body && body.className) || '').trim();
-      if (!className) throw new Error('請先選班級');
-      var item = normalizeHwMissingItem_(body || {}, className);
-      item.deleted = false;
-      item.className = className;
-      if (!item.seats.length) throw new Error('請至少選一位缺交座號');
-      if (!item.dueDate) throw new Error('請填繳交期限');
-      item.updatedAt = nowIso();
-      if (!item.createdAt) item.createdAt = item.updatedAt;
-      store.hwMissing = normalizeHwMissing_(store.hwMissing);
-      if (!store.hwMissing[className]) store.hwMissing[className] = [];
-      var found = false;
-      store.hwMissing[className] = store.hwMissing[className].map(function (old) {
-        if (old.id !== item.id) return old;
-        found = true;
-        return item;
-      });
-      if (!found) store.hwMissing[className].unshift(item);
-      store.hwMissing = normalizeHwMissing_(store.hwMissing);
-      saveStore(store);
-      var result = {
-        ok: true,
-        hwMissing: store.hwMissing,
-        items: activeHwMissingForClass_(store, className),
-        className: className,
-        item: item
-      };
-      if (!cloudOn() || !hydrated) return wrap(result);
-      clearTimeout(saveTimer);
-      saveTimer = null;
-      return pushCloud_(memStore).then(function () {
-        result.hwMissing = memStore.hwMissing || result.hwMissing;
-        result.items = activeHwMissingForClass_(memStore, className);
-        result.synced = true;
-        return result;
-      }).catch(function (err) {
-        result.synced = false;
-        result.cloudError = err && err.message ? err.message : '雲端同步失敗';
-        return result;
-      });
-    },
-    deleteHwMissing: function (body) {
-      var store = loadStore();
-      var className = String((body && body.className) || '').trim();
-      var id = String((body && body.id) || '').trim();
-      if (!className || !id) throw new Error('缺少要刪的缺交名單');
-      store.hwMissing = normalizeHwMissing_(store.hwMissing);
-      if (!store.hwMissing[className]) store.hwMissing[className] = [];
-      var found = false;
-      store.hwMissing[className] = store.hwMissing[className].map(function (item) {
-        if (item.id !== id) return item;
-        found = true;
-        return Object.assign({}, item, { deleted: true, updatedAt: nowIso() });
-      });
-      if (!found) {
-        store.hwMissing[className].unshift(normalizeHwMissingItem_({
-          id: id,
-          className: className,
-          title: '-',
-          seats: ['00'],
-          deleted: true,
-          updatedAt: nowIso()
-        }, className));
-      }
-      store.hwMissing = normalizeHwMissing_(store.hwMissing);
-      saveStore(store);
-      var result = {
-        ok: true,
-        hwMissing: store.hwMissing,
-        items: activeHwMissingForClass_(store, className),
-        className: className
-      };
-      if (!cloudOn() || !hydrated) return wrap(result);
-      clearTimeout(saveTimer);
-      saveTimer = null;
-      return pushCloud_(memStore).then(function () {
-        result.hwMissing = memStore.hwMissing || result.hwMissing;
-        result.items = activeHwMissingForClass_(memStore, className);
-        result.synced = true;
-        return result;
-      }).catch(function (err) {
-        result.synced = false;
-        result.cloudError = err && err.message ? err.message : '雲端同步失敗';
-        return result;
       });
     },
     saveLessonProgress: function (body) {
