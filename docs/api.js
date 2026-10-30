@@ -2479,6 +2479,15 @@
       (body.columns || []).forEach(function (col) {
         var title = String((col && col.title) || '').trim().slice(0, 80);
         if (!title) return;
+        var hasAny = Object.keys(col.scores || {}).some(function (key) {
+          var v = col.scores[key];
+          return (typeof v === 'number' && isFinite(v)) || v === 'submitted';
+        });
+        // 整欄空白多半是還沒批改：先跳過，不建立也不改既有紀錄，避免全班變 0 分
+        if (!hasAny) {
+          report.blankColumns.push(title);
+          return;
+        }
         var hit = book.homeworks.filter(function (h) { return h && String(h.title || '').trim() === title; })[0];
         if (hit) report.updated += 1; else report.created += 1;
         if (!body.dryRun) {
@@ -2499,7 +2508,6 @@
             hit.records = hit.records || {};
           }
         }
-        var any = false;
         Object.keys(col.scores || {}).forEach(function (key) {
           var seat = seatOf[String(key)];
           if (!seat) {
@@ -2512,18 +2520,15 @@
           if (typeof v === 'number' && isFinite(v)) {
             rec = { status: 'submitted', score: v };
             report.submitted += 1;
-            any = true;
           } else if (v === 'submitted') {
             rec = { status: 'submitted' };
             report.pending += 1;
-            any = true;
           } else {
             rec = { status: 'missing' };
             report.missing += 1;
           }
           if (!body.dryRun) hit.records[seat] = rec;
         });
-        if (!any) report.blankColumns.push(title);
       });
       if (body.dryRun) return wrap(report);
       book.homeworks = normalizeHomeworkColumns_(book.homeworks);
