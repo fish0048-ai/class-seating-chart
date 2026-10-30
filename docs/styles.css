@@ -1575,6 +1575,32 @@
     background: #fbe9e7;
   }
 
+  .col-skip {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    min-height: 28px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .col-skip input {
+    margin: 0;
+  }
+
+  th.col-excluded {
+    background: #eceff1;
+    color: #78868f;
+  }
+
+  th.col-excluded .col-title {
+    text-decoration: line-through;
+  }
+
   .report-table input,
   .report-table select {
     min-height: 32px;

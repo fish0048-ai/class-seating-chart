@@ -6121,9 +6121,14 @@
     return round1(n / max * 100);
   }
 
+  /** 勾了「暫不計算」的成績欄不列入任何平均與總分。 */
+  function countedCols(cols) {
+    return (cols || []).filter(function (col) { return col && !col.excluded; });
+  }
+
   function average100(cols, seatNo) {
     var vals = [];
-    (cols || []).forEach(function (col) {
+    countedCols(cols).forEach(function (col) {
       var v = columnScore100(col, seatNo);
       if (v != null) vals.push(v);
     });
@@ -6182,7 +6187,8 @@
   }
 
   function averageHomework(cols, seatNo) {
-    if (!(cols || []).length) return null;
+    cols = countedCols(cols);
+    if (!cols.length) return null;
     var vals = [];
     cols.forEach(function (col) {
       var result = homeworkResult(col, seatNo);
@@ -6340,6 +6346,11 @@
   }
 
   function onGradeCellChange(event) {
+    var skip = event.target.closest('[data-skip-grade]');
+    if (skip) {
+      setGradeColumnExcluded(skip.getAttribute('data-kind'), skip.getAttribute('data-id'), skip.checked);
+      return;
+    }
     markDirtyFromGradeEl(event.target);
     var mark = event.target.closest('[data-grade-mark]');
     if (mark) {
@@ -6494,9 +6505,12 @@
   }
 
   function gradeColHead(col, kind, extra) {
-    return '<th>' +
+    var off = !!col.excluded;
+    return '<th' + (off ? ' class="col-excluded" title="這欄暫不計算，不列入平均與總分"' : '') + '>' +
       '<span class="col-title">' + escapeHtml(col.title) + '</span>' +
       '<small>' + escapeHtml(shortDate(col.date)) + (extra || '') + '</small>' +
+      '<label class="col-skip"><input type="checkbox" data-skip-grade data-kind="' + kind +
+      '" data-id="' + escapeHtml(col.id) + '"' + (off ? ' checked' : '') + ' />暫不計</label>' +
       '<button type="button" class="col-del-mini" data-del-grade data-kind="' +
       kind + '" data-id="' + escapeHtml(col.id) + '">刪</button></th>';
   }
@@ -6778,6 +6792,7 @@
         title: col.title,
         date: col.date,
         max: col.max,
+        excluded: !!col.excluded,
         scores: Object.assign({}, col.scores || {})
       };
     });
@@ -6791,6 +6806,7 @@
         date: col.date,
         dueDate: col.dueDate,
         max: col.max,
+        excluded: !!col.excluded,
         records: JSON.parse(JSON.stringify(col.records || {}))
       };
     });
@@ -6927,16 +6943,64 @@
     });
   }
 
+  var GRADE_KIND_LABEL = { yellow: '黃卷', morning: '早自習', exam: '段考', lab: '實作評量', practical: '實作成績', homework: '作業' };
+
+  function flushGradeEdits() {
+    clearTimeout(gradeSaveTimer);
+    gradeSaveTimer = null;
+    return App.gradeDirty && Object.keys(App.gradeDirty).length
+      ? api('saveGradebook', [collectGradebookFromTable({ dirtyOnly: true })])
+      : Promise.resolve();
+  }
+
   function deleteGradeColumn(kind, id) {
-    if (!window.confirm('要刪掉這一欄嗎？會從全校各班一起刪除，分數也會一起刪掉。')) return;
-    api('deleteGradeColumn', [{ className: teacherTargetClass(), type: kind, id: id }]).then(function (data) {
+    var className = teacherTargetClass();
+    flushGradeEdits().then(function () {
+      return api('deleteGradeColumn', [{ className: className, type: kind, id: id, dryRun: true }]);
+    }).then(function (info) {
+      var label = (GRADE_KIND_LABEL[kind] || '成績') + '「' + ((info && info.title) || '這一欄') + '」';
+      var lines = [
+        '確定要刪除' + label + '嗎？',
+        '',
+        '會從 ' + ((info && info.classCount) || 1) + ' 個班一起刪除，' +
+          ((info && info.scoreCount) ? '其中已有 ' + info.scoreCount + ' 筆成績會一起刪掉，無法復原。' : '目前沒有任何成績。'),
+        '',
+        '只是暫時不想算進成績的話，請改勾欄位上的「暫不計」。'
+      ];
+      if (!window.confirm(lines.join('\n'))) return null;
+      if (info && info.scoreCount > 0 &&
+          !window.confirm('再確認一次：真的要刪掉' + label + '和那 ' + info.scoreCount + ' 筆成績嗎？')) return null;
+      return api('deleteGradeColumn', [{ className: className, type: kind, id: id }]);
+    }).then(function (data) {
+      if (!data) return;
       applyGradebook(data);
       renderGradebook();
-      var n = data && data.sharedCount ? data.sharedCount : 1;
-      toast('已從 ' + n + ' 個班刪除這一欄');
       App.schoolPacks = null;
-    }).catch(function () {
-      toast('刪除失敗');
+      var n = data.sharedCount || 1;
+      if (data.synced === false) {
+        toast('已從 ' + n + ' 個班刪除，但還沒同步到雲端：' + (data.cloudError || '') + '。請按「立即同步」', 8000);
+      } else {
+        toast('已從 ' + n + ' 個班刪除這一欄，雲端也已刪除');
+      }
+    }).catch(function (err) {
+      toast(err && err.message ? err.message : '刪除失敗');
+    });
+  }
+
+  function setGradeColumnExcluded(kind, id, excluded) {
+    var className = teacherTargetClass();
+    flushGradeEdits().then(function () {
+      return api('setGradeColumnExcluded', [{ className: className, type: kind, id: id, excluded: excluded }]);
+    }).then(function (data) {
+      applyGradebook(data);
+      renderGradebook();
+      App.schoolPacks = null;
+      var msg = excluded ? '這一欄暫不計算，平均與總分已不含它' : '這一欄恢復計算';
+      if (data && data.synced === false) msg += '（還沒同步到雲端，請按「立即同步」）';
+      toast(msg);
+    }).catch(function (err) {
+      toast(err && err.message ? err.message : '設定失敗');
+      renderGradebook();
     });
   }
 
@@ -9334,7 +9398,7 @@
   function termExamOptions(classes) {
     var byTitle = {};
     (classes || []).forEach(function (c) {
-      ((c.gradebook && c.gradebook.exams) || []).forEach(function (col) {
+      countedCols(c.gradebook && c.gradebook.exams).forEach(function (col) {
         var title = String((col && col.title) || '').trim();
         if (!title) return;
         var date = String((col && col.date) || '');
@@ -9407,8 +9471,8 @@
 
   function buildTermClassRows(cls, opt) {
     var book = cls.gradebook || {};
-    var hws = byColDate(book.homeworks).filter(function (c) { return inTermRange(colDateKey(c), opt); });
-    var quizzes = byColDate((book.yellow || []).concat(book.morning || [])).filter(function (c) {
+    var hws = byColDate(countedCols(book.homeworks)).filter(function (c) { return inTermRange(colDateKey(c), opt); });
+    var quizzes = byColDate(countedCols((book.yellow || []).concat(book.morning || []))).filter(function (c) {
       return inTermRange(String(c.date || ''), opt);
     });
     var exam = (book.exams || []).filter(function (c) { return String(c.title || '').trim() === opt.title; })[0] || null;

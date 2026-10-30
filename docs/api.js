@@ -190,6 +190,7 @@
     if (!Array.isArray(book.labs)) book.labs = [];
     if (!Array.isArray(book.practicals)) book.practicals = [];
     if (!Array.isArray(book.homeworks)) book.homeworks = [];
+    applyRemovedCols_(book);
     moveContestToQuiz_(book);
     return book;
   }
@@ -281,6 +282,7 @@
         date: col.date,
         dueDate: col.dueDate,
         max: col.max,
+        excluded: !!col.excluded,
         scores: Object.assign({}, col.scores || {}),
         records: col.records ? JSON.parse(JSON.stringify(col.records)) : undefined
       };
@@ -326,6 +328,8 @@
       homeworks: mergeGradeColumnsPreserve_(localBook.homeworks, remoteBook.homeworks, fillEmpty)
     };
     if (remoteBook.quizzes && (!out.yellow || !out.yellow.length)) out.yellow = remoteBook.quizzes;
+    out.removedCols = Object.assign({}, normalizeRemovedCols_(remoteBook.removedCols), normalizeRemovedCols_(localBook.removedCols));
+    applyRemovedCols_(out);
     moveContestToQuiz_(out);
     return out;
   }
@@ -543,8 +547,32 @@
         title: String(raw.title || '').trim() || '未命名',
         date: String(raw.date || todayKey_()),
         max: clampInt(raw.max, 1, 200, 100),
+        excluded: !!raw.excluded,
         scores: normalizeScoreMap_(raw.scores)
       };
+    });
+  }
+
+  var GRADE_BOOK_KEYS_ = ['yellow', 'morning', 'exams', 'labs', 'practicals', 'homeworks'];
+
+  /** 已刪除的成績欄 id（含刪除時間）。合併時一律排除，避免另一邊仍有的舊欄被補回來。 */
+  function normalizeRemovedCols_(raw) {
+    var out = {};
+    Object.keys(raw && typeof raw === 'object' ? raw : {}).forEach(function (id) {
+      if (id) out[String(id)] = String(raw[id] || '1');
+    });
+    return out;
+  }
+
+  function applyRemovedCols_(book) {
+    if (!book) return;
+    book.removedCols = normalizeRemovedCols_(book.removedCols);
+    var rm = book.removedCols;
+    if (!Object.keys(rm).length) return;
+    GRADE_BOOK_KEYS_.forEach(function (key) {
+      if (Array.isArray(book[key])) {
+        book[key] = book[key].filter(function (col) { return !(col && rm[String(col.id)]); });
+      }
     });
   }
 
@@ -625,6 +653,7 @@
         date: String(raw.date || todayKey_()),
         dueDate: String(raw.dueDate || raw.date || todayKey_()),
         max: clampInt(raw.max, 1, 200, 100),
+        excluded: !!raw.excluded,
         records: records
       };
     });
@@ -669,6 +698,7 @@
     if (!parsed.history) parsed.history = [];
     if (!parsed.grades) parsed.grades = {};
     Object.keys(parsed.grades).forEach(function (cn) {
+      applyRemovedCols_(parsed.grades[cn]);
       moveContestToQuiz_(parsed.grades[cn]);
     });
     parsed.mockExam = normalizeMockExam_(parsed.mockExam);
@@ -2595,6 +2625,10 @@
         return data;
       });
     },
+    /**
+     * 刪除成績欄（全校各班同 id）。記進 removedCols，前後端合併都會排除，雲端舊資料不會再把它補回來。
+     * dryRun 只回報會刪幾班、幾筆分數，給確認視窗用。
+     */
     deleteGradeColumn: function (body) {
       var store = loadStore();
       var className = String((body && body.className) || '').trim();
@@ -2608,16 +2642,81 @@
       });
       if (className && targets.indexOf(className) < 0) targets.push(className);
       var removed = 0;
+      var scoreCount = 0;
+      var title = '';
       targets.forEach(function (cn) {
         var book = ensureGrades_(store, cn);
-        var before = (book[key] || []).length;
-        book[key] = (book[key] || []).filter(function (item) { return item.id !== id; });
-        if ((book[key] || []).length < before) removed += 1;
+        var hit = (book[key] || []).filter(function (item) { return item && String(item.id) === id; })[0];
+        if (!hit) return;
+        removed += 1;
+        title = title || String(hit.title || '');
+        scoreCount += type === 'homework'
+          ? Object.keys(hit.records || {}).filter(function (s) { return hit.records[s] && hit.records[s].status; }).length
+          : countScoreMap_(hit.scores);
+      });
+      if (body && body.dryRun) {
+        return wrap({ ok: true, title: title, classCount: removed, scoreCount: scoreCount });
+      }
+      var at = nowIso();
+      targets.forEach(function (cn) {
+        var book = ensureGrades_(store, cn);
+        book.removedCols[id] = at;
+        applyRemovedCols_(book);
       });
       saveStore(store);
+      var result = null;
       return gradebookResult_(className || targets[0] || '', ensureGrades_(store, className || targets[0] || '範例班')).then(function (data) {
-        data.sharedCount = removed;
-        return data;
+        result = data;
+        result.sharedCount = removed;
+        if (!cloudOn() || !hydrated) return result;
+        clearTimeout(saveTimer);
+        saveTimer = null;
+        return pushCloud_(memStore).then(function () {
+          result.synced = true;
+          return result;
+        }).catch(function (err) {
+          result.synced = false;
+          result.cloudError = err && err.message ? err.message : '雲端同步失敗';
+          return result;
+        });
+      });
+    },
+    /** 成績欄「暫不計算」：全校各班同 id 一起切換，平均與總分都不算這欄。 */
+    setGradeColumnExcluded: function (body) {
+      var store = loadStore();
+      var className = String((body && body.className) || '').trim();
+      var type = String((body && body.type) || 'yellow');
+      if (!GRADE_LISTS_[type]) type = 'yellow';
+      var id = String((body && body.id) || '');
+      if (!id) throw new Error('缺少欄位');
+      var key = GRADE_LISTS_[type].key;
+      var excluded = !!(body && body.excluded);
+      var changed = 0;
+      classNames(store).forEach(function (cn) {
+        var book = ensureGrades_(store, cn);
+        (book[key] || []).forEach(function (col) {
+          if (col && String(col.id) === id) {
+            col.excluded = excluded;
+            changed += 1;
+          }
+        });
+      });
+      saveStore(store);
+      var result = null;
+      return gradebookResult_(className, ensureGrades_(store, className || '範例班')).then(function (data) {
+        result = data;
+        result.sharedCount = changed;
+        if (!cloudOn() || !hydrated) return result;
+        clearTimeout(saveTimer);
+        saveTimer = null;
+        return pushCloud_(memStore).then(function () {
+          result.synced = true;
+          return result;
+        }).catch(function (err) {
+          result.synced = false;
+          result.cloudError = err && err.message ? err.message : '雲端同步失敗';
+          return result;
+        });
       });
     },
     saveGradebook: function (body) {
@@ -2644,6 +2743,7 @@
       if (body.labs) book.labs = replaceGradeListIfSafe_(body.labs, book.labs);
       if (body.practicals) book.practicals = replaceGradeListIfSafe_(body.practicals, book.practicals);
       if (body.homeworks) book.homeworks = replaceHomeworkListIfSafe_(body.homeworks, book.homeworks);
+      applyRemovedCols_(book);
       saveStore(store);
       return gradebookResult_(className, book);
     },
