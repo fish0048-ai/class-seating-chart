@@ -885,7 +885,7 @@ function processHandoutCheck_(budgetMs) {
   var job = {};
   try {
     job = JSON.parse(props.getProperty(AI_CHECK_JOB_KEY_) || '{}');
-    var apiKey = props.getProperty('GEMINI_API_KEY');
+    var apiKey = String(props.getProperty('GEMINI_API_KEY') || '').trim();
     var sheet = aiCheckSheet_();
     var pending = aiCheckRows_(sheet).filter(function (row) { return row.values[3] === '待檢查'; });
     // 至少檢查一位；過了預算就不再開始下一位（一位最多約 1 分鐘，觸發器上限 6 分鐘）
@@ -1048,11 +1048,37 @@ function callGemini_(apiKey, parts) {
     if (code === 404) continue;
     if (code === 429) throw new Error('AI_RATE：額度暫時用完');
     var text = res.getContentText();
-    if (/API_KEY_INVALID|API key not valid/i.test(text)) throw new Error('AI_BAD_KEY：Gemini 金鑰不正確，請到指令碼屬性重新貼上 GEMINI_API_KEY');
-    if (code === 403) throw new Error('AI_DENIED：這組金鑰不能使用 Gemini（可能是學校帳號限制），請改用個人帳號申請的金鑰');
-    throw new Error('AI_ERROR：AI 回應錯誤（' + code + '）');
+    props.setProperty('AI_LAST_ERROR_RAW', (models[i] + ' HTTP ' + code + ' ' + text).slice(0, 2000));
+    throw new Error(geminiErrorText_(code, text));
   }
   throw new Error('AI_ERROR：找不到可用的 Gemini 模型，請在指令碼屬性加 GEMINI_MODEL 指定模型名稱');
+}
+
+/** Gemini 拒絕的原因翻成老師看得懂的中文（原文另存在指令碼屬性 AI_LAST_ERROR_RAW）。 */
+function geminiErrorText_(code, text) {
+  var err = {};
+  try { err = JSON.parse(text).error || {}; } catch (ignore) {}
+  var reasons = (err.details || []).map(function (d) { return d && d.reason; }).filter(Boolean).join(',');
+  var all = String(err.status || '') + ' ' + reasons + ' ' + String(err.message || text || '');
+  if (/API_KEY_INVALID|API key not valid|API_KEY_EXPIRED/i.test(all)) {
+    return 'AI_BAD_KEY：Gemini 金鑰不正確或已過期，請到 AI Studio 重新複製，貼到指令碼屬性 GEMINI_API_KEY';
+  }
+  if (/HTTP_REFERRER_BLOCKED|IP_ADDRESS_BLOCKED|ANDROID_APP_BLOCKED|IOS_APP_BLOCKED/i.test(all)) {
+    return 'AI_DENIED：這組金鑰設了「應用程式限制」（只允許某些網站），Apps Script 呼叫會被擋。請到 Google Cloud「憑證」把這組金鑰的應用程式限制改成「無」';
+  }
+  if (/API_KEY_SERVICE_BLOCKED/i.test(all)) {
+    return 'AI_DENIED：這組金鑰設了「API 限制」，沒有勾 Generative Language API。請到 Google Cloud「憑證」把它加進允許的 API，或改成不限制';
+  }
+  if (/SERVICE_DISABLED|has not been used in project|is disabled/i.test(all)) {
+    return 'AI_DENIED：金鑰所屬的專案還沒啟用 Generative Language API。請到 Google Cloud 主控台啟用後等幾分鐘再試，或直接在 AI Studio 重新建立金鑰';
+  }
+  if (/location is not supported|FAILED_PRECONDITION/i.test(all)) {
+    return 'AI_DENIED：Gemini 免費方案在這個地區或帳號不能用，請改用個人帳號在 AI Studio 申請的金鑰';
+  }
+  if (code === 403) {
+    return 'AI_DENIED：Google 拒絕這組金鑰使用 Gemini。請在 Apps Script 執行 testGemini 看原因；若是學校帳號申請的金鑰，請改用個人帳號在 AI Studio 申請';
+  }
+  return 'AI_ERROR：AI 回應錯誤（HTTP ' + code + (err.status ? '，' + err.status : '') + '）';
 }
 
 /** AI 回覆 → 工作表一列要寫的內容。 */
@@ -1135,8 +1161,14 @@ function refreshHandoutCheckApi_(className, title) {
 function testGemini() {
   var key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
   if (!key) throw new Error('指令碼屬性沒有 GEMINI_API_KEY');
-  var text = callGemini_(key, [{ text: '只回傳 JSON：{"ok":true,"msg":"金鑰可以用"}' }]);
-  Logger.log('模型：' + PropertiesService.getScriptProperties().getProperty('AI_MODEL_OK') + '｜回覆：' + text);
+  Logger.log('金鑰長度 ' + key.length + '，開頭 ' + key.slice(0, 4) + '…（AI Studio 的金鑰通常是 39 個字、AIza 開頭）');
+  try {
+    var text = callGemini_(key.trim(), [{ text: '只回傳 JSON：{"ok":true,"msg":"金鑰可以用"}' }]);
+    Logger.log('成功｜模型：' + PropertiesService.getScriptProperties().getProperty('AI_MODEL_OK') + '｜回覆：' + text);
+  } catch (err) {
+    Logger.log('失敗：' + String(err && err.message || err).replace(/^AI_[A-Z_]+：/, ''));
+    Logger.log('Google 原始回覆：' + (PropertiesService.getScriptProperties().getProperty('AI_LAST_ERROR_RAW') || '（沒有）'));
+  }
 }
 
 /** 從另一份「上課課表」試算表讀取最新內容（只讀，不寫入）。 */
