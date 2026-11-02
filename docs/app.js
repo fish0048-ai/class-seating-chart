@@ -9669,18 +9669,45 @@
     });
   }
 
-  /** 抽籤只能用「上課中班級」的加扣與成績；教師模式可能正開著別班。 */
+  var drawScoreCache = { key: '', days: null, book: null, map: {} };
+
+  /**
+   * 抽籤只能用「上課中班級」的加扣與成績；教師模式可能正開著別班。
+   * 全班一次算好暫存，加扣分、換班或成績資料更新才重算（每次加分都會查分區）。
+   */
   function usualScoreForDraw(student) {
     var cn = App.classroom && App.classroom.className;
     var draw = App.drawData && App.drawData.className === cn ? App.drawData : null;
-    var days = draw ? draw.days : (!App.dailyDaysClass || App.dailyDaysClass === cn ? App.dailyDays : []);
-    var book = draw ? draw.book : (!App.gradebookClass || App.gradebookClass === cn ? App.gradebook : null);
+    var days = (draw ? draw.days : (!App.dailyDaysClass || App.dailyDaysClass === cn ? App.dailyDays : [])) || [];
+    var book = (draw ? draw.book : (!App.gradebookClass || App.gradebookClass === cn ? App.gradebook : null)) || null;
+    var students = (App.classroom && App.classroom.students) || [];
+    var key = cn + '|' + (App.activeDate || '') + '|' + students.map(function (s) {
+      return s.seatNo + ':' + (Number(s.score) || 0);
+    }).join(',');
+    var seat = String(student.seatNo);
+    if (drawScoreCache.key !== key || drawScoreCache.days !== days || drawScoreCache.book !== book) {
+      drawScoreCache = { key: key, days: days, book: book, map: {} };
+      withDrawData_(days, book, function () {
+        students.forEach(function (s) {
+          drawScoreCache.map[String(s.seatNo)] = usualScoreForDrawNow_(s);
+        });
+      });
+    }
+    if (!(seat in drawScoreCache.map)) {
+      withDrawData_(days, book, function () {
+        drawScoreCache.map[seat] = usualScoreForDrawNow_(student);
+      });
+    }
+    return drawScoreCache.map[seat];
+  }
+
+  function withDrawData_(days, book, fn) {
     var prevDays = App.dailyDays;
     var prevBook = App.gradebook;
-    App.dailyDays = days || [];
+    App.dailyDays = days;
     App.gradebook = book || emptyGradebook();
     try {
-      return usualScoreForDrawNow_(student);
+      fn();
     } finally {
       App.dailyDays = prevDays;
       App.gradebook = prevBook;
@@ -10169,7 +10196,8 @@
     var weights = [];
     var i;
     for (i = 0; i < pool.length; i++) {
-      var t = Math.max(0, Math.min(100, Number(usualScoreForDraw(pool[i])) || 60));
+      var t = Number(usualScoreForDraw(pool[i]));
+      t = Math.max(0, Math.min(100, isFinite(t) ? t : 60));
       var w = 0.55 + (100 - t) / 100 * 1.45;
       weights.push(w);
       sum += w;
@@ -10197,6 +10225,9 @@
         className: className,
         days: (results[0] && results[0].days) || [],
         book: Object.assign(emptyGradebook(), {
+          yellow: book.yellow || [],
+          morning: book.morning || [],
+          exams: book.exams || [],
           labs: book.labs || [],
           practicals: book.practicals || [],
           homeworks: book.homeworks || [],
