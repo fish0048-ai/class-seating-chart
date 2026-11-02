@@ -10814,11 +10814,27 @@
     return { passes: passes, reminders: reminders, pending: pending };
   }
 
+  /** 提醒清單直接放有問題那幾張的縮圖（AI 沒標出是哪張時放全部），點了開原圖。 */
+  function aiCheckThumbsHtml(files) {
+    var list = files || [];
+    var flagged = list.filter(function (f) { return f.problem; });
+    return (flagged.length ? flagged : list).map(function (f, i) {
+      var no = f.no || i + 1;
+      var img = f.id
+        ? '<img src="https://drive.google.com/thumbnail?id=' + encodeURIComponent(f.id) + '&amp;sz=w600" loading="lazy" alt="第 ' + no + ' 張">'
+        : '';
+      return '<a class="ai-thumb' + (f.problem ? ' ai-thumb-problem' : '') + '" href="' + escapeHtml(f.link || '#') +
+        '" target="_blank" rel="noopener">' + img + '<span>第 ' + no + ' 張</span></a>';
+    }).join('');
+  }
+
   function aiCheckRowHtml(r, withScore) {
     var detail = [r.why, r.note].filter(Boolean).join('：');
-    var files = (r.files || []).map(function (f, i) {
-      return f.link ? '<a href="' + escapeHtml(f.link) + '" target="_blank" rel="noopener">' + (i + 1) + '</a>' : '';
-    }).filter(Boolean).join(' ');
+    var files = withScore
+      ? (r.files || []).map(function (f, i) {
+        return f.link ? '<a href="' + escapeHtml(f.link) + '" target="_blank" rel="noopener">' + (f.no || i + 1) + '</a>' : '';
+      }).filter(Boolean).join(' ')
+      : aiCheckThumbsHtml(r.files);
     return '<tr><td>' + escapeHtml(r.seat) + '</td>' +
       '<td>' + escapeHtml(detail || '—') + '</td>' +
       '<td>' + escapeHtml(r.turnedKey || '—') + (r.late ? '（晚 ' + r.late + ' 天）' : '') + '</td>' +
@@ -10856,7 +10872,12 @@
         '<div class="table-scroll"><table class="assess-table"><thead>' + head + '<th>分數</th>' + tail + '</thead><tbody>' +
         sum.passes.map(function (r) { return aiCheckRowHtml(r, true); }).join('') + '</tbody></table></div>';
     }
-    if (box) box.innerHTML = html;
+    if (box) {
+      box.innerHTML = html;
+      box.querySelectorAll('.ai-thumb img').forEach(function (img) {
+        img.addEventListener('error', function () { img.remove(); });
+      });
+    }
     if (apply) apply.hidden = !sum.passes.length;
     clearTimeout(App.aiCheckTimer);
     var modal = document.getElementById('aiCheckModal');
