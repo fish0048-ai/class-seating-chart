@@ -10804,8 +10804,8 @@
       if (s.status === '通過' && !s.turnedKey) row.why = '有寫完也有訂正，但沒有按「繳交」，無法依日期算分';
       else if (s.status === '通過') row.why = '有寫完也有訂正，但晚交 ' + late + ' 個工作天，扣到 0 分';
       else if (s.status === '需確認') row.why = 'AI 判斷通過但沒把握，請看一下照片';
-      else if (s.status === '未繳') row.why = '沒有繳交';
-      else if (s.status === '沒有檔案') row.why = '有按繳交，但沒有上傳照片或 PDF';
+      else if (s.status === '未繳') row.why = s.classroomGrade ? '沒有在 Classroom 繳交，但 Classroom 有分數（可能交紙本）' : '沒有繳交';
+      else if (s.status === '沒有檔案') row.why = '有按繳交，但沒有上傳照片或 PDF' + (s.classroomGrade ? '（Classroom 有分數，可能交紙本）' : '');
       else if (s.status === '讀取失敗') row.why = '檔案讀不到';
       else row.why = '沒通過';
       reminders.push(row);
