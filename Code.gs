@@ -729,7 +729,7 @@ function authorizeClassroom() {
 
 var AI_CHECK_SHEET_ = 'AI作業檢查';
 var AI_CHECK_HEADERS_ = ['班級', '講義', '座號', '狀態', '寫完', '錯題原因', '照片清楚', 'AI 說明',
-  '繳交時間', '繳交日', '期限日', 'Classroom 分數', '檔案', '嘗試次數', '檢查時間'];
+  '繳交時間', '繳交日', '期限日', 'Classroom 分數', '檔案', '嘗試次數', '檢查時間', '問題照片'];
 var AI_CHECK_JOB_KEY_ = 'AI_CHECK_JOB';
 var AI_CHECK_RUNNING_KEY_ = 'AI_CHECK_RUNNING';
 var AI_MODELS_ = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash'];
@@ -847,7 +847,7 @@ function startHandoutCheckApi_(className, title) {
     return [cn, target.title, s.seat, status, '', '', '', '',
       s.turnedInAt ? taipeiTime_(new Date(s.turnedInAt)) : '',
       s.turnedInAt ? taipeiTime_(new Date(s.turnedInAt), 'yyyy-MM-dd') : '',
-      target.dueKey, s.grade === '' ? '' : String(s.grade), JSON.stringify(s.files), '0', now];
+      target.dueKey, s.grade === '' ? '' : String(s.grade), JSON.stringify(s.files), '0', now, ''];
   });
   if (add.length) sheet.getRange(sheet.getLastRow() + 1, 1, add.length, AI_CHECK_HEADERS_.length).setValues(add);
   var props = PropertiesService.getScriptProperties();
@@ -904,6 +904,7 @@ function processHandoutCheck_(budgetMs) {
         v[5] = verdict.reasons;
         v[6] = verdict.readable;
         v[7] = verdict.note;
+        v[15] = verdict.problemFiles || '';
         job.lastError = '';
       } catch (err) {
         var msg = String(err && err.message ? err.message : err);
@@ -948,7 +949,8 @@ function checkHandoutFiles_(apiKey, title, files) {
   var parts = [{ text: handoutCheckPrompt_(title) }];
   var total = 0;
   var skipped = 0;
-  (files || []).slice(0, 8).forEach(function (f) {
+  var sent = 0;
+  (files || []).slice(0, 8).forEach(function (f, i) {
     var blob = handoutFileBlob_(f.id);
     if (!blob) {
       skipped += 1;
@@ -960,9 +962,11 @@ function checkHandoutFiles_(apiKey, title, files) {
       return;
     }
     total += size;
+    sent += 1;
+    parts.push({ text: '第 ' + (i + 1) + ' 張：' });
     parts.push({ inline_data: { mime_type: blob.getContentType(), data: Utilities.base64Encode(blob.getBytes()) } });
   });
-  if (parts.length === 1) {
+  if (!sent) {
     return { status: '讀取失敗', allAnswered: '', reasons: '', readable: '否', note: '上傳的檔案不是照片或 PDF，或打不開' };
   }
   var verdict = aiVerdict_(callGemini_(apiKey, parts));
@@ -1012,13 +1016,15 @@ function handoutCheckPrompt_(title) {
     '1. readable：照片是否清楚完整、看得出作答內容（模糊、太暗、只拍到一部分＝false）。',
     '2. same_handout：上傳的是不是這份講義（明顯是別份作業或無關照片＝false）。',
     '3. all_answered：每一個需要學生作答的格子、空格、題目是否都有寫答案（空白、只寫題號、明顯沒寫完＝false）。沒寫的題號或位置列到 missing。',
-    '   不用學生寫、空白也不算缺的地方：例題、範例、示例、好題示例、老師講解用的示範題、已經印好答案或解析的地方、標題與說明文字。',
+    '   例題、好題示例也要學生寫。只有已經印好答案或解析的地方、標題與說明文字不用寫。',
+    '   上傳的檔案依序標成「第 1 張、第 2 張…」。missing 與 wrong_without_reason 的每一項寫成「第N張 頁碼或位置 題號」。',
     '4. 找出被標成錯的題目（紅筆打叉、圈起來、旁邊有改正、明顯改過答案）。wrong_count＝錯題數。',
     '5. 每一題錯題旁邊（或講義的訂正區）是否有寫「錯誤原因」（為什麼錯、哪個觀念錯；只寫正確答案不算）。沒寫原因的錯題列到 wrong_without_reason。',
     '6. corrections_ok：所有錯題都有寫錯誤原因＝true；沒有錯題也＝true。',
     '7. confident：照片角度、字跡讓你沒把握時＝false。',
-    '8. note：用繁體中文一兩句話說明問題在哪（例如「第 2 頁第 5、6 題空白」「第 3、7 題錯了沒寫原因」），都沒問題就寫「都有寫完、錯題都有原因」。不要寫學生姓名。',
-    '只回傳 JSON：{"readable":true,"same_handout":true,"all_answered":true,"missing":[],"wrong_count":0,"wrong_without_reason":[],"corrections_ok":true,"confident":true,"note":""}'
+    '8. note：用繁體中文一兩句話說明問題在哪（例如「第 2 張第 5、6 題空白」「第 1 張第 3、7 題錯了沒寫原因」），都沒問題就寫「都有寫完、錯題都有原因」。不要寫學生姓名。',
+    '9. problem_files：有問題（沒寫完、錯題沒寫原因、看不清楚）的是第幾張，數字陣列，例如 [2]；都沒問題就是 []。',
+    '只回傳 JSON：{"readable":true,"same_handout":true,"all_answered":true,"missing":[],"wrong_count":0,"wrong_without_reason":[],"corrections_ok":true,"confident":true,"note":"","problem_files":[]}'
   ].join('\n');
 }
 
@@ -1106,8 +1112,11 @@ function aiVerdict_(text) {
   var missingReasons = list(j.wrong_without_reason);
   var note = safeAiText_(j.note || '');
   if (j.same_handout === false && note.indexOf('講義') < 0) note = '上傳的好像不是這份講義。' + note;
+  var problemFiles = (Array.isArray(j.problem_files) ? j.problem_files : []).map(Number)
+    .filter(function (n) { return n >= 1 && n <= 8; });
   return {
     status: status,
+    problemFiles: pass && j.confident !== false ? '' : problemFiles.join(','),
     allAnswered: answered ? '是' : ('否' + (list(j.missing) ? '：' + list(j.missing) : '')),
     reasons: wrongCount ? (reasonsOk ? '錯 ' + wrongCount + ' 題都有原因' : '缺原因：' + (missingReasons || '有錯題沒寫')) : (reasonsOk ? '沒有錯題' : '缺原因'),
     readable: readable ? '是' : '否',
@@ -1129,11 +1138,15 @@ function getHandoutCheckApi_(className, title) {
     var v = row.values;
     var files = [];
     try { files = JSON.parse(String(v[12] || '[]')); } catch (ignore) {}
+    var problems = String(v[15] || '').split(',').map(Number).filter(Boolean);
     return {
       seat: String(v[2]).replace(/^'/, ''), status: String(v[3]), allAnswered: String(v[4]), reasons: String(v[5]),
       readable: String(v[6]), note: safeAiText_(v[7]), turnedInAt: String(v[8]), turnedKey: String(v[9]),
       dueKey: String(v[10]), classroomGrade: String(v[11]),
-      files: files.map(function (f) { return { title: f.title, link: f.link }; }), checkedAt: String(v[14])
+      files: files.map(function (f, i) {
+        return { id: f.id, title: f.title, link: f.link, no: i + 1, problem: problems.indexOf(i + 1) >= 0 };
+      }),
+      checkedAt: String(v[14])
     };
   });
   var pending = students.filter(function (s) { return s.status === '待檢查'; }).length;

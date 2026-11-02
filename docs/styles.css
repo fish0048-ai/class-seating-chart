@@ -3197,6 +3197,28 @@
     font-weight: 700;
   }
 
+  .ai-thumb {
+    display: inline-grid;
+    gap: 2px;
+    margin: 0 6px 6px 0;
+    font-size: 12px;
+    text-align: center;
+    vertical-align: top;
+  }
+
+  .ai-thumb img {
+    width: 150px;
+    max-height: 200px;
+    object-fit: contain;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #fff;
+  }
+
+  .ai-thumb-problem img {
+    border: 2px solid #b4413c;
+  }
+
   .date-picker {
     flex: 2;
     min-width: 280px;
