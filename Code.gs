@@ -233,6 +233,10 @@ function handleRequest_(req) {
         return readClassroomHandoutsApi_(req.url || (payload && payload.url));
       case 'readClassroomCourse':
         return readClassroomCourseApi_(req.className || (payload && payload.className));
+      case 'startHandoutCheck':
+        return startHandoutCheckApi_(req.className, req.title);
+      case 'getHandoutCheck':
+        return refreshHandoutCheckApi_(req.className, req.title);
       default:
         return { ok: false, error: '未知的操作：' + action };
     }
@@ -719,6 +723,420 @@ function authorizeClassroom() {
   var res = Classroom.Courses.list({ teacherId: 'me', courseStates: ['ACTIVE'], pageSize: 50 });
   var names = ((res && res.courses) || []).map(function (c) { return c.name; });
   Logger.log('已允許 Classroom 讀取。找到 ' + names.length + ' 門課程：' + names.join('、'));
+}
+
+/* ===== AI 檢查學習講義（Gemini；只讀 Classroom 與雲端硬碟，結果寫在成績庫的「AI作業檢查」工作表） ===== */
+
+var AI_CHECK_SHEET_ = 'AI作業檢查';
+var AI_CHECK_HEADERS_ = ['班級', '講義', '座號', '狀態', '寫完', '錯題原因', '照片清楚', 'AI 說明',
+  '繳交時間', '繳交日', '期限日', 'Classroom 分數', '檔案', '嘗試次數', '檢查時間'];
+var AI_CHECK_JOB_KEY_ = 'AI_CHECK_JOB';
+var AI_CHECK_RUNNING_KEY_ = 'AI_CHECK_RUNNING';
+var AI_MODELS_ = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash'];
+var AI_MIN_GAP_MS_ = 7000;
+var AI_MAX_BYTES_ = 15 * 1024 * 1024;
+
+function taipeiTime_(d, fmt) {
+  return Utilities.formatDate(d, 'Asia/Taipei', fmt || 'yyyy-MM-dd HH:mm');
+}
+
+/** Classroom 的期限是 UTC；換成台灣日期。沒有時間只有日期時直接用那天。 */
+function classroomDueKey_(cw) {
+  var dd = cw && cw.dueDate;
+  if (!dd || !dd.year) return '';
+  function pad(n) { return ('0' + n).slice(-2); }
+  if (!cw.dueTime) return dd.year + '-' + pad(dd.month) + '-' + pad(dd.day);
+  var t = cw.dueTime;
+  return taipeiTime_(new Date(Date.UTC(dd.year, dd.month - 1, dd.day, t.hours || 0, t.minutes || 0)), 'yyyy-MM-dd');
+}
+
+/** 學生第一次按「繳交」的時間（ISO）；沒按過回空字串。 */
+function classroomFirstTurnIn_(sub) {
+  var times = (sub && sub.submissionHistory || []).filter(function (h) {
+    return h && h.stateHistory && h.stateHistory.state === 'TURNED_IN' && h.stateHistory.stateTimestamp;
+  }).map(function (h) { return String(h.stateHistory.stateTimestamp); }).sort();
+  return times[0] || '';
+}
+
+/** 讀這班這份講義：每位學生的繳交時間、Classroom 分數與上傳的檔案（不含姓名）。 */
+function classroomHandoutTargets_(className, title) {
+  var cn = String(className || '').trim();
+  var want = String(title || '').replace(/\s+/g, ' ').trim();
+  if (!/^\d{3}$/.test(cn) || !want) throw new Error('請選班級與講義');
+  if (typeof Classroom === 'undefined') throw new Error('CLASSROOM_SERVICE_OFF：Apps Script 還沒加入 Google Classroom API 服務');
+  var courses = classroomListAll_(function (token) {
+    return Classroom.Courses.list({ teacherId: 'me', courseStates: ['ACTIVE'], pageSize: 100, pageToken: token || undefined });
+  }, 'courses').filter(function (c) {
+    return (String(c.name || '') + ' ' + String(c.section || '')).indexOf(cn) >= 0;
+  });
+  for (var i = 0; i < courses.length; i++) {
+    var course = courses[i];
+    var cw = classroomListAll_(function (token) {
+      return Classroom.Courses.CourseWork.list(course.id, { courseWorkStates: ['PUBLISHED'], pageSize: 100, pageToken: token || undefined });
+    }, 'courseWork').filter(function (w) {
+      return String(w.title || '').replace(/\s+/g, ' ').trim() === want;
+    })[0];
+    if (!cw) continue;
+    var codeOf = {};
+    classroomListAll_(function (token) {
+      return Classroom.Courses.Students.list(course.id, { pageSize: 100, pageToken: token || undefined });
+    }, 'students').forEach(function (s) {
+      var code = classroomSeatCode_(s.profile);
+      if (code && code.slice(0, 3) === cn) codeOf[s.userId] = code.slice(4);
+    });
+    var students = [];
+    classroomListAll_(function (token) {
+      return Classroom.Courses.CourseWork.StudentSubmissions.list(course.id, cw.id, { pageSize: 100, pageToken: token || undefined });
+    }, 'studentSubmissions').forEach(function (sub) {
+      var seat = codeOf[sub.userId];
+      if (!seat) return;
+      var files = ((sub.assignmentSubmission && sub.assignmentSubmission.attachments) || []).filter(function (a) {
+        return a && a.driveFile && a.driveFile.id;
+      }).map(function (a) {
+        return { id: a.driveFile.id, title: String(a.driveFile.title || '').slice(0, 80), link: a.driveFile.alternateLink || '' };
+      });
+      students.push({
+        seat: seat,
+        state: sub.state || '',
+        grade: sub.assignedGrade != null ? sub.assignedGrade : (sub.draftGrade != null ? '草稿 ' + sub.draftGrade : ''),
+        turnedInAt: classroomFirstTurnIn_(sub),
+        files: files
+      });
+    });
+    students.sort(function (a, b) { return Number(a.seat) - Number(b.seat); });
+    return { courseName: course.name, title: cw.title, dueKey: classroomDueKey_(cw), students: students };
+  }
+  throw new Error('CLASSROOM_NO_COURSE：Classroom 找不到 ' + cn + ' 班的「' + want + '」');
+}
+
+function aiCheckSheet_() {
+  var sheet = ensureSheetWithHeaders_(getSs_(), AI_CHECK_SHEET_, AI_CHECK_HEADERS_);
+  // 純文字，日期與座號才不會被試算表自動轉格式
+  sheet.getRange(1, 1, sheet.getMaxRows(), AI_CHECK_HEADERS_.length).setNumberFormat('@');
+  return sheet;
+}
+
+function aiCheckRows_(sheet) {
+  var last = sheet.getLastRow();
+  if (last < 2) return [];
+  return sheet.getRange(2, 1, last - 1, AI_CHECK_HEADERS_.length).getValues().map(function (row, i) {
+    return { rowIndex: i + 2, values: row };
+  });
+}
+
+function aiCheckKeyOf_(values) {
+  return String(values[0]) + '|' + String(values[1]);
+}
+
+/** 開始檢查：列出全班、先跑一小段，其餘交給每分鐘的觸發器慢慢跑（配合免費額度）。 */
+function startHandoutCheckApi_(className, title) {
+  if (!PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY')) {
+    throw new Error('AI_NO_KEY：還沒設定 Gemini 金鑰。請到 Apps Script「專案設定 → 指令碼屬性」新增 GEMINI_API_KEY');
+  }
+  var target = classroomHandoutTargets_(className, title);
+  var cn = String(className).trim();
+  var key = cn + '|' + target.title;
+  var sheet = aiCheckSheet_();
+  var rows = aiCheckRows_(sheet);
+  for (var r = rows.length - 1; r >= 0; r--) {
+    if (aiCheckKeyOf_(rows[r].values) === key) sheet.deleteRow(rows[r].rowIndex);
+  }
+  var now = taipeiTime_(new Date());
+  var add = target.students.map(function (s) {
+    var status = s.files.length ? '待檢查' : (s.turnedInAt ? '沒有檔案' : '未繳');
+    return [cn, target.title, s.seat, status, '', '', '', '',
+      s.turnedInAt ? taipeiTime_(new Date(s.turnedInAt)) : '',
+      s.turnedInAt ? taipeiTime_(new Date(s.turnedInAt), 'yyyy-MM-dd') : '',
+      target.dueKey, s.grade === '' ? '' : String(s.grade), JSON.stringify(s.files), '0', now];
+  });
+  if (add.length) sheet.getRange(sheet.getLastRow() + 1, 1, add.length, AI_CHECK_HEADERS_.length).setValues(add);
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty(AI_CHECK_JOB_KEY_, JSON.stringify({ className: cn, title: target.title, startedAt: now, lastError: '' }));
+  props.deleteProperty(AI_CHECK_RUNNING_KEY_);
+  try {
+    ScriptApp.getProjectTriggers().forEach(function (t) {
+      if (t.getHandlerFunction() === 'runHandoutCheck') ScriptApp.deleteTrigger(t);
+    });
+    ScriptApp.newTrigger('runHandoutCheck').timeBased().everyMinutes(1).create();
+  } catch (err) {
+    // 沒有觸發器權限時，只能靠網頁按「重新整理」時順便跑
+  }
+  processHandoutCheck_(10000);
+  return getHandoutCheckApi_(cn, target.title);
+}
+
+/** 觸發器每分鐘呼叫：檢查還沒檢查的學生，全部做完就移除觸發器。 */
+function runHandoutCheck() {
+  processHandoutCheck_(240000);
+}
+
+function processHandoutCheck_(budgetMs) {
+  var started = Date.now();
+  var props = PropertiesService.getScriptProperties();
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) return;
+  try {
+    var runningAt = Number(props.getProperty(AI_CHECK_RUNNING_KEY_) || 0);
+    if (runningAt && Date.now() - runningAt < 6 * 60 * 1000) return;
+    props.setProperty(AI_CHECK_RUNNING_KEY_, String(Date.now()));
+  } finally {
+    lock.releaseLock();
+  }
+  var job = {};
+  try {
+    job = JSON.parse(props.getProperty(AI_CHECK_JOB_KEY_) || '{}');
+    var apiKey = props.getProperty('GEMINI_API_KEY');
+    var sheet = aiCheckSheet_();
+    var pending = aiCheckRows_(sheet).filter(function (row) { return row.values[3] === '待檢查'; });
+    // 至少檢查一位；過了預算就不再開始下一位（一位最多約 1 分鐘，觸發器上限 6 分鐘）
+    for (var i = 0; i < pending.length; i++) {
+      if (i > 0 && Date.now() - started > budgetMs) break;
+      var lastCall = Number(props.getProperty('AI_LAST_CALL') || 0);
+      var wait = lastCall + AI_MIN_GAP_MS_ - Date.now();
+      if (wait > 0) Utilities.sleep(wait);
+      var row = pending[i];
+      var v = row.values.slice();
+      props.setProperty('AI_LAST_CALL', String(Date.now()));
+      try {
+        var verdict = checkHandoutFiles_(apiKey, String(v[1]), JSON.parse(String(v[12] || '[]')));
+        v[3] = verdict.status;
+        v[4] = verdict.allAnswered;
+        v[5] = verdict.reasons;
+        v[6] = verdict.readable;
+        v[7] = verdict.note;
+        job.lastError = '';
+      } catch (err) {
+        var msg = String(err && err.message ? err.message : err);
+        if (/^AI_RATE/.test(msg)) {
+          job.lastError = 'AI 免費額度暫時用完，會自動等一下再繼續';
+          break;
+        }
+        if (/^AI_(BAD_KEY|DENIED)/.test(msg)) {
+          job.lastError = msg.replace(/^AI_[A-Z_]+：/, '');
+          break;
+        }
+        v[13] = String(Number(v[13] || 0) + 1);
+        if (Number(v[13]) >= 3) {
+          v[3] = '讀取失敗';
+          v[7] = safeAiText_(msg.replace(/^AI_[A-Z_]+：/, ''));
+        }
+      }
+      v[14] = taipeiTime_(new Date());
+      sheet.getRange(row.rowIndex, 1, 1, AI_CHECK_HEADERS_.length).setValues([v]);
+    }
+    var left = aiCheckRows_(sheet).some(function (row) { return row.values[3] === '待檢查'; });
+    if (!left) {
+      try {
+        ScriptApp.getProjectTriggers().forEach(function (t) {
+          if (t.getHandlerFunction() === 'runHandoutCheck') ScriptApp.deleteTrigger(t);
+        });
+      } catch (ignore) {}
+    }
+  } finally {
+    props.setProperty(AI_CHECK_JOB_KEY_, JSON.stringify(job));
+    props.deleteProperty(AI_CHECK_RUNNING_KEY_);
+  }
+}
+
+/** 給網頁看的文字：去掉英文權限字眼（前端會誤判成 /exec 權限問題），限制長度。 */
+function safeAiText_(text) {
+  return String(text || '').replace(/permission|access denied|does not have/ig, '').slice(0, 200);
+}
+
+/** 讀學生上傳的照片／PDF（只讀），交給 AI 判斷。 */
+function checkHandoutFiles_(apiKey, title, files) {
+  var parts = [{ text: handoutCheckPrompt_(title) }];
+  var total = 0;
+  var skipped = 0;
+  (files || []).slice(0, 8).forEach(function (f) {
+    var blob = handoutFileBlob_(f.id);
+    if (!blob) {
+      skipped += 1;
+      return;
+    }
+    var size = blob.getBytes().length;
+    if (total + size > AI_MAX_BYTES_) {
+      skipped += 1;
+      return;
+    }
+    total += size;
+    parts.push({ inline_data: { mime_type: blob.getContentType(), data: Utilities.base64Encode(blob.getBytes()) } });
+  });
+  if (parts.length === 1) {
+    return { status: '讀取失敗', allAnswered: '', reasons: '', readable: '否', note: '上傳的檔案不是照片或 PDF，或打不開' };
+  }
+  var verdict = aiVerdict_(callGemini_(apiKey, parts));
+  if (skipped) verdict.note = (verdict.note ? verdict.note + '；' : '') + '有 ' + skipped + ' 個檔案太大或格式不支援，沒有檢查';
+  return verdict;
+}
+
+function handoutFileBlob_(id) {
+  var file;
+  try {
+    file = DriveApp.getFileById(id);
+  } catch (err) {
+    return null;
+  }
+  var mime = String(file.getMimeType() || '');
+  if (/^application\/vnd\.google-apps\./.test(mime)) {
+    try { return file.getAs('application/pdf'); } catch (err) { return null; }
+  }
+  if (!/^image\//.test(mime) && mime !== 'application/pdf') return null;
+  if (/^image\//.test(mime) && file.getSize() > 4 * 1024 * 1024) {
+    var small = driveThumbnail_(id);
+    if (small) return small;
+  }
+  return file.getBlob();
+}
+
+/** 很大的手機照片改用雲端硬碟產生的 2000px 縮圖，字跡仍看得清楚、也不會超過 AI 上傳上限。 */
+function driveThumbnail_(id) {
+  try {
+    var auth = { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() };
+    var meta = UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(id) + '?fields=thumbnailLink',
+      { headers: auth, muteHttpExceptions: true });
+    if (meta.getResponseCode() !== 200) return null;
+    var link = JSON.parse(meta.getContentText()).thumbnailLink;
+    if (!link) return null;
+    var img = UrlFetchApp.fetch(link.replace(/=s\d+$/, '=s2000'), { headers: auth, muteHttpExceptions: true });
+    return img.getResponseCode() === 200 ? img.getBlob().setContentType('image/jpeg') : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+function handoutCheckPrompt_(title) {
+  return [
+    '你是國中理化老師的助教。下面是學生把紙本作業「' + title + '」拍照或掃描後上傳的檔案（可能有好幾頁）。',
+    '只根據看得到的內容判斷，不要猜，也不要評分答案對錯。請檢查：',
+    '1. readable：照片是否清楚完整、看得出作答內容（模糊、太暗、只拍到一部分＝false）。',
+    '2. same_handout：上傳的是不是這份講義（明顯是別份作業或無關照片＝false）。',
+    '3. all_answered：每一個需要作答的格子、空格、題目是否都有寫答案（空白、只寫題號、明顯沒寫完＝false）。沒寫的題號或位置列到 missing。',
+    '4. 找出被標成錯的題目（紅筆打叉、圈起來、旁邊有改正、明顯改過答案）。wrong_count＝錯題數。',
+    '5. 每一題錯題旁邊（或講義的訂正區）是否有寫「錯誤原因」（為什麼錯、哪個觀念錯；只寫正確答案不算）。沒寫原因的錯題列到 wrong_without_reason。',
+    '6. corrections_ok：所有錯題都有寫錯誤原因＝true；沒有錯題也＝true。',
+    '7. confident：照片角度、字跡讓你沒把握時＝false。',
+    '8. note：用繁體中文一兩句話說明問題在哪（例如「第 2 頁第 5、6 題空白」「第 3、7 題錯了沒寫原因」），都沒問題就寫「都有寫完、錯題都有原因」。不要寫學生姓名。',
+    '只回傳 JSON：{"readable":true,"same_handout":true,"all_answered":true,"missing":[],"wrong_count":0,"wrong_without_reason":[],"corrections_ok":true,"confident":true,"note":""}'
+  ].join('\n');
+}
+
+/** 呼叫 Gemini；模型名稱會隨時間更新，找不到就換下一個並記住能用的。 */
+function callGemini_(apiKey, parts) {
+  var props = PropertiesService.getScriptProperties();
+  var models = [props.getProperty('GEMINI_MODEL'), props.getProperty('AI_MODEL_OK')].concat(AI_MODELS_)
+    .filter(function (m, i, arr) { return m && arr.indexOf(m) === i; });
+  var body = JSON.stringify({
+    contents: [{ role: 'user', parts: parts }],
+    generationConfig: { temperature: 0, responseMimeType: 'application/json' }
+  });
+  for (var i = 0; i < models.length; i++) {
+    var res = UrlFetchApp.fetch('https://generativelanguage.googleapis.com/v1beta/models/' + models[i] + ':generateContent', {
+      method: 'post',
+      contentType: 'application/json',
+      headers: { 'x-goog-api-key': apiKey },
+      payload: body,
+      muteHttpExceptions: true
+    });
+    var code = res.getResponseCode();
+    if (code === 200) {
+      props.setProperty('AI_MODEL_OK', models[i]);
+      var data = JSON.parse(res.getContentText());
+      var cand = (data.candidates || [])[0];
+      return ((cand && cand.content && cand.content.parts) || []).map(function (p) { return p.text || ''; }).join('');
+    }
+    if (code === 404) continue;
+    if (code === 429) throw new Error('AI_RATE：額度暫時用完');
+    var text = res.getContentText();
+    if (/API_KEY_INVALID|API key not valid/i.test(text)) throw new Error('AI_BAD_KEY：Gemini 金鑰不正確，請到指令碼屬性重新貼上 GEMINI_API_KEY');
+    if (code === 403) throw new Error('AI_DENIED：這組金鑰不能使用 Gemini（可能是學校帳號限制），請改用個人帳號申請的金鑰');
+    throw new Error('AI_ERROR：AI 回應錯誤（' + code + '）');
+  }
+  throw new Error('AI_ERROR：找不到可用的 Gemini 模型，請在指令碼屬性加 GEMINI_MODEL 指定模型名稱');
+}
+
+/** AI 回覆 → 工作表一列要寫的內容。 */
+function aiVerdict_(text) {
+  var raw = String(text || '').replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+  var j;
+  try {
+    j = JSON.parse(raw);
+  } catch (err) {
+    var m = raw.match(/\{[\s\S]*\}/);
+    if (!m) throw new Error('AI_ERROR：AI 回覆看不懂');
+    j = JSON.parse(m[0]);
+  }
+  function list(a) { return (Array.isArray(a) ? a : []).map(String).filter(Boolean).slice(0, 12).join('、'); }
+  var readable = j.readable !== false && j.same_handout !== false;
+  var answered = j.all_answered === true;
+  var reasonsOk = j.corrections_ok === true;
+  var pass = readable && answered && reasonsOk;
+  var status = !pass ? '未通過' : (j.confident === false ? '需確認' : '通過');
+  var wrongCount = Number(j.wrong_count) || 0;
+  var missingReasons = list(j.wrong_without_reason);
+  var note = safeAiText_(j.note || '');
+  if (j.same_handout === false && note.indexOf('講義') < 0) note = '上傳的好像不是這份講義。' + note;
+  return {
+    status: status,
+    allAnswered: answered ? '是' : ('否' + (list(j.missing) ? '：' + list(j.missing) : '')),
+    reasons: wrongCount ? (reasonsOk ? '錯 ' + wrongCount + ' 題都有原因' : '缺原因：' + (missingReasons || '有錯題沒寫')) : (reasonsOk ? '沒有錯題' : '缺原因'),
+    readable: readable ? '是' : '否',
+    note: note
+  };
+}
+
+function getHandoutCheckApi_(className, title) {
+  var cn = String(className || '').trim();
+  var want = String(title || '').replace(/\s+/g, ' ').trim();
+  var props = PropertiesService.getScriptProperties();
+  var job = {};
+  try { job = JSON.parse(props.getProperty(AI_CHECK_JOB_KEY_) || '{}'); } catch (ignore) {}
+  var sheet = getSs_().getSheetByName(AI_CHECK_SHEET_);
+  var rows = sheet ? aiCheckRows_(sheet).filter(function (row) {
+    return String(row.values[0]) === cn && String(row.values[1]).replace(/\s+/g, ' ').trim() === want;
+  }) : [];
+  var students = rows.map(function (row) {
+    var v = row.values;
+    var files = [];
+    try { files = JSON.parse(String(v[12] || '[]')); } catch (ignore) {}
+    return {
+      seat: String(v[2]).replace(/^'/, ''), status: String(v[3]), allAnswered: String(v[4]), reasons: String(v[5]),
+      readable: String(v[6]), note: safeAiText_(v[7]), turnedInAt: String(v[8]), turnedKey: String(v[9]),
+      dueKey: String(v[10]), classroomGrade: String(v[11]),
+      files: files.map(function (f) { return { title: f.title, link: f.link }; }), checkedAt: String(v[14])
+    };
+  });
+  var pending = students.filter(function (s) { return s.status === '待檢查'; }).length;
+  var sameJob = job.className === cn && String(job.title || '').replace(/\s+/g, ' ').trim() === want;
+  return {
+    ok: true,
+    className: cn,
+    title: want,
+    students: students,
+    pending: pending,
+    startedAt: sameJob ? job.startedAt || '' : '',
+    lastError: sameJob ? safeAiText_(job.lastError || '') : ''
+  };
+}
+
+/** 網頁按「重新整理」時：還有沒檢查的就順便跑一小段（觸發器失效時也能慢慢做完）。 */
+function refreshHandoutCheckApi_(className, title) {
+  var props = PropertiesService.getScriptProperties();
+  var lastCall = Number(props.getProperty('AI_LAST_CALL') || 0);
+  var result = getHandoutCheckApi_(className, title);
+  if (result.pending && Date.now() - lastCall > 90 * 1000) {
+    processHandoutCheck_(10000);
+    result = getHandoutCheckApi_(className, title);
+  }
+  return result;
+}
+
+/** 在編輯器執行：確認 Gemini 金鑰能用、用的是哪個模型。 */
+function testGemini() {
+  var key = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+  if (!key) throw new Error('指令碼屬性沒有 GEMINI_API_KEY');
+  var text = callGemini_(key, [{ text: '只回傳 JSON：{"ok":true,"msg":"金鑰可以用"}' }]);
+  Logger.log('模型：' + PropertiesService.getScriptProperties().getProperty('AI_MODEL_OK') + '｜回覆：' + text);
 }
 
 /** 從另一份「上課課表」試算表讀取最新內容（只讀，不寫入）。 */

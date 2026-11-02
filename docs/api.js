@@ -2573,6 +2573,14 @@
       if (!cloudOn()) return Promise.reject(new Error('尚未連上雲端，無法讀取 Classroom 成績表'));
       return CloudStore.readClassroomHandouts(url);
     },
+    startHandoutCheck: function (body) {
+      if (!cloudOn()) return Promise.reject(new Error('尚未連上雲端，無法使用 AI 檢查'));
+      return CloudStore.handoutCheck('startHandoutCheck', body);
+    },
+    getHandoutCheck: function (body) {
+      if (!cloudOn()) return Promise.reject(new Error('尚未連上雲端，無法使用 AI 檢查'));
+      return CloudStore.handoutCheck('getHandoutCheck', body);
+    },
     readClassroomCourse: function (className) {
       if (!cloudOn()) return Promise.reject(new Error('CLASSROOM_SERVICE_OFF：尚未連上雲端'));
       return CloudStore.readClassroomCourse(className);
@@ -2594,7 +2602,7 @@
       var book = ensureGrades_(store, cn);
       var report = {
         ok: true, className: cn, created: 0, updated: 0,
-        submitted: 0, pending: 0, missing: 0, blankColumns: [], unknownSeats: []
+        submitted: 0, pending: 0, missing: 0, kept: 0, blankColumns: [], unknownSeats: []
       };
       (body.columns || []).forEach(function (col) {
         var title = String((col && col.title) || '').trim().slice(0, 80);
@@ -2641,8 +2649,16 @@
             rec = { status: 'submitted', score: v };
             report.submitted += 1;
           } else if (v === 'submitted') {
-            rec = { status: 'submitted' };
-            report.pending += 1;
+            // Classroom 還沒打分數時，保留網站已有的分數（例如 AI 檢查依繳交日期給的分）
+            var prev = hit && hit.records && hit.records[seat];
+            if (prev && prev.status === 'submitted' && typeof prev.score === 'number' && isFinite(prev.score)) {
+              rec = prev;
+              report.submitted += 1;
+              report.kept += 1;
+            } else {
+              rec = { status: 'submitted' };
+              report.pending += 1;
+            }
           } else {
             rec = { status: 'missing' };
             report.missing += 1;

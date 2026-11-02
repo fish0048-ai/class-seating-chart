@@ -623,6 +623,22 @@
       requireTeacher(importClassroomHandouts);
     });
   }
+  var aiCheckBtn = document.getElementById('btnAiCheck');
+  if (aiCheckBtn) {
+    aiCheckBtn.addEventListener('click', function () {
+      requireTeacher(openAiCheck);
+    });
+  }
+  var aiCheckTitle = document.getElementById('aiCheckTitle');
+  if (aiCheckTitle) aiCheckTitle.addEventListener('change', function () { loadAiCheck(false); });
+  var aiCheckClose = document.getElementById('btnAiCheckClose');
+  if (aiCheckClose) aiCheckClose.addEventListener('click', closeAiCheck);
+  var aiCheckRefresh = document.getElementById('btnAiCheckRefresh');
+  if (aiCheckRefresh) aiCheckRefresh.addEventListener('click', function () { loadAiCheck(false); });
+  var aiCheckStart = document.getElementById('btnAiCheckStart');
+  if (aiCheckStart) aiCheckStart.addEventListener('click', function () { requireTeacher(startAiCheck); });
+  var aiCheckApply = document.getElementById('btnAiCheckApply');
+  if (aiCheckApply) aiCheckApply.addEventListener('click', function () { requireTeacher(applyAiCheckScores); });
   var termExportBtn = document.getElementById('btnTermExport');
   if (termExportBtn) {
     termExportBtn.addEventListener('click', function () {
@@ -10640,6 +10656,7 @@
           lines.push('　整欄空白（可能還沒批改），先跳過、不改網站紀錄：' + r.blankColumns.join('、'));
         }
         if (r.unknownSeats.length) lines.push('　名單沒有這些座號，會略過：' + shortList(r.unknownSeats, 6));
+        if (r.kept) lines.push('　Classroom 還沒打分數、但網站已有分數的 ' + r.kept + ' 筆，保留網站的分數');
         if (p.unmatched) lines.push('　有 ' + p.unmatched + ' 位 Classroom 學生的姓名看不出座號（不是「801-01」這種格式），略過');
       });
       if (res.errors.length) lines.push('', '略過：', res.errors.join('\n'));
@@ -10676,6 +10693,209 @@
     }).catch(function (err) {
       App.classroomImporting = false;
       toast(err && err.message ? err.message : '匯入失敗', 8000);
+    });
+  }
+
+  /* ===== AI 檢查作業（試用） ===== */
+
+  function openAiCheck() {
+    var cn = teacherTargetClass();
+    if (!cn) {
+      toast('請先選班級');
+      return;
+    }
+    var bookReady = App.gradebookClass === cn && App.gradebook
+      ? Promise.resolve(App.gradebook)
+      : api('getGradebook', [cn]);
+    bookReady.then(function (book) {
+      var titles = ((book && book.homeworks) || []).map(function (h) { return String(h.title || '').trim(); })
+        .filter(function (t, i, arr) { return t && arr.indexOf(t) === i; });
+      titles.sort(function (a, b) {
+        return (/學習講義/.test(b) ? 1 : 0) - (/學習講義/.test(a) ? 1 : 0);
+      });
+      if (!titles.length) {
+        toast('這班還沒有作業欄。請先「從 Classroom 更新學習講義」', 7000);
+        return;
+      }
+      var sel = document.getElementById('aiCheckTitle');
+      var keep = App.aiCheck && App.aiCheck.className === cn ? App.aiCheck.title : '';
+      sel.innerHTML = titles.map(function (t) {
+        return '<option value="' + escapeHtml(t) + '"' + (t === keep ? ' selected' : '') + '>' +
+          escapeHtml(cn + '｜' + t) + '</option>';
+      }).join('');
+      App.aiCheck = { className: cn, title: sel.value, data: null };
+      document.getElementById('aiCheckModal').hidden = false;
+      loadAiCheck(false);
+    }).catch(function (err) {
+      toast(err && err.message ? err.message : '讀取作業欄失敗');
+    });
+  }
+
+  function closeAiCheck() {
+    clearTimeout(App.aiCheckTimer);
+    var modal = document.getElementById('aiCheckModal');
+    if (modal) modal.hidden = true;
+  }
+
+  function aiCheckTarget() {
+    var sel = document.getElementById('aiCheckTitle');
+    var cn = (App.aiCheck && App.aiCheck.className) || teacherTargetClass();
+    return { className: cn, title: sel ? sel.value : '' };
+  }
+
+  function setAiCheckStatus(text) {
+    var el = document.getElementById('aiCheckStatus');
+    if (el) el.textContent = text || '';
+  }
+
+  function loadAiCheck(quiet) {
+    var t = aiCheckTarget();
+    if (!t.className || !t.title) return;
+    clearTimeout(App.aiCheckTimer);
+    if (!quiet) setAiCheckStatus('讀取檢查結果…');
+    api('getHandoutCheck', [t]).then(function (data) {
+      App.aiCheck = { className: t.className, title: t.title, data: data };
+      renderAiCheck(data);
+    }).catch(function (err) {
+      setAiCheckStatus(aiCheckErrorText(err));
+    });
+  }
+
+  function aiCheckErrorText(err) {
+    var msg = err && err.message ? err.message : '讀取失敗';
+    if (/未知的操作|後端還沒更新/.test(msg)) return '後端還沒更新：請貼上最新的 Code.gs、appsscript.json 並部署新版本';
+    return msg.replace(/^(CLASSROOM|AI)_[A-Z_]+：/, '');
+  }
+
+  function startAiCheck() {
+    var t = aiCheckTarget();
+    if (!t.className || !t.title) return;
+    var had = App.aiCheck && App.aiCheck.data && (App.aiCheck.data.students || []).length;
+    if (had && !window.confirm('這份講義已經檢查過，要全部重新檢查嗎？（舊的結果會清掉）')) return;
+    var btn = document.getElementById('btnAiCheckStart');
+    if (btn) btn.disabled = true;
+    setAiCheckStatus('正在讀 Classroom 的繳交與照片，並開始檢查（約 1 分鐘）…');
+    api('startHandoutCheck', [t]).then(function (data) {
+      App.aiCheck = { className: t.className, title: t.title, data: data };
+      renderAiCheck(data);
+    }).catch(function (err) {
+      setAiCheckStatus(aiCheckErrorText(err));
+    }).then(function () {
+      if (btn) btn.disabled = false;
+    });
+  }
+
+  /** 每位學生的結果分成「通過（給分）」與「提醒清單」。 */
+  function aiCheckSummary(data) {
+    var passes = [];
+    var reminders = [];
+    var pending = [];
+    ((data && data.students) || []).forEach(function (s) {
+      var late = s.turnedKey && s.dueKey ? workDaysLate(s.dueKey, s.turnedKey) : 0;
+      var row = Object.assign({}, s, { late: late, score: Math.max(0, 100 - 10 * late), why: '' });
+      if (s.status === '待檢查') {
+        pending.push(row);
+        return;
+      }
+      if (s.status === '通過' && s.turnedKey && row.score > 0) {
+        passes.push(row);
+        return;
+      }
+      if (s.status === '通過' && !s.turnedKey) row.why = '有寫完也有訂正，但沒有按「繳交」，無法依日期算分';
+      else if (s.status === '通過') row.why = '有寫完也有訂正，但晚交 ' + late + ' 個工作天，扣到 0 分';
+      else if (s.status === '需確認') row.why = 'AI 判斷通過但沒把握，請看一下照片';
+      else if (s.status === '未繳') row.why = '沒有繳交';
+      else if (s.status === '沒有檔案') row.why = '有按繳交，但沒有上傳照片或 PDF';
+      else if (s.status === '讀取失敗') row.why = '檔案讀不到';
+      else row.why = '沒通過';
+      reminders.push(row);
+    });
+    return { passes: passes, reminders: reminders, pending: pending };
+  }
+
+  function aiCheckRowHtml(r, withScore) {
+    var detail = [r.why, r.note].filter(Boolean).join('：');
+    var files = (r.files || []).map(function (f, i) {
+      return f.link ? '<a href="' + escapeHtml(f.link) + '" target="_blank" rel="noopener">' + (i + 1) + '</a>' : '';
+    }).filter(Boolean).join(' ');
+    return '<tr><td>' + escapeHtml(r.seat) + '</td>' +
+      '<td>' + escapeHtml(detail || '—') + '</td>' +
+      '<td>' + escapeHtml(r.turnedKey || '—') + (r.late ? '（晚 ' + r.late + ' 天）' : '') + '</td>' +
+      (withScore ? '<td class="ai-check-score">' + r.score + '</td>' : '') +
+      '<td>' + escapeHtml(r.classroomGrade || '—') + '</td>' +
+      '<td>' + (files || '—') + '</td></tr>';
+  }
+
+  function renderAiCheck(data) {
+    var box = document.getElementById('aiCheckResult');
+    var apply = document.getElementById('btnAiCheckApply');
+    var sum = aiCheckSummary(data);
+    var students = (data && data.students) || [];
+    if (!students.length) {
+      setAiCheckStatus('還沒檢查過這份講義，按「開始檢查」。');
+      if (box) box.innerHTML = '';
+      if (apply) apply.hidden = true;
+      return;
+    }
+    var status = sum.pending.length
+      ? '還有 ' + sum.pending.length + ' 位等 AI 檢查（每分鐘約 5～8 位），這個視窗會自動更新；也可以先關掉，之後再開來看。'
+      : '全部檢查完：通過 ' + sum.passes.length + ' 位，提醒 ' + sum.reminders.length + ' 位。';
+    if (data.lastError) status += '　' + data.lastError;
+    setAiCheckStatus(status);
+    var head = '<tr><th>座號</th><th>說明</th><th>繳交日</th>';
+    var tail = '<th>Classroom 分數</th><th>照片</th></tr>';
+    var html = '';
+    if (sum.reminders.length) {
+      html += '<h3 class="subhead ai-check-warn">提醒清單（' + sum.reminders.length + '）</h3>' +
+        '<div class="table-scroll"><table class="assess-table"><thead>' + head + tail + '</thead><tbody>' +
+        sum.reminders.map(function (r) { return aiCheckRowHtml(r, false); }).join('') + '</tbody></table></div>';
+    }
+    if (sum.passes.length) {
+      html += '<h3 class="subhead">通過（' + sum.passes.length + '）：依繳交日期給分，請在 Classroom 輸入</h3>' +
+        '<div class="table-scroll"><table class="assess-table"><thead>' + head + '<th>分數</th>' + tail + '</thead><tbody>' +
+        sum.passes.map(function (r) { return aiCheckRowHtml(r, true); }).join('') + '</tbody></table></div>';
+    }
+    if (box) box.innerHTML = html;
+    if (apply) apply.hidden = !sum.passes.length;
+    clearTimeout(App.aiCheckTimer);
+    var modal = document.getElementById('aiCheckModal');
+    if (sum.pending.length && modal && !modal.hidden) {
+      App.aiCheckTimer = setTimeout(function () { loadAiCheck(true); }, 45000);
+    }
+  }
+
+  function applyAiCheckScores() {
+    var st = App.aiCheck;
+    var sum = aiCheckSummary(st && st.data);
+    if (!sum.passes.length) return;
+    var scores = {};
+    sum.passes.forEach(function (r) { scores[r.seat] = r.score; });
+    var due = (sum.passes[0] && sum.passes[0].dueKey) || '';
+    if (!window.confirm('把 ' + sum.passes.length + ' 位通過的分數寫進網站「' + st.title + '」？\n' +
+      '會覆蓋這些人在網站上的分數；提醒清單的人不會動。Classroom 不會被改，請自己在 Classroom 輸入。')) return;
+    clearTimeout(gradeSaveTimer);
+    gradeSaveTimer = null;
+    var flush = App.gradeDirty && Object.keys(App.gradeDirty).length
+      ? api('saveGradebook', [collectGradebookFromTable({ dirtyOnly: true })])
+      : Promise.resolve();
+    flush.then(function () {
+      return api('importClassroomHandouts', [{
+        className: st.className,
+        columns: [{ title: st.title, dueDate: due, max: 100, scores: scores }]
+      }]);
+    }).then(function (last) {
+      var refresh = teacherTargetClass() === st.className ? api('getGradebook', [st.className]) : Promise.resolve(null);
+      return refresh.then(function (book) {
+        if (book) {
+          applyGradebook(book);
+          renderGradebook();
+        }
+        var msg = '已把 ' + sum.passes.length + ' 位的分數寫進「' + st.title + '」';
+        if (last && last.synced === false) msg += '。' + (last.cloudError || '還沒同步到雲端') + '，請按「立即同步」';
+        toast(msg, 7000);
+      });
+    }).catch(function (err) {
+      toast(err && err.message ? err.message : '寫入失敗', 7000);
     });
   }
 
