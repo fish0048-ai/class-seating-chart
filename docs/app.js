@@ -10798,7 +10798,9 @@
     });
   }
 
-  /** AI 看到的問題（只當備註，不影響分數）。 */
+  var AI_CHECK_ERROR_PENALTY = 10;
+
+  /** AI 看到的問題（未通過另扣 AI_CHECK_ERROR_PENALTY）。 */
   function aiCheckIssues(s) {
     if (s.status === '待檢查') return 'AI 檢查中';
     if (s.status === '沒有檔案') return '沒有上傳照片';
@@ -10816,7 +10818,15 @@
     var skipped = [];
     ((data && data.students) || []).forEach(function (s) {
       var late = s.turnedKey && s.dueKey ? workDaysLate(s.dueKey, s.turnedKey) : 0;
-      var row = Object.assign({}, s, { late: late, score: Math.max(0, 100 - 10 * late), why: '', issues: aiCheckIssues(s) });
+      // AI 確定有問題（沒寫完、錯題沒寫原因、照片看不清楚）再扣 10，一份只扣一次
+      var penalty = s.status === '未通過' ? AI_CHECK_ERROR_PENALTY : 0;
+      var row = Object.assign({}, s, {
+        late: late,
+        penalty: penalty,
+        score: Math.max(0, 100 - 10 * late - penalty),
+        why: '',
+        issues: aiCheckIssues(s) + (penalty ? '（扣 ' + penalty + ' 分）' : '')
+      });
       if (s.status === '待檢查') pending.push(row);
       if (s.status === '已有分數') {
         skipped.push(row);
@@ -10826,7 +10836,7 @@
         passes.push(row);
         return;
       }
-      if (s.turnedKey) row.why = '晚交 ' + late + ' 個工作天，扣到 0 分';
+      if (s.turnedKey) row.why = (late ? '晚交 ' + late + ' 個工作天' : '') + (late && penalty ? '、' : '') + (penalty ? '作業有問題' : '') + '，扣到 0 分';
       else if (s.status === '未按繳交') row.why = '有上傳照片但沒有按「繳交」';
       else row.why = Number(String(s.classroomGrade || '').replace(/^草稿\s*/, '')) > 0
         ? '沒有在 Classroom 繳交，但 Classroom 有分數（可能交紙本）'
@@ -10893,7 +10903,8 @@
     }
     if (r.status === '沒有檔案') bits.push('沒有上傳照片，請把寫好的講義拍照上傳');
     if (!bits.length && !r.late) return '';
-    return head + (bits.length ? bits.join('；') + '。' : '') + (lateText ? lateText + '，' : '') + '這份 ' + r.score + ' 分。';
+    return head + (bits.length ? bits.join('；') + '。' : '') + (r.penalty ? '作業有問題扣 ' + r.penalty + ' 分。' : '') +
+      (lateText ? lateText + '，' : '') + '這份 ' + r.score + ' 分。';
   }
 
   function aiCheckRowHtml(r, withScore) {
@@ -10942,7 +10953,7 @@
         sum.reminders.map(function (r) { return aiCheckRowHtml(r, false); }).join('') + '</tbody></table></div>';
     }
     if (sum.passes.length) {
-      html += '<h3 class="subhead">有繳交（' + sum.passes.length + '）：依繳交日期給分，請在 Classroom 輸入；說明欄是 AI 看到的問題</h3>' +
+      html += '<h3 class="subhead">有繳交（' + sum.passes.length + '）：依繳交日期給分，AI 看到問題再扣 10，請在 Classroom 輸入</h3>' +
         '<div class="table-scroll"><table class="assess-table"><thead>' + head.replace('說明', 'AI 看到的問題') + '<th>分數</th>' + tail + '</thead><tbody>' +
         sum.passes.map(function (r) { return aiCheckRowHtml(r, true); }).join('') + '</tbody></table></div>';
     }
@@ -10967,11 +10978,18 @@
   function applyAiCheckScores() {
     var st = App.aiCheck;
     var sum = aiCheckSummary(st && st.data);
-    if (!sum.passes.length) return;
+    // AI 還在檢查的人分數可能再扣，先不寫
+    var ready = sum.passes.filter(function (r) { return r.status !== '待檢查'; });
+    if (!ready.length) {
+      toast('還在等 AI 檢查，檢查完再寫入');
+      return;
+    }
     var scores = {};
-    sum.passes.forEach(function (r) { scores[r.seat] = r.score; });
-    var due = (sum.passes[0] && sum.passes[0].dueKey) || '';
-    if (!window.confirm('把 ' + sum.passes.length + ' 位有繳交的分數寫進網站「' + st.title + '」？\n' +
+    ready.forEach(function (r) { scores[r.seat] = r.score; });
+    var due = (ready[0] && ready[0].dueKey) || '';
+    var waiting = sum.passes.length - ready.length;
+    if (!window.confirm('把 ' + ready.length + ' 位有繳交的分數寫進網站「' + st.title + '」？\n' +
+      (waiting ? '還在等 AI 檢查的 ' + waiting + ' 位先不寫，檢查完再按一次。\n' : '') +
       '會覆蓋這些人在網站上的分數；提醒清單的人不會動。Classroom 不會被改，請自己在 Classroom 輸入。')) return;
     clearTimeout(gradeSaveTimer);
     gradeSaveTimer = null;
@@ -10990,7 +11008,7 @@
           applyGradebook(book);
           renderGradebook();
         }
-        var msg = '已把 ' + sum.passes.length + ' 位的分數寫進「' + st.title + '」';
+        var msg = '已把 ' + ready.length + ' 位的分數寫進「' + st.title + '」';
         if (last && last.synced === false) msg += '。' + (last.cloudError || '還沒同步到雲端') + '，請按「立即同步」';
         toast(msg, 7000);
       });
