@@ -10798,7 +10798,17 @@
     });
   }
 
-  /** 每位學生的結果分成「通過（給分）」與「提醒清單」。 */
+  /** AI 看到的問題（只當備註，不影響分數）。 */
+  function aiCheckIssues(s) {
+    if (s.status === '待檢查') return 'AI 檢查中';
+    if (s.status === '沒有檔案') return '沒有上傳照片';
+    if (s.status === '讀取失敗') return '照片讀不到';
+    if (s.status === '需確認') return 'AI 沒把握，請看照片' + (s.note ? '：' + s.note : '');
+    if (s.status === '未通過') return s.note || '有題目沒寫完或錯題沒寫原因';
+    return '';
+  }
+
+  /** 有按繳交就依繳交日給分（AI 的發現只當備註）；沒繳、沒按繳交、扣到 0 分的放提醒清單。 */
   function aiCheckSummary(data) {
     var passes = [];
     var reminders = [];
@@ -10806,28 +10816,21 @@
     var skipped = [];
     ((data && data.students) || []).forEach(function (s) {
       var late = s.turnedKey && s.dueKey ? workDaysLate(s.dueKey, s.turnedKey) : 0;
-      var row = Object.assign({}, s, { late: late, score: Math.max(0, 100 - 10 * late), why: '' });
-      var hasClassroomScore = Number(String(s.classroomGrade || '').replace(/^草稿\s*/, '')) > 0;
-      if (s.status === '待檢查') {
-        pending.push(row);
-        return;
-      }
+      var row = Object.assign({}, s, { late: late, score: Math.max(0, 100 - 10 * late), why: '', issues: aiCheckIssues(s) });
+      if (s.status === '待檢查') pending.push(row);
       if (s.status === '已有分數') {
         skipped.push(row);
         return;
       }
-      if (s.status === '通過' && s.turnedKey && row.score > 0) {
+      if (s.turnedKey && row.score > 0) {
         passes.push(row);
         return;
       }
-      if (s.status === '通過' && !s.turnedKey) row.why = '有寫完也有訂正，但沒有按「繳交」，無法依日期算分';
-      else if (s.status === '通過') row.why = '有寫完也有訂正，但晚交 ' + late + ' 個工作天，扣到 0 分';
-      else if (s.status === '需確認') row.why = 'AI 判斷通過但沒把握，請看一下照片';
-      else if (s.status === '未繳') row.why = hasClassroomScore ? '沒有在 Classroom 繳交，但 Classroom 有分數（可能交紙本）' : '沒有繳交';
-      else if (s.status === '沒有檔案') row.why = '有按繳交，但沒有上傳照片或 PDF' + (hasClassroomScore ? '（Classroom 有分數，可能交紙本）' : '');
-      else if (s.status === '未按繳交') row.why = '有上傳照片但沒有按「繳交」，沒有送 AI 檢查';
-      else if (s.status === '讀取失敗') row.why = '檔案讀不到';
-      else row.why = '沒通過';
+      if (s.turnedKey) row.why = '晚交 ' + late + ' 個工作天，扣到 0 分';
+      else if (s.status === '未按繳交') row.why = '有上傳照片但沒有按「繳交」';
+      else row.why = Number(String(s.classroomGrade || '').replace(/^草稿\s*/, '')) > 0
+        ? '沒有在 Classroom 繳交，但 Classroom 有分數（可能交紙本）'
+        : '沒有繳交';
       reminders.push(row);
     });
     return { passes: passes, reminders: reminders, pending: pending, skipped: skipped };
@@ -10875,36 +10878,36 @@
     var lateText = r.late
       ? '期限 ' + shortDateZh(r.dueKey) + '，你 ' + shortDateZh(r.turnedKey) + ' 才繳交，晚 ' + r.late + ' 個工作天，每天扣 10 分'
       : '';
-    if (r.status === '通過' && r.turnedKey) {
-      return r.late ? head + '有寫完、錯題也有寫原因。' + lateText + '，這份 ' + r.score + ' 分。' : '';
+    if (!r.turnedKey) {
+      // Classroom 已有分數（多半交紙本）要老師先判斷，不自動給留言
+      if (Number(String(r.classroomGrade || '').replace(/^草稿\s*/, '')) > 0) return '';
+      if (r.status === '未按繳交') return head + '有上傳照片，但 Classroom 還沒有按「繳交」，請按繳交。';
+      return head + '還沒有繳交，請盡快寫完拍照上傳並按「繳交」。';
     }
-    if (r.status === '通過') return head + '有寫完、錯題也有寫原因，但 Classroom 沒有按「繳交」，請記得按繳交。';
-    // AI 沒把握、或 Classroom 已有分數（多半交紙本）要老師先判斷，不自動給留言
-    if (r.status === '需確認') return '';
-    if (Number(String(r.classroomGrade || '').replace(/^草稿\s*/, '')) > 0 && (r.status === '未繳' || r.status === '沒有檔案')) return '';
-    if (r.status === '未繳') return head + '還沒有繳交，請盡快寫完拍照上傳並按「繳交」。';
-    if (r.status === '未按繳交') return head + '有上傳照片，但 Classroom 還沒有按「繳交」，請按繳交後老師才會檢查。';
-    if (r.status === '沒有檔案') return head + '有按繳交，但沒有上傳照片，請把寫好的講義拍照上傳。';
-    if (r.status === '讀取失敗') return head + '上傳的檔案打不開，請改用照片或 PDF 重新上傳。';
     var bits = [];
-    if (/^否/.test(r.allAnswered || '')) bits.push('還有題目沒寫完' + (r.allAnswered.replace(/^否：?/, '') ? '（' + r.allAnswered.replace(/^否：?/, '') + '）' : ''));
-    if (/缺原因/.test(r.reasons || '')) bits.push('錯題要寫錯誤原因' + (r.reasons.replace(/^缺原因：?/, '') ? '（' + r.reasons.replace(/^缺原因：?/, '') + '）' : ''));
-    if (r.readable === '否') bits.push('照片看不清楚或不完整');
-    if (!bits.length && r.note) bits.push(r.note);
-    return head + (bits.join('；') || '請再檢查一次') + '。請補好後重新上傳並按「繳交」。' + (lateText ? lateText + '。' : '');
+    if (r.status === '未通過') {
+      if (/^否/.test(r.allAnswered || '')) bits.push('還有題目沒寫完' + (r.allAnswered.replace(/^否：?/, '') ? '（' + r.allAnswered.replace(/^否：?/, '') + '）' : ''));
+      if (/缺原因/.test(r.reasons || '')) bits.push('錯題要寫錯誤原因' + (r.reasons.replace(/^缺原因：?/, '') ? '（' + r.reasons.replace(/^缺原因：?/, '') + '）' : ''));
+      if (r.readable === '否') bits.push('照片看不清楚或不完整');
+      if (!bits.length && r.note) bits.push(r.note);
+    }
+    if (r.status === '沒有檔案') bits.push('沒有上傳照片，請把寫好的講義拍照上傳');
+    if (!bits.length && !r.late) return '';
+    return head + (bits.length ? bits.join('；') + '。' : '') + (lateText ? lateText + '，' : '') + '這份 ' + r.score + ' 分。';
   }
 
   function aiCheckRowHtml(r, withScore) {
-    var detail = [r.why, r.note].filter(Boolean).join('：');
+    var detail = withScore ? r.issues : [r.why, r.issues].filter(Boolean).join('；');
     var comment = aiCheckComment(r, (App.aiCheck && App.aiCheck.title) || '作業');
     var copyBtn = comment
       ? '<button type="button" class="tool ai-copy" data-ai-comment="' + escapeHtml(comment) + '" title="' + escapeHtml(comment) + '">複製留言</button>'
       : '';
-    var files = withScore
-      ? (r.files || []).map(function (f, i) {
+    // 有問題的放縮圖方便比對；沒問題的只放張數連結
+    var files = r.issues && r.status !== '待檢查'
+      ? aiCheckThumbsHtml(r.files)
+      : (r.files || []).map(function (f, i) {
         return f.link ? '<a href="' + escapeHtml(f.link) + '" target="_blank" rel="noopener">' + (f.no || i + 1) + '</a>' : '';
-      }).filter(Boolean).join(' ')
-      : aiCheckThumbsHtml(r.files);
+      }).filter(Boolean).join(' ');
     return '<tr><td>' + escapeHtml(r.seat) + '</td>' +
       '<td>' + escapeHtml(detail || '—') + (copyBtn ? '<div>' + copyBtn + '</div>' : '') + '</td>' +
       '<td>' + escapeHtml(r.turnedKey || '—') + (r.late ? '（晚 ' + r.late + ' 天）' : '') + '</td>' +
@@ -10926,7 +10929,7 @@
     }
     var status = sum.pending.length
       ? '還有 ' + sum.pending.length + ' 位等 AI 檢查（每分鐘約 5～8 位），這個視窗會自動更新；也可以先關掉，之後再開來看。'
-      : '全部檢查完：通過 ' + sum.passes.length + ' 位，提醒 ' + sum.reminders.length + ' 位' +
+      : '全部檢查完：有繳交 ' + sum.passes.length + ' 位已算好分數，提醒 ' + sum.reminders.length + ' 位' +
         (sum.skipped.length ? '，Classroom 已有分數略過 ' + sum.skipped.length + ' 位' : '') + '。';
     if (data.lastError) status += '　' + data.lastError;
     setAiCheckStatus(status);
@@ -10939,8 +10942,8 @@
         sum.reminders.map(function (r) { return aiCheckRowHtml(r, false); }).join('') + '</tbody></table></div>';
     }
     if (sum.passes.length) {
-      html += '<h3 class="subhead">通過（' + sum.passes.length + '）：依繳交日期給分，請在 Classroom 輸入</h3>' +
-        '<div class="table-scroll"><table class="assess-table"><thead>' + head + '<th>分數</th>' + tail + '</thead><tbody>' +
+      html += '<h3 class="subhead">有繳交（' + sum.passes.length + '）：依繳交日期給分，請在 Classroom 輸入；說明欄是 AI 看到的問題</h3>' +
+        '<div class="table-scroll"><table class="assess-table"><thead>' + head.replace('說明', 'AI 看到的問題') + '<th>分數</th>' + tail + '</thead><tbody>' +
         sum.passes.map(function (r) { return aiCheckRowHtml(r, true); }).join('') + '</tbody></table></div>';
     }
     if (sum.skipped.length) {
@@ -10968,7 +10971,7 @@
     var scores = {};
     sum.passes.forEach(function (r) { scores[r.seat] = r.score; });
     var due = (sum.passes[0] && sum.passes[0].dueKey) || '';
-    if (!window.confirm('把 ' + sum.passes.length + ' 位通過的分數寫進網站「' + st.title + '」？\n' +
+    if (!window.confirm('把 ' + sum.passes.length + ' 位有繳交的分數寫進網站「' + st.title + '」？\n' +
       '會覆蓋這些人在網站上的分數；提醒清單的人不會動。Classroom 不會被改，請自己在 Classroom 輸入。')) return;
     clearTimeout(gradeSaveTimer);
     gradeSaveTimer = null;
