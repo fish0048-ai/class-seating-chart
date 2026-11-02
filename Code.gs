@@ -473,10 +473,22 @@ function classroomSeatCode_(profile) {
   return '';
 }
 
-/** 老師按「發還」時沒交的學生也會變 RETURNED，要看繳交紀錄裡有沒有 TURNED_IN。 */
+/** 學生有上傳檔案或作答（就算沒按「繳交」）。 */
+function classroomHasWork_(sub) {
+  if (!sub) return false;
+  var files = sub.assignmentSubmission && sub.assignmentSubmission.attachments;
+  if (Array.isArray(files) && files.length) return true;
+  if (sub.shortAnswerSubmission && String(sub.shortAnswerSubmission.answer || '').trim()) return true;
+  return !!(sub.multipleChoiceSubmission && sub.multipleChoiceSubmission.answer);
+}
+
+/**
+ * 老師按「發還」時沒交的學生也會變 RETURNED，要看繳交紀錄裡有沒有 TURNED_IN；
+ * 學生上傳了檔案卻沒按繳交，也算有交。
+ */
 function classroomTurnedIn_(sub) {
   if (!sub) return false;
-  if (sub.state === 'TURNED_IN') return true;
+  if (sub.state === 'TURNED_IN' || classroomHasWork_(sub)) return true;
   if (sub.state !== 'RETURNED') return false;
   if (!Array.isArray(sub.submissionHistory)) return true;
   return sub.submissionHistory.some(function (h) {
@@ -665,7 +677,8 @@ function diagnoseClassroom() {
         });
         if (!turned && sub.state !== 'TURNED_IN') {
           var g = sub.assignedGrade != null ? sub.assignedGrade : sub.draftGrade;
-          neverTurnedIn.push((codeOf[sub.userId] || '?').slice(-2) + (g != null ? '(' + g + '分)' : ''));
+          neverTurnedIn.push((codeOf[sub.userId] || '?').slice(-2) + (g != null ? '(' + g + '分)' : '') +
+            (classroomHasWork_(sub) ? '[有上傳，算已繳]' : ''));
         }
       });
       Logger.log('【' + cw.title + '】' + subs.length + ' 筆｜' +
@@ -719,11 +732,12 @@ function diagnoseSeat() {
             var who = h.stateHistory.actorUserId === sub.userId ? '學生' : (h.stateHistory.actorUserId ? '老師' : '?');
             return h.stateHistory.state + '(' + who + ' ' + String(h.stateHistory.stateTimestamp || '').slice(0, 16) + ')';
           }
-          if (h.gradeHistory) return '打分' + h.gradeHistory.gradeChangeType + '=' + h.gradeHistory.pointsEarned;
+          if (h.gradeHistory) return (/DRAFT/.test(h.gradeHistory.gradeChangeType) ? '草稿' : '發還') + '分數=' + (h.gradeHistory.pointsEarned || 0);
           return '?';
         });
         var parsed = classroomCourseColumns_(mine, [cw], [sub]);
-        Logger.log(ids[sub.userId] + '：目前狀態 ' + sub.state + '；late=' + !!sub.late +
+        var files = (sub.assignmentSubmission && sub.assignmentSubmission.attachments) || [];
+        Logger.log(ids[sub.userId] + '：目前狀態 ' + sub.state + '；附件 ' + files.length + ' 個；late=' + !!sub.late +
           '；已發還分數 ' + sub.assignedGrade + '；草稿分數 ' + sub.draftGrade +
           '；紀錄：' + (hist.join(' → ') || '沒有紀錄欄位') +
           '｜網站判斷：' + JSON.stringify(parsed.columns[0] && parsed.columns[0].scores[code]));
