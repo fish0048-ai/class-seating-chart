@@ -251,6 +251,7 @@
             <div class="tool-menu-list">
               <button type="button" class="tool-menu-item" id="btnImportGrades">從 Excel 匯入<small>本班成績表，或學校讀卡檔（小考、期中考 XLS）</small></button>
               <button type="button" class="tool-menu-item" id="btnClassroomHandouts">從 Classroom 更新學習講義<small>直接讀 Classroom 最新成績（讀不到時改用設定的成績表）</small></button>
+              <button type="button" class="tool-menu-item" id="btnAiCheck">AI 檢查作業（試用）<small>看學生上傳的照片有沒有寫完、錯題有沒有寫原因，依繳交日期算分</small></button>
             </div>
           </details>
           <details class="tool-menu teacher-tab-only" data-for-tab="grades" data-grades-action="summary" hidden>
@@ -1027,6 +1028,24 @@
         <div class="modal-actions">
           <button type="button" class="tool" id="btnTermExportCancel">取消</button>
           <button type="button" class="tool primary" id="btnTermExportGo">下載 Excel</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="aiCheckModal" class="modal" hidden role="dialog" aria-modal="true" aria-label="AI 檢查作業">
+      <div class="modal-card ai-check-card">
+        <p class="modal-kicker">AI 檢查作業（試用）</p>
+        <label class="term-export-field">班級與講義
+          <select id="aiCheckTitle"></select>
+        </label>
+        <p class="hint">讀 Classroom 裡學生上傳的照片或 PDF，檢查每一格都有答案、錯題都有寫錯誤原因。通過的人依第一次按「繳交」的時間給分：準時 100，每晚一個工作天扣 10（週末、國定假日不算）。AI 會慢慢檢查（配合免費額度），可以先關掉視窗，之後再開來看。</p>
+        <p id="aiCheckStatus" class="ai-check-status" role="status"></p>
+        <div id="aiCheckResult" class="ai-check-result"></div>
+        <div class="modal-actions">
+          <button type="button" class="tool" id="btnAiCheckClose">關閉</button>
+          <button type="button" class="tool" id="btnAiCheckRefresh">重新整理</button>
+          <button type="button" class="tool" id="btnAiCheckStart">開始檢查</button>
+          <button type="button" class="tool primary" id="btnAiCheckApply" hidden>把通過的分數寫進網站</button>
         </div>
       </div>
     </div>

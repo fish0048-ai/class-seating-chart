@@ -157,7 +157,7 @@
     if (err && err.retryable) return false;
     if (/HTTP\s*(404|408|429|500|502|503|504)/i.test(msg)) return false;
     if (/雲端暫時|讀取逾時|連線逾時|Failed to fetch|NetworkError|Load failed|AbortError/i.test(msg)) return false;
-    return /沒有開放權限|打開該網址|請先用 Google|登入已過期|登入憑證|未知的操作|沒有權限|只有教師|UrlFetchApp|external_request|連線至外部|Apps Script 後端程式|CLASSROOM_/.test(msg);
+    return /沒有開放權限|打開該網址|請先用 Google|登入已過期|登入憑證|未知的操作|沒有權限|只有教師|UrlFetchApp|external_request|連線至外部|Apps Script 後端程式|CLASSROOM_|\bAI_/.test(msg);
   }
 
   function postOnce_(action, body, timeoutMs) {
@@ -333,6 +333,17 @@
         }, 2);
       }).then(function (data) {
         if (data && data.ok === false) throw new Error(data.error || '讀取 Classroom 失敗');
+        return data;
+      });
+    },
+    /** AI 檢查作業：開始不重試（重試會整份重來），讀進度可重試一次。 */
+    handoutCheck: function (action, body) {
+      return enqueueCloud_(function () {
+        return withRetry_(function () {
+          return postOnce_(action, body || {}, 150000);
+        }, action === 'startHandoutCheck' ? 1 : 2);
+      }).then(function (data) {
+        if (data && data.ok === false) throw new Error(data.error || 'AI 檢查失敗');
         return data;
       });
     },
