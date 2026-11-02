@@ -648,12 +648,18 @@ function diagnoseClassroom() {
       }, 'studentSubmissions');
       var tally = {};
       var neverTurnedIn = [];
+      var byTeacher = [];
       var noHistory = 0;
       subs.forEach(function (sub) {
         var grade = sub.assignedGrade != null ? 'assigned' : (sub.draftGrade != null ? 'draft' : 'none');
         var key = sub.state + '/' + grade;
         tally[key] = (tally[key] || 0) + 1;
         if (!Array.isArray(sub.submissionHistory)) noHistory += 1;
+        var teacherMarked = (sub.submissionHistory || []).some(function (h) {
+          return h && h.stateHistory && h.stateHistory.state === 'TURNED_IN' &&
+            h.stateHistory.actorUserId && h.stateHistory.actorUserId !== sub.userId;
+        });
+        if (teacherMarked) byTeacher.push((codeOf[sub.userId] || '?').slice(-2) + '[' + sub.state + ']');
         var turned = (sub.submissionHistory || []).some(function (h) {
           return h && h.stateHistory && h.stateHistory.state === 'TURNED_IN';
         });
@@ -664,7 +670,8 @@ function diagnoseClassroom() {
       });
       Logger.log('【' + cw.title + '】' + subs.length + ' 筆｜' +
         Object.keys(tally).sort().map(function (k) { return k + '=' + tally[k]; }).join('、') +
-        '｜沒有繳交紀錄欄位 ' + noHistory + ' 筆｜從沒按繳交：' + (neverTurnedIn.join(' ') || '無'));
+        '｜沒有繳交紀錄欄位 ' + noHistory + ' 筆｜從沒按繳交：' + (neverTurnedIn.join(' ') || '無') +
+        '｜老師代按繳交：' + (byTeacher.join(' ') || '無'));
     });
   });
 }
