@@ -10790,12 +10790,17 @@
     var passes = [];
     var reminders = [];
     var pending = [];
+    var skipped = [];
     ((data && data.students) || []).forEach(function (s) {
       var late = s.turnedKey && s.dueKey ? workDaysLate(s.dueKey, s.turnedKey) : 0;
       var row = Object.assign({}, s, { late: late, score: Math.max(0, 100 - 10 * late), why: '' });
       var hasClassroomScore = Number(String(s.classroomGrade || '').replace(/^草稿\s*/, '')) > 0;
       if (s.status === '待檢查') {
         pending.push(row);
+        return;
+      }
+      if (s.status === '已有分數') {
+        skipped.push(row);
         return;
       }
       if (s.status === '通過' && s.turnedKey && row.score > 0) {
@@ -10811,7 +10816,7 @@
       else row.why = '沒通過';
       reminders.push(row);
     });
-    return { passes: passes, reminders: reminders, pending: pending };
+    return { passes: passes, reminders: reminders, pending: pending, skipped: skipped };
   }
 
   /** 提醒清單直接放有問題那幾張的縮圖（AI 沒標出是哪張時放全部），點了開原圖。 */
@@ -10856,7 +10861,8 @@
     }
     var status = sum.pending.length
       ? '還有 ' + sum.pending.length + ' 位等 AI 檢查（每分鐘約 5～8 位），這個視窗會自動更新；也可以先關掉，之後再開來看。'
-      : '全部檢查完：通過 ' + sum.passes.length + ' 位，提醒 ' + sum.reminders.length + ' 位。';
+      : '全部檢查完：通過 ' + sum.passes.length + ' 位，提醒 ' + sum.reminders.length + ' 位' +
+        (sum.skipped.length ? '，Classroom 已有分數略過 ' + sum.skipped.length + ' 位' : '') + '。';
     if (data.lastError) status += '　' + data.lastError;
     setAiCheckStatus(status);
     var head = '<tr><th>座號</th><th>說明</th><th>繳交日</th>';
@@ -10871,6 +10877,10 @@
       html += '<h3 class="subhead">通過（' + sum.passes.length + '）：依繳交日期給分，請在 Classroom 輸入</h3>' +
         '<div class="table-scroll"><table class="assess-table"><thead>' + head + '<th>分數</th>' + tail + '</thead><tbody>' +
         sum.passes.map(function (r) { return aiCheckRowHtml(r, true); }).join('') + '</tbody></table></div>';
+    }
+    if (sum.skipped.length) {
+      html += '<p class="hint">Classroom 已經有分數、沒有送 AI 檢查（' + sum.skipped.length + ' 位）：' +
+        sum.skipped.map(function (r) { return escapeHtml(r.seat) + '（' + escapeHtml(r.classroomGrade) + '）'; }).join('、') + '</p>';
     }
     if (box) {
       box.innerHTML = html;

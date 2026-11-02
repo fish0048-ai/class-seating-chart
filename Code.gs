@@ -798,6 +798,8 @@ function classroomHandoutTargets_(className, title) {
       students.push({
         seat: seat,
         state: sub.state || '',
+        // 已發還分數（含 0）或草稿 > 0 就算老師已經打過分；草稿 0 多半是先記未繳，補交時仍要檢查
+        graded: sub.assignedGrade != null || Number(sub.draftGrade) > 0,
         grade: sub.assignedGrade != null ? sub.assignedGrade : (sub.draftGrade != null ? '草稿 ' + sub.draftGrade : ''),
         turnedInAt: classroomFirstTurnIn_(sub),
         files: files
@@ -843,7 +845,7 @@ function startHandoutCheckApi_(className, title) {
   }
   var now = taipeiTime_(new Date());
   var add = target.students.map(function (s) {
-    var status = s.files.length ? '待檢查' : (s.turnedInAt ? '沒有檔案' : '未繳');
+    var status = s.graded ? '已有分數' : (s.files.length ? '待檢查' : (s.turnedInAt ? '沒有檔案' : '未繳'));
     return [cn, target.title, s.seat, status, '', '', '', '',
       s.turnedInAt ? taipeiTime_(new Date(s.turnedInAt)) : '',
       s.turnedInAt ? taipeiTime_(new Date(s.turnedInAt), 'yyyy-MM-dd') : '',
