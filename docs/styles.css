@@ -3197,6 +3197,13 @@
     font-weight: 700;
   }
 
+  .ai-copy {
+    min-height: 36px;
+    margin-top: 4px;
+    padding: 0 10px;
+    font-size: 12px;
+  }
+
   .ai-thumb {
     display: inline-grid;
     gap: 2px;
