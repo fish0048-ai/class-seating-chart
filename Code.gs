@@ -473,33 +473,23 @@ function classroomSeatCode_(profile) {
   return '';
 }
 
-/** 學生有上傳檔案或作答（就算沒按「繳交」）。 */
-function classroomHasWork_(sub) {
-  if (!sub) return false;
-  var files = sub.assignmentSubmission && sub.assignmentSubmission.attachments;
-  if (Array.isArray(files) && files.length) return true;
-  if (sub.shortAnswerSubmission && String(sub.shortAnswerSubmission.answer || '').trim()) return true;
-  return !!(sub.multipleChoiceSubmission && sub.multipleChoiceSubmission.answer);
-}
-
 /**
- * 老師按「發還」時沒交的學生也會變 RETURNED，要看繳交紀錄裡有沒有 TURNED_IN；
- * 學生上傳了檔案卻沒按繳交，也算有交。
+ * 照老師在 Classroom 學生作業頁看的三種狀態判斷：
+ * 已評分（有發還分數，含 0 分）＝已繳，記分數；
+ * 已繳交（還沒發還）＝已繳，有草稿分數記草稿分數，沒有記 'submitted'；
+ * 已指派（沒交、或被退回且沒有發還分數）＝空白（未繳交）。
  */
-function classroomTurnedIn_(sub) {
-  if (!sub) return false;
-  if (sub.state === 'TURNED_IN' || classroomHasWork_(sub)) return true;
-  if (sub.state !== 'RETURNED') return false;
-  if (!Array.isArray(sub.submissionHistory)) return true;
-  return sub.submissionHistory.some(function (h) {
-    return h && h.stateHistory && h.stateHistory.state === 'TURNED_IN';
-  });
+function classroomScore_(sub) {
+  if (!sub) return '';
+  if (sub.assignedGrade != null && isFinite(Number(sub.assignedGrade))) return Number(sub.assignedGrade);
+  if (sub.state === 'TURNED_IN') {
+    return sub.draftGrade != null && isFinite(Number(sub.draftGrade)) ? Number(sub.draftGrade) : 'submitted';
+  }
+  return '';
 }
 
 /**
- * 把 Classroom API 的名單、作業、繳交狀態整理成和 parseClassroomHandouts_ 一樣的格式。
- * 有繳交過：有分數（已發還或草稿）記分數，沒分數記 'submitted'；
- * 沒繳交過：分數 > 0（交紙本）記分數，0 分或沒分數＝空白（未繳交）。
+ * 把 Classroom API 的名單、作業、繳交狀態整理成和 parseClassroomHandouts_ 一樣的格式（分數規則見 classroomScore_）。
  * 沒指派給某位學生的作業，那位學生不列入。
  */
 function classroomCourseColumns_(students, courseWork, submissions) {
@@ -530,18 +520,8 @@ function classroomCourseColumns_(students, courseWork, submissions) {
     (subsByWork[cw.id] || []).forEach(function (sub) {
       var code = codeOf[sub.userId];
       if (!code) return;
-      var grade = sub.assignedGrade != null ? sub.assignedGrade : sub.draftGrade;
-      var hasGrade = grade != null && isFinite(Number(grade));
-      // 沒按繳交的學生老師常打 0 分（未繳）；沒按繳交但有正分＝交紙本，照分數算已繳
-      if (classroomTurnedIn_(sub)) {
-        scores[code] = hasGrade ? Number(grade) : 'submitted';
-        filled += 1;
-      } else if (hasGrade && Number(grade) > 0) {
-        scores[code] = Number(grade);
-        filled += 1;
-      } else {
-        scores[code] = '';
-      }
+      scores[code] = classroomScore_(sub);
+      if (scores[code] !== '') filled += 1;
     });
     var due = cw.dueDate && cw.dueDate.year
       ? cw.dueDate.year + '-' + ('0' + cw.dueDate.month).slice(-2) + '-' + ('0' + cw.dueDate.day).slice(-2)
@@ -641,7 +621,7 @@ function diagnoseClassroom() {
   }, 'courses').filter(function (c) {
     return (String(c.name || '') + ' ' + String(c.section || '')).indexOf(cn) >= 0;
   });
-  Logger.log('版本 2026-10-30b｜' + cn + ' 對到課程：' + courses.map(function (c) { return c.name; }).join('、'));
+  Logger.log('版本 2026-11-02｜' + cn + ' 對到課程：' + courses.map(function (c) { return c.name; }).join('、'));
   courses.forEach(function (course) {
     var students = classroomListAll_(function (token) {
       return Classroom.Courses.Students.list(course.id, { pageSize: 100, pageToken: token || undefined });
@@ -658,33 +638,18 @@ function diagnoseClassroom() {
       var subs = classroomListAll_(function (token) {
         return Classroom.Courses.CourseWork.StudentSubmissions.list(course.id, cw.id, { pageSize: 100, pageToken: token || undefined });
       }, 'studentSubmissions');
-      var tally = {};
-      var neverTurnedIn = [];
-      var byTeacher = [];
-      var noHistory = 0;
+      var graded = 0;
+      var turnedIn = 0;
+      var assigned = [];
       subs.forEach(function (sub) {
-        var grade = sub.assignedGrade != null ? 'assigned' : (sub.draftGrade != null ? 'draft' : 'none');
-        var key = sub.state + '/' + grade;
-        tally[key] = (tally[key] || 0) + 1;
-        if (!Array.isArray(sub.submissionHistory)) noHistory += 1;
-        var teacherMarked = (sub.submissionHistory || []).some(function (h) {
-          return h && h.stateHistory && h.stateHistory.state === 'TURNED_IN' &&
-            h.stateHistory.actorUserId && h.stateHistory.actorUserId !== sub.userId;
-        });
-        if (teacherMarked) byTeacher.push((codeOf[sub.userId] || '?').slice(-2) + '[' + sub.state + ']');
-        var turned = (sub.submissionHistory || []).some(function (h) {
-          return h && h.stateHistory && h.stateHistory.state === 'TURNED_IN';
-        });
-        if (!turned && sub.state !== 'TURNED_IN') {
-          var g = sub.assignedGrade != null ? sub.assignedGrade : sub.draftGrade;
-          neverTurnedIn.push((codeOf[sub.userId] || '?').slice(-2) + (g != null ? '(' + g + '分)' : '') +
-            (classroomHasWork_(sub) ? '[有上傳，算已繳]' : ''));
-        }
+        var code = codeOf[sub.userId];
+        if (!code || code === '?') return;
+        if (sub.assignedGrade != null) graded += 1;
+        else if (sub.state === 'TURNED_IN') turnedIn += 1;
+        else assigned.push(code.slice(-2) + (sub.draftGrade != null ? '(草稿' + sub.draftGrade + '分)' : ''));
       });
-      Logger.log('【' + cw.title + '】' + subs.length + ' 筆｜' +
-        Object.keys(tally).sort().map(function (k) { return k + '=' + tally[k]; }).join('、') +
-        '｜沒有繳交紀錄欄位 ' + noHistory + ' 筆｜從沒按繳交：' + (neverTurnedIn.join(' ') || '無') +
-        '｜老師代按繳交：' + (byTeacher.join(' ') || '無'));
+      Logger.log('【' + cw.title + '】已評分 ' + graded + '、已繳交 ' + turnedIn + '、已指派（算未繳）' + assigned.length +
+        '：' + (assigned.join(' ') || '無'));
     });
   });
 }
