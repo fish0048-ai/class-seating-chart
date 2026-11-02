@@ -1232,7 +1232,26 @@ function mergeProtectCloudStore_(incoming, existing) {
   if ((!store.hwMissing || !Object.keys(store.hwMissing).length) && existing.hwMissing) {
     store.hwMissing = existing.hwMissing;
   }
+  store.lotteryCounts = mergeCloudLotteryCounts_(store.lotteryCounts, existing.lotteryCounts);
   return store;
+}
+
+/** 各班累計被抽次數：兩邊取較大值，舊分頁沒有這欄也不會清掉。 */
+function mergeCloudLotteryCounts_(local, remote) {
+  var out = {};
+  [remote, local].forEach(function (src) {
+    if (!src || typeof src !== 'object') return;
+    Object.keys(src).forEach(function (cn) {
+      var counts = src[cn];
+      if (!counts || typeof counts !== 'object') return;
+      out[cn] = out[cn] || {};
+      Object.keys(counts).forEach(function (key) {
+        var n = Math.floor(Number(counts[key]));
+        if (isFinite(n) && n > 0) out[cn][key] = Math.max(out[cn][key] || 0, Math.min(n, 9999));
+      });
+    });
+  });
+  return out;
 }
 
 function mergeCloudLessonPack_(localPack, remotePack) {
