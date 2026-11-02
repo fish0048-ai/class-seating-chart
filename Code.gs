@@ -676,6 +676,62 @@ function diagnoseClassroom() {
   });
 }
 
+/**
+ * 在編輯器執行，查單一學生某份講義在 Classroom 的完整繳交紀錄（不列姓名）。
+ * 要查別人就改下面三個值再執行。
+ */
+function diagnoseSeat() {
+  var cn = '804';
+  var seat = '42';
+  var titleKey = '暑假';
+  var code = cn + '-' + ('0' + seat).slice(-2);
+  var courses = classroomListAll_(function (token) {
+    return Classroom.Courses.list({ teacherId: 'me', courseStates: ['ACTIVE'], pageSize: 100, pageToken: token || undefined });
+  }, 'courses').filter(function (c) {
+    return (String(c.name || '') + ' ' + String(c.section || '')).indexOf(cn) >= 0;
+  });
+  Logger.log('查 ' + code + '「' + titleKey + '」｜對到課程：' + courses.map(function (c) { return c.name; }).join('、'));
+  courses.forEach(function (course) {
+    var students = classroomListAll_(function (token) {
+      return Classroom.Courses.Students.list(course.id, { pageSize: 100, pageToken: token || undefined });
+    }, 'students');
+    var mine = students.filter(function (s) { return classroomSeatCode_(s.profile) === code; });
+    var noCode = students.filter(function (s) { return !classroomSeatCode_(s.profile); }).length;
+    Logger.log('名單 ' + students.length + ' 人；座號是 ' + code + ' 的帳號 ' + mine.length + ' 個；姓名看不出座號 ' + noCode + ' 人');
+    var ids = {};
+    mine.forEach(function (s, i) {
+      ids[s.userId] = '帳號' + (i + 1);
+      var n = (s.profile && s.profile.name) || {};
+      Logger.log('帳號' + (i + 1) + '：姓氏欄「' + String(n.familyName || '').replace(/[^\d\-]/g, '') + '…」');
+    });
+    var work = classroomListAll_(function (token) {
+      return Classroom.Courses.CourseWork.list(course.id, { courseWorkStates: ['PUBLISHED'], pageSize: 100, pageToken: token || undefined });
+    }, 'courseWork').filter(function (cw) { return String(cw.title || '').indexOf(titleKey) >= 0; });
+    work.forEach(function (cw) {
+      var subs = classroomListAll_(function (token) {
+        return Classroom.Courses.CourseWork.StudentSubmissions.list(course.id, cw.id, { pageSize: 100, pageToken: token || undefined });
+      }, 'studentSubmissions');
+      var hit = subs.filter(function (sub) { return ids[sub.userId]; });
+      Logger.log('【' + cw.title + '】期限 ' + JSON.stringify(cw.dueDate || null) + '；這位學生的繳交物件 ' + hit.length + ' 個');
+      hit.forEach(function (sub) {
+        var hist = (sub.submissionHistory || []).map(function (h) {
+          if (h.stateHistory) {
+            var who = h.stateHistory.actorUserId === sub.userId ? '學生' : (h.stateHistory.actorUserId ? '老師' : '?');
+            return h.stateHistory.state + '(' + who + ' ' + String(h.stateHistory.stateTimestamp || '').slice(0, 16) + ')';
+          }
+          if (h.gradeHistory) return '打分' + h.gradeHistory.gradeChangeType + '=' + h.gradeHistory.pointsEarned;
+          return '?';
+        });
+        var parsed = classroomCourseColumns_(mine, [cw], [sub]);
+        Logger.log(ids[sub.userId] + '：目前狀態 ' + sub.state + '；late=' + !!sub.late +
+          '；已發還分數 ' + sub.assignedGrade + '；草稿分數 ' + sub.draftGrade +
+          '；紀錄：' + (hist.join(' → ') || '沒有紀錄欄位') +
+          '｜網站判斷：' + JSON.stringify(parsed.columns[0] && parsed.columns[0].scores[code]));
+      });
+    });
+  });
+}
+
 /** 在 Apps Script 編輯器執行一次，允許「讀取 Classroom 課程、名單與作業」權限。 */
 function authorizeClassroom() {
   if (typeof Classroom === 'undefined') {
