@@ -637,6 +637,19 @@
   if (aiCheckRefresh) aiCheckRefresh.addEventListener('click', function () { loadAiCheck(false); });
   var aiCheckStart = document.getElementById('btnAiCheckStart');
   if (aiCheckStart) aiCheckStart.addEventListener('click', function () { requireTeacher(startAiCheck); });
+  var aiCheckResult = document.getElementById('aiCheckResult');
+  if (aiCheckResult) {
+    aiCheckResult.addEventListener('click', function (event) {
+      var btn = event.target.closest('[data-ai-comment]');
+      if (!btn) return;
+      copyText(btn.getAttribute('data-ai-comment')).then(function () {
+        btn.textContent = '已複製';
+        toast('已複製，到 Classroom 這位學生的「私人留言」貼上');
+      }, function () {
+        window.prompt('請複製這段留言：', btn.getAttribute('data-ai-comment'));
+      });
+    });
+  }
   var aiCheckApply = document.getElementById('btnAiCheckApply');
   if (aiCheckApply) aiCheckApply.addEventListener('click', function () { requireTeacher(applyAiCheckScores); });
   var termExportBtn = document.getElementById('btnTermExport');
@@ -10833,15 +10846,65 @@
     }).join('');
   }
 
+  function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+    return new Promise(function (resolve, reject) {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = false;
+      try { ok = document.execCommand('copy'); } catch (err) {}
+      ta.remove();
+      if (ok) resolve(); else reject(new Error('copy failed'));
+    });
+  }
+
+  function shortDateZh(key) {
+    var m = String(key || '').match(/^\d{4}-(\d{2})-(\d{2})$/);
+    return m ? Number(m[1]) + '/' + Number(m[2]) : '';
+  }
+
+  /** 給學生的私人留言（Classroom 沒開放用程式留言，按鈕複製後由老師貼上）。 */
+  function aiCheckComment(r, title) {
+    var head = title + '：';
+    var lateText = r.late
+      ? '期限 ' + shortDateZh(r.dueKey) + '，你 ' + shortDateZh(r.turnedKey) + ' 才繳交，晚 ' + r.late + ' 個工作天，每天扣 10 分'
+      : '';
+    if (r.status === '通過' && r.turnedKey) {
+      return r.late ? head + '有寫完、錯題也有寫原因。' + lateText + '，這份 ' + r.score + ' 分。' : '';
+    }
+    if (r.status === '通過') return head + '有寫完、錯題也有寫原因，但 Classroom 沒有按「繳交」，請記得按繳交。';
+    // AI 沒把握、或 Classroom 已有分數（多半交紙本）要老師先判斷，不自動給留言
+    if (r.status === '需確認') return '';
+    if (Number(String(r.classroomGrade || '').replace(/^草稿\s*/, '')) > 0 && (r.status === '未繳' || r.status === '沒有檔案')) return '';
+    if (r.status === '未繳') return head + '還沒有繳交，請盡快寫完拍照上傳並按「繳交」。';
+    if (r.status === '沒有檔案') return head + '有按繳交，但沒有上傳照片，請把寫好的講義拍照上傳。';
+    if (r.status === '讀取失敗') return head + '上傳的檔案打不開，請改用照片或 PDF 重新上傳。';
+    var bits = [];
+    if (/^否/.test(r.allAnswered || '')) bits.push('還有題目沒寫完' + (r.allAnswered.replace(/^否：?/, '') ? '（' + r.allAnswered.replace(/^否：?/, '') + '）' : ''));
+    if (/缺原因/.test(r.reasons || '')) bits.push('錯題要寫錯誤原因' + (r.reasons.replace(/^缺原因：?/, '') ? '（' + r.reasons.replace(/^缺原因：?/, '') + '）' : ''));
+    if (r.readable === '否') bits.push('照片看不清楚或不完整');
+    if (!bits.length && r.note) bits.push(r.note);
+    return head + (bits.join('；') || '請再檢查一次') + '。請補好後重新上傳並按「繳交」。' + (lateText ? lateText + '。' : '');
+  }
+
   function aiCheckRowHtml(r, withScore) {
     var detail = [r.why, r.note].filter(Boolean).join('：');
+    var comment = aiCheckComment(r, (App.aiCheck && App.aiCheck.title) || '作業');
+    var copyBtn = comment
+      ? '<button type="button" class="tool ai-copy" data-ai-comment="' + escapeHtml(comment) + '" title="' + escapeHtml(comment) + '">複製留言</button>'
+      : '';
     var files = withScore
       ? (r.files || []).map(function (f, i) {
         return f.link ? '<a href="' + escapeHtml(f.link) + '" target="_blank" rel="noopener">' + (f.no || i + 1) + '</a>' : '';
       }).filter(Boolean).join(' ')
       : aiCheckThumbsHtml(r.files);
     return '<tr><td>' + escapeHtml(r.seat) + '</td>' +
-      '<td>' + escapeHtml(detail || '—') + '</td>' +
+      '<td>' + escapeHtml(detail || '—') + (copyBtn ? '<div>' + copyBtn + '</div>' : '') + '</td>' +
       '<td>' + escapeHtml(r.turnedKey || '—') + (r.late ? '（晚 ' + r.late + ' 天）' : '') + '</td>' +
       (withScore ? '<td class="ai-check-score">' + r.score + '</td>' : '') +
       '<td>' + escapeHtml(r.classroomGrade || '—') + '</td>' +
