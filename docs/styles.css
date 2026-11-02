@@ -3320,7 +3320,6 @@
     gap: 8px;
     text-align: left;
   }
-  .lottery-tiers,
   .lottery-modes {
     margin: 0;
     padding: 10px 12px;
@@ -3373,11 +3372,6 @@
     justify-content: flex-start;
     font-size: 13px;
     margin: 0;
-  }
-  .lottery-tier-hint {
-    margin: 8px 0 0;
-    font-size: 11px;
-    color: var(--muted);
   }
   .lottery-fate {
     margin: 0;
