@@ -1814,6 +1814,10 @@
       App.plusHits = App.plusHits || {};
       App.plusHits[data.classroom.className] = Object.assign({}, data.plusHits);
     }
+    if (data.classroom && data.lotteryCounts) {
+      App.lotteryCounts = App.lotteryCounts || {};
+      App.lotteryCounts[data.classroom.className] = Object.assign({}, data.lotteryCounts);
+    }
     if (data.lessonLog) {
       App.lessonLog = mergeLessonLogClient_(App.lessonLog, data.lessonLog);
     }
@@ -10122,18 +10126,44 @@
     });
   }
 
+  function lotteryCountOf(key) {
+    var cn = App.classroom && App.classroom.className;
+    var counts = (cn && App.lotteryCounts && App.lotteryCounts[cn]) || {};
+    return Number(counts[String(key)]) || 0;
+  }
+
+  function bumpLotteryCount(key) {
+    var cn = App.classroom && App.classroom.className;
+    if (!cn || !key) return;
+    App.lotteryCounts = App.lotteryCounts || {};
+    App.lotteryCounts[cn] = App.lotteryCounts[cn] || {};
+    App.lotteryCounts[cn][String(key)] = lotteryCountOf(key) + 1;
+  }
+
+  /** 累計被抽次數比可抽名單平均少的人提高機率、多的降低（每差 1 次加倍或減半，最多 4 倍）。 */
+  function lotteryFairness(pool) {
+    var counts = pool.map(function (item) { return lotteryCountOf(item.seatNo); });
+    var avg = counts.reduce(function (a, b) { return a + b; }, 0) / (counts.length || 1);
+    return counts.map(function (n) {
+      return Math.max(0.25, Math.min(4, Math.pow(2, avg - n)));
+    });
+  }
+
   function pickFromPool(pool) {
     if (!pool || !pool.length) return null;
-    if (pool[0] && pool[0].kind === 'group') {
-      return pool[Math.floor(Math.random() * pool.length)];
-    }
+    var fair = lotteryFairness(pool);
+    var isGroup = pool[0] && pool[0].kind === 'group';
     var sum = 0;
     var weights = [];
     var i;
     for (i = 0; i < pool.length; i++) {
-      var t = Number(usualScoreForDraw(pool[i]));
-      t = Math.max(0, Math.min(100, isFinite(t) ? t : 60));
-      var w = 0.55 + (100 - t) / 100 * 1.45;
+      var w = 1;
+      if (!isGroup) {
+        var t = Number(usualScoreForDraw(pool[i]));
+        t = Math.max(0, Math.min(100, isFinite(t) ? t : 60));
+        w = 0.55 + (100 - t) / 100 * 1.45;
+      }
+      w *= fair[i];
       weights.push(w);
       sum += w;
     }
@@ -10227,8 +10257,10 @@
           spawnSparkBurst(els.lotteryCard, 28);
           showLotteryFate();
           App.lotteryBusy = false;
+          bumpLotteryCount('g:' + winner.groupId);
           run('logLottery', [{
             className: App.classroom.className,
+            drawKey: 'g:' + winner.groupId,
             seatNo: App.selectedSeatNo || ('g:' + winner.groupId),
             name: winner.name,
             detail: (fromButton ? '抽籤' : '再抽一次') + '·整組'
@@ -10256,8 +10288,10 @@
         spawnSparkBurst(els.board.querySelector('.seat-card[data-seat="' + cssEscape(winner.seatNo) + '"]'), 16);
         showLotteryFate();
         App.lotteryBusy = false;
+        bumpLotteryCount(winner.seatNo);
         run('logLottery', [{
           className: App.classroom.className,
+          drawKey: winner.seatNo,
           seatNo: winner.seatNo,
           name: winner.name,
           detail: fromButton ? '抽籤' : '再抽一次'

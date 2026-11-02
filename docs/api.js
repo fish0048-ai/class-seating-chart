@@ -471,6 +471,7 @@
     local.substitutes = mergeSubstitutesProtect_(local.substitutes, remote.substitutes);
     local.classroomSources = newerClassroomSources_(local.classroomSources, remote.classroomSources);
     local.hwMissing = mergeHwMissingProtect_(local.hwMissing, remote.hwMissing);
+    local.lotteryCounts = mergeLotteryCounts_(local.lotteryCounts, remote.lotteryCounts);
     return local;
   }
 
@@ -703,7 +704,38 @@
     parsed.substitutes = normalizeSubstitutes_(parsed.substitutes);
     parsed.classroomSources = normalizeClassroomSources_(parsed.classroomSources);
     parsed.hwMissing = normalizeHwMissing_(parsed.hwMissing);
+    parsed.lotteryCounts = normalizeLotteryCounts_(parsed.lotteryCounts);
     return parsed;
+  }
+
+  /** 各班每人（或 'g:組號'）累計被抽中的次數，跨節、跨裝置保留。 */
+  function normalizeLotteryCounts_(raw) {
+    var out = {};
+    if (!raw || typeof raw !== 'object') return out;
+    Object.keys(raw).forEach(function (cn) {
+      var src = raw[cn];
+      if (!cn || !src || typeof src !== 'object') return;
+      var counts = {};
+      Object.keys(src).forEach(function (key) {
+        var n = Math.floor(Number(src[key]));
+        if (key && isFinite(n) && n > 0) counts[String(key)] = Math.min(n, 9999);
+      });
+      out[String(cn)] = counts;
+    });
+    return out;
+  }
+
+  /** 兩台裝置各自累加時取較大值（只會少算、不會多算）。 */
+  function mergeLotteryCounts_(a, b) {
+    var out = normalizeLotteryCounts_(a);
+    var other = normalizeLotteryCounts_(b);
+    Object.keys(other).forEach(function (cn) {
+      out[cn] = out[cn] || {};
+      Object.keys(other[cn]).forEach(function (key) {
+        out[cn][key] = Math.max(out[cn][key] || 0, other[cn][key]);
+      });
+    });
+    return out;
   }
 
   function emptyMockExam_() {
@@ -1263,6 +1295,7 @@
       }
       var remoteAt = (remote && remote.updatedAt) || '';
       if (hold.baseUpdatedAt && remoteAt && hold.baseUpdatedAt !== remoteAt) {
+        remote.lotteryCounts = mergeLotteryCounts_(remote.lotteryCounts, held.lotteryCounts);
         var count = replayHeldScores_(remote, held);
         if (!count) {
           scoreHold_ = false;
@@ -1813,7 +1846,8 @@
       scheduleChanges: activeScheduleChanges_(store.scheduleChanges),
       substitutes: activeSubstitutes_(store.substitutes),
       hwMissing: derivedHwMissingMap_(store),
-      plusHits: plusHitsForClass_(store, className)
+      plusHits: plusHitsForClass_(store, className),
+      lotteryCounts: clone(((store.lotteryCounts || {})[className]) || {})
     }, store);
   }
 
@@ -2239,8 +2273,16 @@
       persistRoom(store, room, true);
       return wrap(payload(store, className));
     },
-    logLottery: function () {
-      return wrap({ ok: true });
+    logLottery: function (body) {
+      var store = loadStore();
+      var cn = String((body && body.className) || '').trim();
+      var key = String((body && body.drawKey) || '').trim();
+      if (!cn || !key) return wrap({ ok: true });
+      store.lotteryCounts = normalizeLotteryCounts_(store.lotteryCounts);
+      store.lotteryCounts[cn] = store.lotteryCounts[cn] || {};
+      store.lotteryCounts[cn][key] = (store.lotteryCounts[cn][key] || 0) + 1;
+      saveStore(store, { cloud: false });
+      return wrap({ ok: true, className: cn, lotteryCounts: clone(store.lotteryCounts[cn]) });
     },
     listRecords: function () {
       var store = loadStore();
