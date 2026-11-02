@@ -845,7 +845,10 @@ function startHandoutCheckApi_(className, title) {
   }
   var now = taipeiTime_(new Date());
   var add = target.students.map(function (s) {
-    var status = s.graded ? '已有分數' : (s.files.length ? '待檢查' : (s.turnedInAt ? '沒有檔案' : '未繳'));
+    // 只送「有按繳交、還沒打分數、有上傳檔案」的人給 AI，省額度
+    var status = s.graded ? '已有分數'
+      : !s.turnedInAt ? (s.files.length ? '未按繳交' : '未繳')
+        : (s.files.length ? '待檢查' : '沒有檔案');
     return [cn, target.title, s.seat, status, '', '', '', '',
       s.turnedInAt ? taipeiTime_(new Date(s.turnedInAt)) : '',
       s.turnedInAt ? taipeiTime_(new Date(s.turnedInAt), 'yyyy-MM-dd') : '',

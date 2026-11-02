@@ -10825,6 +10825,7 @@
       else if (s.status === '需確認') row.why = 'AI 判斷通過但沒把握，請看一下照片';
       else if (s.status === '未繳') row.why = hasClassroomScore ? '沒有在 Classroom 繳交，但 Classroom 有分數（可能交紙本）' : '沒有繳交';
       else if (s.status === '沒有檔案') row.why = '有按繳交，但沒有上傳照片或 PDF' + (hasClassroomScore ? '（Classroom 有分數，可能交紙本）' : '');
+      else if (s.status === '未按繳交') row.why = '有上傳照片但沒有按「繳交」，沒有送 AI 檢查';
       else if (s.status === '讀取失敗') row.why = '檔案讀不到';
       else row.why = '沒通過';
       reminders.push(row);
@@ -10882,6 +10883,7 @@
     if (r.status === '需確認') return '';
     if (Number(String(r.classroomGrade || '').replace(/^草稿\s*/, '')) > 0 && (r.status === '未繳' || r.status === '沒有檔案')) return '';
     if (r.status === '未繳') return head + '還沒有繳交，請盡快寫完拍照上傳並按「繳交」。';
+    if (r.status === '未按繳交') return head + '有上傳照片，但 Classroom 還沒有按「繳交」，請按繳交後老師才會檢查。';
     if (r.status === '沒有檔案') return head + '有按繳交，但沒有上傳照片，請把寫好的講義拍照上傳。';
     if (r.status === '讀取失敗') return head + '上傳的檔案打不開，請改用照片或 PDF 重新上傳。';
     var bits = [];
