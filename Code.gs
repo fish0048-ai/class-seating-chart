@@ -486,7 +486,8 @@ function classroomTurnedIn_(sub) {
 
 /**
  * 把 Classroom API 的名單、作業、繳交狀態整理成和 parseClassroomHandouts_ 一樣的格式。
- * 有分數（已發還或草稿）＝分數；有繳交過但未打分＝'submitted'；其他＝空白（未繳交）。
+ * 有繳交過：有分數（已發還或草稿）記分數，沒分數記 'submitted'；
+ * 沒繳交過：分數 > 0（交紙本）記分數，0 分或沒分數＝空白（未繳交）。
  * 沒指派給某位學生的作業，那位學生不列入。
  */
 function classroomCourseColumns_(students, courseWork, submissions) {
@@ -518,11 +519,13 @@ function classroomCourseColumns_(students, courseWork, submissions) {
       var code = codeOf[sub.userId];
       if (!code) return;
       var grade = sub.assignedGrade != null ? sub.assignedGrade : sub.draftGrade;
-      if (grade != null && isFinite(Number(grade))) {
-        scores[code] = Number(grade);
+      var hasGrade = grade != null && isFinite(Number(grade));
+      // 沒按繳交的學生老師常打 0 分（未繳）；沒按繳交但有正分＝交紙本，照分數算已繳
+      if (classroomTurnedIn_(sub)) {
+        scores[code] = hasGrade ? Number(grade) : 'submitted';
         filled += 1;
-      } else if (classroomTurnedIn_(sub)) {
-        scores[code] = 'submitted';
+      } else if (hasGrade && Number(grade) > 0) {
+        scores[code] = Number(grade);
         filled += 1;
       } else {
         scores[code] = '';
