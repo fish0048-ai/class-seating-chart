@@ -73,16 +73,16 @@ test.describe('抽籤', function () {
     await support.expectHealthy(health);
   });
 
-  test('未勾選成績區間時不能抽籤', async function ({ page }) {
+  test('抽籤沒有成績區間選項，直接從全班抽', async function ({ page }) {
     const health = await signIn(page);
-    await setChecked(page, '#lotteryTierHigh', false);
-    await setChecked(page, '#lotteryTierMid', false);
-    await setChecked(page, '#lotteryTierLow', false);
     await clickReady(page.getByRole('button', { name: '抽籤', exact: true }));
-    await expect(page.locator('#toast')).toContainText('請至少勾選一個成績區間（高／中／低）');
-    await expect(page.getByRole('dialog', { name: '隨機抽籤' })).toBeVisible();
-    await expect(page.locator('#lotteryName')).toHaveText('？');
-    await expectOverlayFits(page.locator('#lotteryCard'));
+    const dialog = page.getByRole('dialog', { name: '隨機抽籤' });
+    await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('group', { name: '成績區間' })).toHaveCount(0);
+    await expect(dialog.getByRole('checkbox', { name: '高' })).toHaveCount(0);
+    await expect(dialog.getByText('區間')).toHaveCount(0);
+    await expect(page.locator('#lotteryMeta')).toContainText('就是你！座號');
+    await expect(page.locator('#lotteryMeta')).not.toContainText('分組');
     await support.expectHealthy(health);
   });
 

@@ -104,10 +104,6 @@
     lotteryStamp: document.getElementById('lotteryStamp'),
     lotteryMeta: document.getElementById('lotteryMeta'),
     lotteryUnique: document.getElementById('lotteryUnique'),
-    lotteryTierHigh: document.getElementById('lotteryTierHigh'),
-    lotteryTierMid: document.getElementById('lotteryTierMid'),
-    lotteryTierLow: document.getElementById('lotteryTierLow'),
-    lotteryTierHint: document.getElementById('lotteryTierHint'),
     lotteryFateWrap: document.getElementById('lotteryFateWrap'),
     lotteryFateLabel: document.getElementById('lotteryFateLabel'),
     btnLotteryApplyFate: document.getElementById('btnLotteryApplyFate'),
@@ -339,24 +335,6 @@
     if (els.lotteryStamp) els.lotteryStamp.hidden = true;
   });
   document.getElementById('btnLotteryReset').addEventListener('click', resetDrawn);
-  ['lotteryTierHigh', 'lotteryTierMid', 'lotteryTierLow'].forEach(function (id) {
-    var el = document.getElementById(id);
-    if (!el) return;
-    el.addEventListener('change', function () {
-      if (!App.classroom) return;
-      prepareDrawData(function () {
-        updateLotteryTierHint(buildLotteryPool(false).pool);
-      });
-    });
-  });
-  document.querySelectorAll('input[name="lotteryMode"]').forEach(function (el) {
-    el.addEventListener('change', function () {
-      if (!App.classroom) return;
-      prepareDrawData(function () {
-        updateLotteryTierHint(buildLotteryPool(false).pool);
-      });
-    });
-  });
   if (els.btnLotteryApplyFate) {
     els.btnLotteryApplyFate.addEventListener('click', applyFateOffer);
   }
@@ -9792,12 +9770,6 @@
     });
   }
 
-  function tierLabelZh(tier) {
-    if (tier === 'high') return '高';
-    if (tier === 'low') return '低';
-    return '中';
-  }
-
   function studentTierOf(seatNo) {
     if (!App.classroom) return 'mid';
     var info = assignLotteryTiers(App.classroom.students || []);
@@ -9856,14 +9828,6 @@
     return checked ? checked.value : 'person';
   }
 
-  function selectedLotteryTiers() {
-    var out = [];
-    if (els.lotteryTierHigh && els.lotteryTierHigh.checked) out.push('high');
-    if (els.lotteryTierMid && els.lotteryTierMid.checked) out.push('mid');
-    if (els.lotteryTierLow && els.lotteryTierLow.checked) out.push('low');
-    return out;
-  }
-
   function lotteryTierOfIndex(i, n) {
     if (n <= 0) return 'mid';
     if (n === 1) return 'mid';
@@ -9900,8 +9864,6 @@
   function buildLotteryPool(applyUnique) {
     var mode = lotteryMode();
     var students = (App.classroom && App.classroom.students) || [];
-    var tiers = assignLotteryTiers(students);
-    var selected = selectedLotteryTiers();
     var drawn = (App.classroom && App.drawn[App.classroom.className]) || [];
     var unique = applyUnique !== false && els.lotteryUnique && els.lotteryUnique.checked;
     var assign = (classGroups().assign) || {};
@@ -9917,21 +9879,13 @@
         groupMap[gid].push(s);
       });
       var groupIds = Object.keys(groupMap).filter(function (gid) {
-        var members = groupMap[gid];
-        var hasTier = members.some(function (s) {
-          return selected.indexOf(tiers.map[String(s.seatNo)]) >= 0;
-        });
-        if (!hasTier) return false;
-        if (unique && drawn.indexOf('g:' + gid) !== -1) return false;
-        return true;
+        return !(unique && drawn.indexOf('g:' + gid) !== -1);
       });
       return {
         mode: mode,
         pool: groupIds.map(function (gid) {
           return { kind: 'group', groupId: gid, members: groupMap[gid], name: '第' + gid + '組', seatNo: 'g:' + gid };
         }),
-        tiers: tiers,
-        selected: selected,
         unique: unique,
         drawn: drawn,
         needsGroups: !Object.keys(groupMap).length
@@ -9940,34 +9894,15 @@
 
     var poolStudents = mode === 'inGroup' ? groupedStudents : students;
     var pool = poolStudents.filter(function (s) {
-      var tier = tiers.map[String(s.seatNo)];
-      if (selected.indexOf(tier) === -1) return false;
-      if (unique && drawn.indexOf(s.seatNo) !== -1) return false;
-      return true;
+      return !(unique && drawn.indexOf(s.seatNo) !== -1);
     });
     return {
       mode: mode,
       pool: pool,
-      tiers: tiers,
-      selected: selected,
       unique: unique,
       drawn: drawn,
       needsGroups: mode === 'inGroup' && !groupedStudents.length
     };
-  }
-
-  function updateLotteryTierHint(pool) {
-    if (!els.lotteryTierHint || !App.classroom) return;
-    var info = assignLotteryTiers(App.classroom.students || []);
-    var selected = selectedLotteryTiers();
-    var labels = { high: '高', mid: '中', low: '低' };
-    var picked = selected.map(function (t) { return labels[t]; }).join('／') || '（未選）';
-    var mode = lotteryMode();
-    var n = (pool || []).length;
-    var unit = mode === 'group' ? '組' : '人';
-    els.lotteryTierHint.textContent =
-      '本班分成 高' + info.counts.high + '／中' + info.counts.mid + '／低' + info.counts.low +
-      '；目前可抽「' + picked + '」共 ' + n + ' ' + unit;
   }
 
   function rollFatePoints() {
@@ -10243,11 +10178,6 @@
       return;
     }
     if (App.lotteryBusy) return;
-    if (!selectedLotteryTiers().length) {
-      toast('請至少勾選一個成績區間（高／中／低）');
-      els.lotteryModal.hidden = false;
-      return;
-    }
     hideLotteryFate();
     App.lotteryBusy = true;
     els.lotteryModal.hidden = false;
@@ -10258,7 +10188,6 @@
     }
     prepareDrawData(function () {
       var built = buildLotteryPool(true);
-      updateLotteryTierHint(built.pool);
       if (built.needsGroups) {
         App.lotteryBusy = false;
         if (els.lotteryCard) els.lotteryCard.classList.remove('rolling');
@@ -10269,8 +10198,8 @@
         App.lotteryBusy = false;
         if (els.lotteryCard) els.lotteryCard.classList.remove('rolling');
         toast(built.unique
-          ? '可抽名單已空，請改區間或重置'
-          : '這個成績區間目前沒有可抽對象');
+          ? '這堂課每個人都抽過了，請按「重置」或取消「本堂不重複」'
+          : '目前沒有可抽的對象');
         return;
       }
       var winner = pickFromPool(built.pool);
@@ -10290,7 +10219,6 @@
             els.lotteryCard.classList.remove('rolling');
             els.lotteryCard.classList.add('revealed');
           }
-          updateLotteryTierHint(buildLotteryPool(true).pool);
           renderAll();
           winner.members.forEach(function (m) {
             flashSeat(m.seatNo, 'winner');
@@ -10312,9 +10240,8 @@
         App.lotteryLastWinner = winner;
         App.lotteryLastGroupId = studentGroupId(winner.seatNo) || 0;
         App.selectedSeatNo = winner.seatNo;
-        var tier = built.tiers.map[String(winner.seatNo)];
         var gid = studentGroupId(winner.seatNo);
-        var bits = ['就是你！座號 ' + winner.seatNo, tierLabelZh(tier) + '分組', '目前 ' + winner.score + ' 分'];
+        var bits = ['就是你！座號 ' + winner.seatNo, '目前 ' + winner.score + ' 分'];
         if (built.mode === 'inGroup' && gid) bits.splice(1, 0, '第' + gid + '組');
         els.lotteryName.textContent = winner.name;
         els.lotteryMeta.textContent = bits.join(' · ');
@@ -10323,7 +10250,6 @@
           els.lotteryCard.classList.remove('rolling');
           els.lotteryCard.classList.add('revealed');
         }
-        updateLotteryTierHint(buildLotteryPool(true).pool);
         renderAll();
         flashSeat(winner.seatNo, 'winner');
         spawnSparkBurst(els.lotteryCard, 28);
@@ -10371,11 +10297,6 @@
     els.lotteryMeta.textContent = '已重置，可再抽全部對象';
     if (els.lotteryStamp) els.lotteryStamp.hidden = true;
     if (els.lotteryCard) els.lotteryCard.classList.remove('rolling', 'revealed');
-    if (App.classroom) {
-      prepareDrawData(function () {
-        updateLotteryTierHint(buildLotteryPool(true).pool);
-      });
-    }
     toast('抽籤名單已重置');
   }
 
