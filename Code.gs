@@ -234,7 +234,7 @@ function handleRequest_(req) {
       case 'readClassroomCourse':
         return readClassroomCourseApi_(req.className || (payload && payload.className));
       case 'startHandoutCheck':
-        return startHandoutCheckApi_(req.className, req.title);
+        return startHandoutCheckApi_(req.className, req.title, req.recheck === true || req.recheck === 'true');
       case 'getHandoutCheck':
         return refreshHandoutCheckApi_(req.className, req.title);
       default:
@@ -831,7 +831,19 @@ function aiCheckKeyOf_(values) {
 }
 
 /** 開始檢查：列出全班、先跑一小段，其餘交給每分鐘的觸發器慢慢跑（配合免費額度）。 */
-function startHandoutCheckApi_(className, title) {
+function aiFileIds_(json) {
+  try {
+    return (JSON.parse(String(json || '[]')) || []).map(function (f) { return f.id; }).join(',');
+  } catch (err) {
+    return '';
+  }
+}
+
+/**
+ * 讀 Classroom 更新名單。recheck 不是 true 時，之前 AI 檢查過、照片沒換的學生沿用舊結果，
+ * 只有新繳交或換了照片的才重新送 AI（省額度）。
+ */
+function startHandoutCheckApi_(className, title, recheck) {
   if (!PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY')) {
     throw new Error('AI_NO_KEY：還沒設定 Gemini 金鑰。請到 Apps Script「專案設定 → 指令碼屬性」新增 GEMINI_API_KEY');
   }
@@ -840,34 +852,57 @@ function startHandoutCheckApi_(className, title) {
   var key = cn + '|' + target.title;
   var sheet = aiCheckSheet_();
   var rows = aiCheckRows_(sheet);
+  var prevBySeat = {};
   for (var r = rows.length - 1; r >= 0; r--) {
-    if (aiCheckKeyOf_(rows[r].values) === key) sheet.deleteRow(rows[r].rowIndex);
+    if (aiCheckKeyOf_(rows[r].values) !== key) continue;
+    prevBySeat[String(rows[r].values[2])] = rows[r].values;
+    sheet.deleteRow(rows[r].rowIndex);
   }
   var now = taipeiTime_(new Date());
+  var reused = 0;
   var add = target.students.map(function (s) {
     // 只送「有按繳交、還沒打分數、有上傳檔案」的人給 AI，省額度
     var status = s.graded ? '已有分數'
       : !s.turnedInAt ? (s.files.length ? '未按繳交' : '未繳')
         : (s.files.length ? '待檢查' : '沒有檔案');
-    return [cn, target.title, s.seat, status, '', '', '', '',
+    var filesJson = JSON.stringify(s.files);
+    var verdict = ['', '', '', ''];
+    var problems = '';
+    var checkedAt = now;
+    var prev = prevBySeat[String(s.seat)];
+    if (status === '待檢查' && !recheck && prev && /^(通過|未通過|需確認|讀取失敗)$/.test(String(prev[3])) &&
+        aiFileIds_(prev[12]) === aiFileIds_(filesJson)) {
+      status = String(prev[3]);
+      verdict = [prev[4], prev[5], prev[6], prev[7]];
+      problems = String(prev[15] || '');
+      checkedAt = String(prev[14] || now);
+      reused += 1;
+    }
+    return [cn, target.title, s.seat, status, verdict[0], verdict[1], verdict[2], verdict[3],
       s.turnedInAt ? taipeiTime_(new Date(s.turnedInAt)) : '',
       s.turnedInAt ? taipeiTime_(new Date(s.turnedInAt), 'yyyy-MM-dd') : '',
-      target.dueKey, s.grade === '' ? '' : String(s.grade), JSON.stringify(s.files), '0', now, ''];
+      target.dueKey, s.grade === '' ? '' : String(s.grade), filesJson, '0', checkedAt, problems];
   });
   if (add.length) sheet.getRange(sheet.getLastRow() + 1, 1, add.length, AI_CHECK_HEADERS_.length).setValues(add);
   var props = PropertiesService.getScriptProperties();
   props.setProperty(AI_CHECK_JOB_KEY_, JSON.stringify({ className: cn, title: target.title, startedAt: now, lastError: '' }));
   props.deleteProperty(AI_CHECK_RUNNING_KEY_);
-  try {
-    ScriptApp.getProjectTriggers().forEach(function (t) {
-      if (t.getHandlerFunction() === 'runHandoutCheck') ScriptApp.deleteTrigger(t);
-    });
-    ScriptApp.newTrigger('runHandoutCheck').timeBased().everyMinutes(1).create();
-  } catch (err) {
-    // 沒有觸發器權限時，只能靠網頁按「重新整理」時順便跑
+  var toCheck = add.filter(function (row) { return row[3] === '待檢查'; }).length;
+  if (toCheck) {
+    try {
+      ScriptApp.getProjectTriggers().forEach(function (t) {
+        if (t.getHandlerFunction() === 'runHandoutCheck') ScriptApp.deleteTrigger(t);
+      });
+      ScriptApp.newTrigger('runHandoutCheck').timeBased().everyMinutes(1).create();
+    } catch (err) {
+      // 沒有觸發器權限時，只能靠網頁按「重新整理」時順便跑
+    }
+    processHandoutCheck_(10000);
   }
-  processHandoutCheck_(10000);
-  return getHandoutCheckApi_(cn, target.title);
+  var result = getHandoutCheckApi_(cn, target.title);
+  result.reused = reused;
+  result.newChecks = toCheck;
+  return result;
 }
 
 /** 觸發器每分鐘呼叫：檢查還沒檢查的學生，全部做完就移除觸發器。 */

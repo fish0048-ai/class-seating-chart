@@ -636,7 +636,9 @@
   var aiCheckRefresh = document.getElementById('btnAiCheckRefresh');
   if (aiCheckRefresh) aiCheckRefresh.addEventListener('click', function () { loadAiCheck(false); });
   var aiCheckStart = document.getElementById('btnAiCheckStart');
-  if (aiCheckStart) aiCheckStart.addEventListener('click', function () { requireTeacher(startAiCheck); });
+  if (aiCheckStart) aiCheckStart.addEventListener('click', function () { requireTeacher(function () { startAiCheck(false); }); });
+  var aiCheckRecheck = document.getElementById('btnAiCheckRecheck');
+  if (aiCheckRecheck) aiCheckRecheck.addEventListener('click', function () { requireTeacher(function () { startAiCheck(true); }); });
   var aiCheckResult = document.getElementById('aiCheckResult');
   if (aiCheckResult) {
     aiCheckResult.addEventListener('click', function (event) {
@@ -10761,16 +10763,38 @@
     if (el) el.textContent = text || '';
   }
 
+  /** 結果還沒讀到時不能按，避免沒看到舊結果就整份重跑。 */
+  function setAiCheckButtons(busy) {
+    var data = App.aiCheck && App.aiCheck.data;
+    var has = !!(data && (data.students || []).length);
+    var start = document.getElementById('btnAiCheckStart');
+    var again = document.getElementById('btnAiCheckRecheck');
+    if (start) {
+      start.disabled = !!busy;
+      start.textContent = has ? '檢查新繳交的' : '開始檢查';
+    }
+    if (again) {
+      again.hidden = !has;
+      again.disabled = !!busy;
+    }
+  }
+
   function loadAiCheck(quiet) {
     var t = aiCheckTarget();
     if (!t.className || !t.title) return;
     clearTimeout(App.aiCheckTimer);
-    if (!quiet) setAiCheckStatus('讀取檢查結果…');
+    if (!quiet) {
+      App.aiCheck = { className: t.className, title: t.title, data: null };
+      setAiCheckButtons(true);
+      setAiCheckStatus('讀取檢查結果…');
+    }
     api('getHandoutCheck', [t]).then(function (data) {
       App.aiCheck = { className: t.className, title: t.title, data: data };
       renderAiCheck(data);
+      setAiCheckButtons(false);
     }).catch(function (err) {
       setAiCheckStatus(aiCheckErrorText(err));
+      setAiCheckButtons(false);
     });
   }
 
@@ -10780,21 +10804,25 @@
     return msg.replace(/^(CLASSROOM|AI)_[A-Z_]+：/, '');
   }
 
-  function startAiCheck() {
+  /** recheck＝true 才把之前檢查過的人全部重送 AI；否則只檢查新繳交或換了照片的。 */
+  function startAiCheck(recheck) {
     var t = aiCheckTarget();
     if (!t.className || !t.title) return;
-    var had = App.aiCheck && App.aiCheck.data && (App.aiCheck.data.students || []).length;
-    if (had && !window.confirm('這份講義已經檢查過，要全部重新檢查嗎？（舊的結果會清掉）')) return;
-    var btn = document.getElementById('btnAiCheckStart');
-    if (btn) btn.disabled = true;
-    setAiCheckStatus('正在讀 Classroom 的繳交與照片，並開始檢查（約 1 分鐘）…');
-    api('startHandoutCheck', [t]).then(function (data) {
+    if (recheck && !window.confirm('全部重新檢查會把之前的 AI 結果清掉，每位有繳交的學生都重新送 AI（會用掉額度）。確定嗎？')) return;
+    setAiCheckButtons(true);
+    setAiCheckStatus(recheck
+      ? '正在讀 Classroom，全部重新檢查（約 1 分鐘）…'
+      : '正在讀 Classroom 找新繳交的（之前檢查過的沿用舊結果）…');
+    api('startHandoutCheck', [Object.assign({ recheck: !!recheck }, t)]).then(function (data) {
       App.aiCheck = { className: t.className, title: t.title, data: data };
       renderAiCheck(data);
+      if (!recheck && data && data.reused != null) {
+        toast('沿用之前結果 ' + data.reused + ' 位，新送 AI 檢查 ' + (data.newChecks || 0) + ' 位', 6000);
+      }
     }).catch(function (err) {
       setAiCheckStatus(aiCheckErrorText(err));
     }).then(function () {
-      if (btn) btn.disabled = false;
+      setAiCheckButtons(false);
     });
   }
 
