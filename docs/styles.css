@@ -3207,6 +3207,46 @@
     font-weight: 700;
   }
 
+  .ai-entry {
+    margin-bottom: 10px;
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #fff;
+  }
+
+  .ai-entry > summary {
+    min-height: 36px;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .ai-entry-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 4px 12px;
+    margin: 6px 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .ai-entry-list label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 36px;
+    font-size: 15px;
+  }
+
+  .ai-entry-list b {
+    min-width: 2em;
+  }
+
+  .ai-entry-list .is-done {
+    color: var(--muted, #64748b);
+    text-decoration: line-through;
+  }
+
   .ai-copy {
     min-height: 36px;
     margin-top: 4px;

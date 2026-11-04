@@ -641,6 +641,22 @@
   if (aiCheckRecheck) aiCheckRecheck.addEventListener('click', function () { requireTeacher(function () { startAiCheck(true); }); });
   var aiCheckResult = document.getElementById('aiCheckResult');
   if (aiCheckResult) {
+    aiCheckResult.addEventListener('change', function (event) {
+      var box = event.target.closest('[data-ai-entry]');
+      if (!box) return;
+      var done = aiEntryDone();
+      if (box.checked) done[box.getAttribute('data-ai-entry')] = true;
+      else delete done[box.getAttribute('data-ai-entry')];
+      try { localStorage.setItem(aiEntryKey(), JSON.stringify(done)); } catch (err) {}
+      var li = box.closest('li');
+      if (li) li.classList.toggle('is-done', box.checked);
+      var summary = aiCheckResult.querySelector('.ai-entry summary');
+      var left = aiCheckResult.querySelectorAll('[data-ai-entry]:not(:checked):not(:disabled)').length;
+      if (summary) summary.textContent = '輸入用清單（依座號，還有 ' + left + ' 位要輸入）';
+    });
+    aiCheckResult.addEventListener('toggle', function (event) {
+      if (event.target.classList && event.target.classList.contains('ai-entry')) App.aiEntryOpen = event.target.open;
+    }, true);
     aiCheckResult.addEventListener('click', function (event) {
       var btn = event.target.closest('[data-ai-comment]');
       if (!btn) return;
@@ -10955,6 +10971,39 @@
       '<td>' + (files || '—') + '</td></tr>';
   }
 
+  function aiEntryKey() {
+    var st = App.aiCheck || {};
+    return 'ai-entry-done:' + (st.className || '') + '|' + (st.title || '');
+  }
+
+  function aiEntryDone() {
+    try {
+      return JSON.parse(localStorage.getItem(aiEntryKey()) || '{}') || {};
+    } catch (err) {
+      return {};
+    }
+  }
+
+  /** 依座號排好的輸入用清單（老師對著在 Classroom 打分數），打完的打勾記在這台電腦。 */
+  function aiEntryListHtml(sum) {
+    var rows = sum.passes.concat(sum.reminders.filter(function (r) { return r.turnedKey; }));
+    rows.sort(function (a, b) { return Number(a.seat) - Number(b.seat); });
+    if (!rows.length) return '';
+    var done = aiEntryDone();
+    var todo = rows.filter(function (r) { return r.status !== '待檢查' && !done[r.seat]; }).length;
+    var items = rows.map(function (r) {
+      var checking = r.status === '待檢查';
+      var isDone = !!done[r.seat];
+      return '<li class="' + (isDone ? 'is-done' : '') + '"><label>' +
+        '<input type="checkbox" data-ai-entry="' + escapeHtml(r.seat) + '"' + (isDone ? ' checked' : '') + (checking ? ' disabled' : '') + ' />' +
+        '<b>' + escapeHtml(r.seat) + '</b><span>' + (checking ? '檢查中' : r.score) + '</span></label></li>';
+    }).join('');
+    return '<details class="ai-entry"' + (App.aiEntryOpen ? ' open' : '') + '>' +
+      '<summary>輸入用清單（依座號，還有 ' + todo + ' 位要輸入）</summary>' +
+      '<p class="hint">照座號在 Classroom 輸入分數，打完一位就打勾（記在這台電腦）。沒繳交、Classroom 已有分數的不用輸入，不列在這裡。</p>' +
+      '<ol class="ai-entry-list">' + items + '</ol></details>';
+  }
+
   function renderAiCheck(data) {
     var box = document.getElementById('aiCheckResult');
     var apply = document.getElementById('btnAiCheckApply');
@@ -10974,7 +11023,7 @@
     setAiCheckStatus(status);
     var head = '<tr><th>座號</th><th>說明</th><th>繳交日</th>';
     var tail = '<th>Classroom 分數</th><th>照片</th></tr>';
-    var html = '';
+    var html = aiEntryListHtml(sum);
     if (sum.reminders.length) {
       html += '<h3 class="subhead ai-check-warn">提醒清單（' + sum.reminders.length + '）</h3>' +
         '<div class="table-scroll"><table class="assess-table"><thead>' + head + tail + '</thead><tbody>' +
