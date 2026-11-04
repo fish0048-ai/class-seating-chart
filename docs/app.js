@@ -11019,29 +11019,39 @@
     if (!window.confirm('把 ' + ready.length + ' 位有繳交的分數寫進網站「' + st.title + '」？\n' +
       (waiting ? '還在等 AI 檢查的 ' + waiting + ' 位先不寫，檢查完再按一次。\n' : '') +
       '會覆蓋這些人在網站上的分數；提醒清單的人不會動。Classroom 不會被改，請自己在 Classroom 輸入。')) return;
+    var btn = document.getElementById('btnAiCheckApply');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '寫入中…';
+    }
     clearTimeout(gradeSaveTimer);
     gradeSaveTimer = null;
     var flush = App.gradeDirty && Object.keys(App.gradeDirty).length
       ? api('saveGradebook', [collectGradebookFromTable({ dirtyOnly: true })])
       : Promise.resolve();
     flush.then(function () {
+      // 先寫進網站就好，雲端在背景同步，不用等整包上傳
       return api('importClassroomHandouts', [{
         className: st.className,
+        background: true,
         columns: [{ title: st.title, dueDate: due, max: 100, scores: scores }]
       }]);
-    }).then(function (last) {
+    }).then(function () {
       var refresh = teacherTargetClass() === st.className ? api('getGradebook', [st.className]) : Promise.resolve(null);
       return refresh.then(function (book) {
         if (book) {
           applyGradebook(book);
           renderGradebook();
         }
-        var msg = '已把 ' + ready.length + ' 位的分數寫進「' + st.title + '」';
-        if (last && last.synced === false) msg += '。' + (last.cloudError || '還沒同步到雲端') + '，請按「立即同步」';
-        toast(msg, 7000);
+        toast('已把 ' + ready.length + ' 位的分數寫進「' + st.title + '」，正在背景同步到雲端', 7000);
       });
     }).catch(function (err) {
       toast(err && err.message ? err.message : '寫入失敗', 7000);
+    }).then(function () {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '把分數寫進網站';
+      }
     });
   }
 
