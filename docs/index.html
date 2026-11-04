@@ -246,6 +246,7 @@
             <button type="button" class="tool" data-grades-sub="stats">圖表分析</button>
           </div>
           <button type="button" class="tool teacher-tab-only" data-for-tab="grades" data-grades-action="daily" id="btnExportSheet" hidden>下載成績表</button>
+          <button type="button" class="tool teacher-tab-only" data-for-tab="grades" data-grades-action="summary" id="btnNewClassroomWork" hidden>新增 Classroom 作業</button>
           <details class="tool-menu teacher-tab-only" data-for-tab="grades" data-grades-action="summary" hidden>
             <summary class="tool">匯入成績 ▾</summary>
             <div class="tool-menu-list">
@@ -1030,6 +1031,52 @@
           <button type="button" class="tool primary" id="btnTermExportGo">下載 Excel</button>
         </div>
       </div>
+    </div>
+
+    <div id="newWorkModal" class="modal" hidden role="dialog" aria-modal="true" aria-label="新增 Classroom 作業">
+      <form id="newWorkForm" class="modal-card new-work-card" novalidate>
+        <p class="modal-kicker">新增 Classroom 作業</p>
+        <fieldset class="new-work-classes">
+          <legend>班級（可複選）</legend>
+          <div id="newWorkClasses" class="new-work-class-list"></div>
+          <p id="newWorkCourses" class="hint"></p>
+        </fieldset>
+        <label class="term-export-field">標題
+          <input id="newWorkTitle" type="text" maxlength="200" placeholder="例如 學習講義 3-5" required />
+        </label>
+        <label class="term-export-field">主題
+          <input id="newWorkTopic" type="text" maxlength="100" list="newWorkTopicList" placeholder="選現有主題，或打新主題（沒有會自動建立）" autocomplete="off" />
+          <datalist id="newWorkTopicList"></datalist>
+        </label>
+        <div class="new-work-row">
+          <label class="term-export-field">繳交期限（日期）
+            <input id="newWorkDueDate" type="date" required />
+          </label>
+          <label class="term-export-field">時間
+            <input id="newWorkDueTime" type="time" value="23:59" />
+          </label>
+          <label class="term-export-field">滿分
+            <input id="newWorkMax" type="number" min="1" max="1000" value="100" />
+          </label>
+        </div>
+        <label class="term-export-field">附加連結（一行一個網址）
+          <textarea id="newWorkLinks" rows="3" placeholder="https://drive.google.com/…"></textarea>
+        </label>
+        <label class="term-export-field">說明（選填）
+          <textarea id="newWorkDesc" rows="3" maxlength="30000"></textarea>
+        </label>
+        <fieldset class="new-work-state">
+          <legend>發布方式</legend>
+          <label class="check"><input type="radio" name="newWorkState" value="PUBLISHED" checked /> 立即發布</label>
+          <label class="check"><input type="radio" name="newWorkState" value="DRAFT" /> 存成草稿（到 Classroom 再發布）</label>
+        </fieldset>
+        <p id="newWorkStatus" class="ai-check-status" role="status"></p>
+        <div id="newWorkResult"></div>
+        <div class="modal-actions">
+          <button type="button" class="tool" id="btnNewWorkCancel">關閉</button>
+          <button type="submit" class="tool primary" id="btnNewWorkGo">建立作業</button>
+        </div>
+      </form>
     </div>
 
     <div id="aiCheckModal" class="modal" hidden role="dialog" aria-modal="true" aria-label="AI 檢查作業">

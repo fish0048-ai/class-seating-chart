@@ -2573,6 +2573,14 @@
       if (!cloudOn()) return Promise.reject(new Error('尚未連上雲端，無法讀取 Classroom 成績表'));
       return CloudStore.readClassroomHandouts(url);
     },
+    listClassroomTopics: function (body) {
+      if (!cloudOn()) return Promise.reject(new Error('尚未連上雲端，無法讀 Classroom'));
+      return CloudStore.classroomWork('listClassroomTopics', body);
+    },
+    createClassroomWork: function (body) {
+      if (!cloudOn()) return Promise.reject(new Error('尚未連上雲端，無法建立 Classroom 作業'));
+      return CloudStore.classroomWork('createClassroomWork', body);
+    },
     startHandoutCheck: function (body) {
       if (!cloudOn()) return Promise.reject(new Error('尚未連上雲端，無法使用 AI 檢查'));
       return CloudStore.handoutCheck('startHandoutCheck', body);

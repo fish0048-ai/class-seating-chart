@@ -3166,6 +3166,37 @@
     font-size: 12px;
   }
 
+  .modal-card.new-work-card {
+    width: min(640px, 100%);
+    max-height: min(92dvh, 960px);
+    overflow-y: auto;
+  }
+
+  .new-work-card fieldset {
+    margin: 0;
+    padding: 8px 12px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+  }
+
+  .new-work-class-list,
+  .new-work-state {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 16px;
+  }
+
+  .new-work-row {
+    display: grid;
+    grid-template-columns: 2fr 1fr 1fr;
+    gap: 10px;
+  }
+
+  .new-work-card textarea {
+    width: 100%;
+    font: inherit;
+  }
+
   .modal-card.ai-check-card {
     width: min(960px, 100%);
     max-height: min(92dvh, 960px);
