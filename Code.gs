@@ -1207,7 +1207,13 @@ function refreshHandoutCheckApi_(className, title) {
   var props = PropertiesService.getScriptProperties();
   var lastCall = Number(props.getProperty('AI_LAST_CALL') || 0);
   var result = getHandoutCheckApi_(className, title);
-  if (result.pending && Date.now() - lastCall > 90 * 1000) {
+  // 觸發器在跑就不要在這次請求裡呼叫 AI（會卡住網頁其他存檔）；觸發器失效 5 分鐘以上才補跑一位
+  var hasTrigger = false;
+  try {
+    hasTrigger = ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === 'runHandoutCheck'; });
+  } catch (ignore) {}
+  var idle = Date.now() - lastCall;
+  if (result.pending && (hasTrigger ? idle > 5 * 60 * 1000 : idle > 90 * 1000)) {
     processHandoutCheck_(10000);
     result = getHandoutCheckApi_(className, title);
   }

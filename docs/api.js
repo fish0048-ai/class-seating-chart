@@ -2669,7 +2669,8 @@
       if (body.dryRun) return wrap(report);
       book.homeworks = normalizeHomeworkColumns_(book.homeworks);
       saveStore(store);
-      if (!cloudOn() || !hydrated) return wrap(report);
+      // background：先寫進網站就回來，雲端在背景同步（不用等整包上傳）
+      if (!cloudOn() || !hydrated || body.background) return wrap(report);
       clearTimeout(saveTimer);
       saveTimer = null;
       return pushCloud_(memStore).then(function () {
