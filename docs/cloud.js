@@ -336,6 +336,17 @@
         return data;
       });
     },
+    /** 在 Classroom 新增作業：不重試（重試可能建兩份）；讀主題可重試。 */
+    classroomWork: function (action, body) {
+      return enqueueCloud_(function () {
+        return withRetry_(function () {
+          return postOnce_(action, body || {}, 150000);
+        }, action === 'createClassroomWork' ? 1 : 2);
+      }).then(function (data) {
+        if (data && data.ok === false) throw new Error(data.error || 'Classroom 操作失敗');
+        return data;
+      });
+    },
     /** AI 檢查作業：開始不重試（重試會整份重來），讀進度可重試一次。 */
     handoutCheck: function (action, body) {
       return enqueueCloud_(function () {

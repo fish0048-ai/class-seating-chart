@@ -623,6 +623,21 @@
       requireTeacher(importClassroomHandouts);
     });
   }
+  var newWorkBtn = document.getElementById('btnNewClassroomWork');
+  if (newWorkBtn) newWorkBtn.addEventListener('click', function () { requireTeacher(openNewWork); });
+  var newWorkForm = document.getElementById('newWorkForm');
+  if (newWorkForm) {
+    newWorkForm.addEventListener('submit', function (event) {
+      event.preventDefault();
+      requireTeacher(submitNewWork);
+    });
+  }
+  var newWorkCancel = document.getElementById('btnNewWorkCancel');
+  if (newWorkCancel) newWorkCancel.addEventListener('click', function () {
+    document.getElementById('newWorkModal').hidden = true;
+  });
+  var newWorkClasses = document.getElementById('newWorkClasses');
+  if (newWorkClasses) newWorkClasses.addEventListener('change', renderNewWorkCourses);
   var aiCheckBtn = document.getElementById('btnAiCheck');
   if (aiCheckBtn) {
     aiCheckBtn.addEventListener('click', function () {
@@ -10724,6 +10739,136 @@
     }).catch(function (err) {
       App.classroomImporting = false;
       toast(err && err.message ? err.message : '匯入失敗', 8000);
+    });
+  }
+
+  /* ===== 從網站新增 Classroom 作業 ===== */
+
+  function selectedNewWorkClasses() {
+    return Array.prototype.map.call(document.querySelectorAll('[data-new-work-class]:checked'), function (el) {
+      return el.getAttribute('data-new-work-class');
+    });
+  }
+
+  function setNewWorkStatus(text) {
+    var el = document.getElementById('newWorkStatus');
+    if (el) el.textContent = text || '';
+  }
+
+  function openNewWork() {
+    var names = classroomSourceClassNames();
+    if (!names.length) {
+      toast('還沒有班級，請先匯入名單');
+      return;
+    }
+    var current = teacherTargetClass();
+    document.getElementById('newWorkClasses').innerHTML = names.map(function (cn) {
+      return '<label class="check"><input type="checkbox" data-new-work-class="' + escapeHtml(cn) + '"' +
+        (cn === current ? ' checked' : '') + ' /> ' + escapeHtml(cn) + '</label>';
+    }).join('');
+    var due = document.getElementById('newWorkDueDate');
+    if (due && !due.value) {
+      var d = new Date();
+      d.setDate(d.getDate() + 7);
+      due.value = formatDateKey(d);
+    }
+    document.getElementById('newWorkResult').innerHTML = '';
+    document.getElementById('btnNewWorkGo').disabled = false;
+    document.getElementById('newWorkModal').hidden = false;
+    App.newWorkCourses = null;
+    renderNewWorkCourses();
+    setNewWorkStatus('讀取 Classroom 的課程與主題…');
+    api('listClassroomTopics', [{ classNames: names }]).then(function (data) {
+      App.newWorkCourses = (data && data.courses) || [];
+      var topics = {};
+      App.newWorkCourses.forEach(function (c) { (c.topics || []).forEach(function (t) { topics[t] = true; }); });
+      document.getElementById('newWorkTopicList').innerHTML = Object.keys(topics).sort().map(function (t) {
+        return '<option value="' + escapeHtml(t) + '"></option>';
+      }).join('');
+      setNewWorkStatus('');
+      renderNewWorkCourses();
+    }).catch(function (err) {
+      setNewWorkStatus(aiCheckErrorText(err));
+    });
+  }
+
+  /** 顯示勾選的班級會建在哪個 Classroom 課程；一班對到多個課程時讓老師選。 */
+  function renderNewWorkCourses() {
+    var el = document.getElementById('newWorkCourses');
+    if (!el) return;
+    var list = App.newWorkCourses;
+    if (!list) {
+      el.innerHTML = '';
+      return;
+    }
+    App.newWorkPick = App.newWorkPick || {};
+    el.innerHTML = selectedNewWorkClasses().map(function (cn) {
+      var mine = list.filter(function (c) { return c.className === cn; });
+      if (!mine.length) return '<span class="ai-check-warn">' + escapeHtml(cn) + '：Classroom 找不到課程</span>';
+      if (mine.length === 1) return escapeHtml(cn) + ' → ' + escapeHtml(mine[0].courseName);
+      return escapeHtml(cn) + ' → <select data-new-work-course="' + escapeHtml(cn) + '">' + mine.map(function (c) {
+        return '<option value="' + escapeHtml(c.courseId) + '"' + (App.newWorkPick[cn] === c.courseId ? ' selected' : '') + '>' +
+          escapeHtml(c.courseName) + '</option>';
+      }).join('') + '</select>';
+    }).join('<br>');
+    el.querySelectorAll('[data-new-work-course]').forEach(function (sel) {
+      App.newWorkPick[sel.getAttribute('data-new-work-course')] = sel.value;
+      sel.addEventListener('change', function () { App.newWorkPick[sel.getAttribute('data-new-work-course')] = sel.value; });
+    });
+  }
+
+  function submitNewWork() {
+    var classes = selectedNewWorkClasses();
+    var title = document.getElementById('newWorkTitle').value.trim();
+    var dueDate = document.getElementById('newWorkDueDate').value;
+    var dueTime = document.getElementById('newWorkDueTime').value || '23:59';
+    var raw = document.getElementById('newWorkLinks').value.split(/\s+/).map(function (s) { return s.trim(); }).filter(Boolean);
+    var links = raw.filter(function (u) { return /^https?:\/\/\S+$/i.test(u); });
+    var badLinks = raw.length - links.length;
+    var topic = document.getElementById('newWorkTopic').value.trim();
+    var stateEl = document.querySelector('input[name="newWorkState"]:checked');
+    var state = stateEl ? stateEl.value : 'PUBLISHED';
+    if (!classes.length) return setNewWorkStatus('請至少勾一個班級');
+    if (!title) return setNewWorkStatus('請填標題');
+    if (!dueDate) return setNewWorkStatus('請填繳交期限');
+    if (badLinks) return setNewWorkStatus('有 ' + badLinks + ' 個連結不是 http(s) 網址，請檢查附加連結');
+    var lines = ['在 Classroom 建立作業？', '',
+      '班級：' + classes.join('、'),
+      '標題：' + title,
+      '主題：' + (topic || '（不設主題）'),
+      '期限：' + dueDate + ' ' + dueTime,
+      '附加連結：' + links.length + ' 個',
+      state === 'DRAFT' ? '存成草稿（學生還看不到）' : '立即發布給學生'];
+    if (!window.confirm(lines.join('\n'))) return;
+    var go = document.getElementById('btnNewWorkGo');
+    go.disabled = true;
+    setNewWorkStatus('正在 Classroom 建立作業…');
+    api('createClassroomWork', [{
+      classNames: classes,
+      courseIds: App.newWorkPick || {},
+      title: title,
+      topic: topic,
+      dueDate: dueDate,
+      dueTime: dueTime,
+      maxPoints: Number(document.getElementById('newWorkMax').value) || 100,
+      links: links,
+      description: document.getElementById('newWorkDesc').value,
+      state: state
+    }]).then(function (data) {
+      var made = (data && data.created) || [];
+      var errs = (data && data.errors) || [];
+      setNewWorkStatus('已建立 ' + made.length + ' 班' + (errs.length ? '，' + errs.length + ' 班失敗' : '') + '。');
+      document.getElementById('newWorkResult').innerHTML =
+        made.map(function (w) {
+          return '<p>✔ ' + escapeHtml(w.className + '｜' + w.title) + (w.state === 'DRAFT' ? '（草稿）' : '') +
+            (w.link ? '　<a href="' + escapeHtml(w.link) + '" target="_blank" rel="noopener">在 Classroom 開啟</a>' : '') + '</p>';
+        }).join('') +
+        errs.map(function (e) { return '<p class="ai-check-warn">✘ ' + escapeHtml(e) + '</p>'; }).join('');
+      toast('已在 Classroom 建立「' + title + '」（' + made.length + ' 班）', 6000);
+    }).catch(function (err) {
+      setNewWorkStatus(aiCheckErrorText(err));
+    }).then(function () {
+      go.disabled = false;
     });
   }
 

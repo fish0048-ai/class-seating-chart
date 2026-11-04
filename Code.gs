@@ -233,6 +233,10 @@ function handleRequest_(req) {
         return readClassroomHandoutsApi_(req.url || (payload && payload.url));
       case 'readClassroomCourse':
         return readClassroomCourseApi_(req.className || (payload && payload.className));
+      case 'listClassroomTopics':
+        return listClassroomTopicsApi_(req.classNames);
+      case 'createClassroomWork':
+        return createClassroomWorkApi_(req);
       case 'startHandoutCheck':
         return startHandoutCheckApi_(req.className, req.title, req.recheck === true || req.recheck === 'true');
       case 'getHandoutCheck':
@@ -721,8 +725,127 @@ function authorizeClassroom() {
     throw new Error('請先在左側「服務」按＋，加入 Google Classroom API，再執行一次');
   }
   var res = Classroom.Courses.list({ teacherId: 'me', courseStates: ['ACTIVE'], pageSize: 50 });
-  var names = ((res && res.courses) || []).map(function (c) { return c.name; });
-  Logger.log('已允許 Classroom 讀取。找到 ' + names.length + ' 門課程：' + names.join('、'));
+  var courses = (res && res.courses) || [];
+  Logger.log('已允許 Classroom。找到 ' + courses.length + ' 門課程：' + courses.map(function (c) { return c.name; }).join('、'));
+  if (courses.length) {
+    var topics = classroomTopics_(courses[0].id).map(function (t) { return t.name; });
+    Logger.log('「' + courses[0].name + '」的主題：' + (topics.join('、') || '（還沒有主題）'));
+  }
+}
+
+/* ===== 從網站在 Classroom 新增作業（只新增作業與主題，不改、不刪既有內容） ===== */
+
+function classroomCoursesForClass_(cn) {
+  if (typeof Classroom === 'undefined') throw new Error('CLASSROOM_SERVICE_OFF：Apps Script 還沒加入 Google Classroom API 服務');
+  return classroomListAll_(function (token) {
+    return Classroom.Courses.list({ teacherId: 'me', courseStates: ['ACTIVE'], pageSize: 100, pageToken: token || undefined });
+  }, 'courses').filter(function (c) {
+    return (String(c.name || '') + ' ' + String(c.section || '')).indexOf(cn) >= 0;
+  });
+}
+
+function classroomTopics_(courseId) {
+  return classroomListAll_(function (token) {
+    return Classroom.Courses.Topics.list(courseId, { pageSize: 100, pageToken: token || undefined });
+  }, 'topic');
+}
+
+/** 各班對到的課程與現有主題（給網站的選單用）。 */
+function listClassroomTopicsApi_(classNames) {
+  var out = [];
+  (classNames || []).forEach(function (cn) {
+    cn = String(cn || '').trim();
+    if (!/^\d{3}$/.test(cn)) return;
+    try {
+      classroomCoursesForClass_(cn).forEach(function (course) {
+        out.push({
+          className: cn,
+          courseId: course.id,
+          courseName: course.name,
+          topics: classroomTopics_(course.id).map(function (t) { return t.name; })
+        });
+      });
+    } catch (err) {
+      var msg = String(err && err.message ? err.message : err);
+      if (/^CLASSROOM_/.test(msg)) throw err;
+      throw new Error('CLASSROOM_DENIED：讀不到 Classroom 主題，請在 Apps Script 執行 authorizeClassroom 並按允許');
+    }
+  });
+  return { ok: true, courses: out };
+}
+
+/** 台灣時間 YYYY-MM-DD HH:mm → Classroom 要的 UTC dueDate／dueTime。 */
+function classroomDueFromTaipei_(dateKey, timeText) {
+  var d = String(dateKey || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!d) return null;
+  var t = String(timeText || '23:59').match(/^(\d{1,2}):(\d{2})$/) || [null, '23', '59'];
+  var utc = new Date(Date.UTC(Number(d[1]), Number(d[2]) - 1, Number(d[3]), Number(t[1]) - 8, Number(t[2])));
+  return {
+    dueDate: { year: utc.getUTCFullYear(), month: utc.getUTCMonth() + 1, day: utc.getUTCDate() },
+    dueTime: { hours: utc.getUTCHours(), minutes: utc.getUTCMinutes() }
+  };
+}
+
+function cleanLinks_(links) {
+  return (links || []).map(function (u) { return String(u || '').trim(); })
+    .filter(function (u, i, arr) { return /^https?:\/\/\S+$/i.test(u) && arr.indexOf(u) === i; })
+    .slice(0, 20);
+}
+
+/**
+ * 在各班的 Classroom 課程建立同一份作業。courseIds 可指定每班用哪個課程（一班對到多個課程時）。
+ * 主題用名稱比對，沒有就新建。回傳每班的作業連結。
+ */
+function createClassroomWorkApi_(body) {
+  body = body || {};
+  var title = String(body.title || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+  if (!title) throw new Error('請填作業標題');
+  var due = classroomDueFromTaipei_(body.dueDate, body.dueTime);
+  if (!due) throw new Error('請填繳交期限');
+  var links = cleanLinks_(body.links);
+  var topicName = String(body.topic || '').trim().slice(0, 100);
+  var maxPoints = Math.max(1, Math.min(1000, Number(body.maxPoints) || 100));
+  var publish = body.state !== 'DRAFT';
+  var picks = body.courseIds || {};
+  var created = [];
+  var errors = [];
+  (body.classNames || []).forEach(function (cn) {
+    cn = String(cn || '').trim();
+    try {
+      var courses = classroomCoursesForClass_(cn);
+      var course = courses.filter(function (c) { return picks[cn] && c.id === picks[cn]; })[0] || courses[0];
+      if (!course) {
+        errors.push(cn + '：Classroom 找不到名稱含「' + cn + '」的課程');
+        return;
+      }
+      var topicId = '';
+      if (topicName) {
+        var hit = classroomTopics_(course.id).filter(function (t) { return String(t.name || '').trim() === topicName; })[0];
+        topicId = hit ? hit.topicId : Classroom.Courses.Topics.create({ name: topicName }, course.id).topicId;
+      }
+      var work = {
+        title: title,
+        workType: 'ASSIGNMENT',
+        state: publish ? 'PUBLISHED' : 'DRAFT',
+        maxPoints: maxPoints,
+        dueDate: due.dueDate,
+        dueTime: due.dueTime
+      };
+      var desc = String(body.description || '').trim().slice(0, 30000);
+      if (desc) work.description = desc;
+      if (links.length) work.materials = links.map(function (u) { return { link: { url: u } }; });
+      if (topicId) work.topicId = topicId;
+      var res = Classroom.Courses.CourseWork.create(work, course.id);
+      created.push({ className: cn, courseName: course.name, title: res.title || title, link: res.alternateLink || '', state: res.state || work.state });
+    } catch (err) {
+      var msg = String(err && err.message ? err.message : err);
+      errors.push(cn + '：' + (/^CLASSROOM_/.test(msg)
+        ? msg.replace(/^CLASSROOM_[A-Z_]+：/, '')
+        : '建立失敗，請在 Apps Script 執行 authorizeClassroom 重新允許「管理作業與主題」權限'));
+    }
+  });
+  if (!created.length && errors.length) throw new Error('CLASSROOM_DENIED：' + errors.join('；'));
+  return { ok: true, created: created, errors: errors, linksUsed: links.length };
 }
 
 /* ===== AI 檢查學習講義（Gemini；只讀 Classroom 與雲端硬碟，結果寫在成績庫的「AI作業檢查」工作表） ===== */
