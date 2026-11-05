@@ -41,6 +41,7 @@ test('扣分後立即同步，重新載入仍看得到分數', async function ({
   await expect(student).toBeVisible();
   await page.getByRole('button', { name: '扣分', exact: true }).click();
   await student.click();
+  await page.getByRole('dialog').getByRole('button', { name: /上課表現扣分/ }).click();
   await expect(student).toContainText('-1');
   const saved = page.waitForResponse(function (response) {
     const request = response.request();
@@ -51,6 +52,32 @@ test('扣分後立即同步，重新載入仍看得到分數', async function ({
   await expect(page.locator('#toast')).toContainText('加扣已上傳雲端');
   await page.reload();
   await expect(page.getByRole('button', { name: /測生甲，今日 -1 分/ })).toBeVisible();
+  await support.expectHealthy(health);
+});
+
+test('違反上課規範：記原因、座位卡顯示、不扣座位卡分數；取消則不記', async function ({ page }) {
+  const health = support.trackHealth(page);
+  await support.openApp(page);
+  const student = page.getByRole('button', { name: /測生甲/ });
+  await expect(student).toBeVisible();
+  await page.getByRole('button', { name: '扣分', exact: true }).click();
+
+  await student.click();
+  const picker = page.getByRole('dialog', { name: /測生甲/ });
+  await expect(picker).toBeVisible();
+  await picker.getByRole('button', { name: '取消' }).click();
+  await expect(picker).toBeHidden();
+  await expect(student).not.toContainText('上課講話');
+
+  await student.click();
+  await expect(picker).toBeVisible();
+  await expect(picker.getByRole('button', { name: /上課講話/ })).toBeVisible();
+  await expect(picker.getByRole('button', { name: /玩手機/ })).toHaveCount(0);
+  await picker.getByRole('button', { name: /上課講話/ }).click();
+  await expect(picker).toBeHidden();
+  await expect(student).toContainText('上課講話');
+  await expect(page.locator('#toast')).toContainText('從平時成績扣');
+  await expect(page.getByRole('button', { name: /測生甲，今日 0 分/ })).toBeVisible();
   await support.expectHealthy(health);
 });
 

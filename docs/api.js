@@ -472,6 +472,8 @@
     local.classroomSources = newerClassroomSources_(local.classroomSources, remote.classroomSources);
     local.hwMissing = mergeHwMissingProtect_(local.hwMissing, remote.hwMissing);
     local.lotteryCounts = mergeLotteryCounts_(local.lotteryCounts, remote.lotteryCounts);
+    local.conduct = mergeConduct_(local.conduct, remote.conduct);
+    local.conductRules = newerConductRules_(local.conductRules, remote.conductRules);
     return local;
   }
 
@@ -666,6 +668,7 @@
       labs: clone(book.labs || []),
       practicals: clone(book.practicals || []),
       homeworks: clone(book.homeworks || []),
+      conduct: memStore ? clone(activeConduct_(memStore, className)) : [],
       hwMissing: memStore ? derivedHwMissingMap_(memStore) : undefined
     });
   }
@@ -705,7 +708,97 @@
     parsed.classroomSources = normalizeClassroomSources_(parsed.classroomSources);
     parsed.hwMissing = normalizeHwMissing_(parsed.hwMissing);
     parsed.lotteryCounts = normalizeLotteryCounts_(parsed.lotteryCounts);
+    parsed.conduct = normalizeConduct_(parsed.conduct);
+    parsed.conductRules = normalizeConductRules_(parsed.conductRules);
     return parsed;
+  }
+
+  /** 上課規範（全部班級共用）：每項有名稱與扣幾分。 */
+  var DEFAULT_CONDUCT_RULES_ = [
+    { id: 'talk', name: '上課講話', points: 1 },
+    { id: 'sleep', name: '睡覺', points: 1 },
+    { id: 'nobook', name: '未帶課本／講義', points: 1 },
+    { id: 'late', name: '遲到', points: 1 },
+    { id: 'leave', name: '離開座位', points: 1 },
+    { id: 'disrespect', name: '不尊重他人', points: 2 },
+    { id: 'other', name: '做其他科', points: 1 }
+  ];
+
+  function normalizeConductRules_(raw) {
+    var src = raw && Array.isArray(raw.items) ? raw.items : null;
+    var seen = {};
+    var items = (src || DEFAULT_CONDUCT_RULES_).map(function (item, i) {
+      var name = String((item && item.name) || '').trim().slice(0, 20);
+      var id = String((item && item.id) || '').trim().slice(0, 40) || ('r' + Date.now() + i);
+      var points = Math.max(1, Math.min(20, Math.round(Number(item && item.points) || 1)));
+      if (!name || seen[id]) return null;
+      seen[id] = true;
+      return { id: id, name: name, points: points };
+    }).filter(Boolean).slice(0, 30);
+    return { items: items, updatedAt: String((raw && raw.updatedAt) || '') };
+  }
+
+  function newerConductRules_(local, remote) {
+    var hasL = local && Array.isArray(local.items);
+    var hasR = remote && Array.isArray(remote.items);
+    if (!hasL) return normalizeConductRules_(hasR ? remote : null);
+    if (!hasR) return normalizeConductRules_(local);
+    return normalizeConductRules_(String(local.updatedAt || '') >= String(remote.updatedAt || '') ? local : remote);
+  }
+
+  /** 常規紀錄：各班一筆一筆（刪除留墓碑），扣分直接扣平時成績，不動座位卡上的加扣分。 */
+  function normalizeConductRecord_(raw, cn) {
+    raw = raw || {};
+    var id = String(raw.id || '').trim();
+    var date = String(raw.date || '');
+    if (!id || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+    return {
+      id: id,
+      className: String(raw.className || cn || ''),
+      seatNo: String(raw.seatNo || '').trim(),
+      ruleId: String(raw.ruleId || ''),
+      name: String(raw.name || '').trim().slice(0, 20) || '違反規範',
+      points: Math.max(0, Math.min(20, Number(raw.points) || 0)),
+      date: date,
+      at: String(raw.at || ''),
+      deleted: !!raw.deleted,
+      updatedAt: String(raw.updatedAt || raw.at || '')
+    };
+  }
+
+  function normalizeConduct_(raw) {
+    var out = {};
+    if (!raw || typeof raw !== 'object') return out;
+    Object.keys(raw).forEach(function (cn) {
+      out[cn] = mergeConductList_([], raw[cn], cn);
+    });
+    return out;
+  }
+
+  function mergeConductList_(a, b, cn) {
+    var byId = {};
+    (a || []).concat(b || []).forEach(function (item) {
+      var rec = normalizeConductRecord_(item, cn);
+      if (!rec) return;
+      var prev = byId[rec.id];
+      if (!prev || String(rec.updatedAt) >= String(prev.updatedAt)) byId[rec.id] = rec;
+    });
+    return Object.keys(byId).map(function (id) { return byId[id]; }).sort(function (x, y) {
+      return String(x.at).localeCompare(String(y.at));
+    });
+  }
+
+  function mergeConduct_(local, remote) {
+    var out = normalizeConduct_(local);
+    var other = normalizeConduct_(remote);
+    Object.keys(other).forEach(function (cn) {
+      out[cn] = mergeConductList_(out[cn], other[cn], cn);
+    });
+    return out;
+  }
+
+  function activeConduct_(store, cn) {
+    return ((store.conduct || {})[cn] || []).filter(function (r) { return r && !r.deleted; });
   }
 
   /** 各班每人（或 'g:組號'）累計被抽中的次數，跨節、跨裝置保留。 */
@@ -1296,6 +1389,7 @@
       var remoteAt = (remote && remote.updatedAt) || '';
       if (hold.baseUpdatedAt && remoteAt && hold.baseUpdatedAt !== remoteAt) {
         remote.lotteryCounts = mergeLotteryCounts_(remote.lotteryCounts, held.lotteryCounts);
+        remote.conduct = mergeConduct_(remote.conduct, held.conduct);
         var count = replayHeldScores_(remote, held);
         if (!count) {
           scoreHold_ = false;
@@ -1847,7 +1941,10 @@
       substitutes: activeSubstitutes_(store.substitutes),
       hwMissing: derivedHwMissingMap_(store),
       plusHits: plusHitsForClass_(store, className),
-      lotteryCounts: clone(((store.lotteryCounts || {})[className]) || {})
+      lotteryCounts: clone(((store.lotteryCounts || {})[className]) || {}),
+      conductToday: activeConduct_(store, className).filter(function (r) {
+        return r.date === (store.scoreDate || scoreDateFromNow_());
+      })
     }, store);
   }
 
@@ -2330,11 +2427,74 @@
             labs: clone(rawBook.labs || []),
             practicals: clone(rawBook.practicals || []),
             homeworks: clone(rawBook.homeworks || []),
+            conduct: clone(activeConduct_(store, cn)),
             rules: Object.assign({}, defaultGradeRules_(), rawBook.rules || {})
           }
         };
       });
       return wrap({ ok: true, classNames: names, classes: classes });
+    },
+    getConductRules: function () {
+      var store = loadStore();
+      return wrap({ ok: true, conductRules: normalizeConductRules_(store.conductRules) });
+    },
+    saveConductRules: function (body) {
+      var store = loadStore();
+      var items = (body && body.items) || [];
+      if (!items.length) throw new Error('至少要有一項規範');
+      store.conductRules = normalizeConductRules_({ items: items, updatedAt: nowIso() });
+      saveStore(store);
+      return wrap({ ok: true, conductRules: store.conductRules });
+    },
+    /** 記一筆違反規範；回傳這週同一項第幾次（累犯提醒用）與今天這位學生的紀錄。 */
+    addConduct: function (body) {
+      body = body || {};
+      var store = loadStore();
+      var cn = String(body.className || '').trim();
+      var seat = String(body.seatNo || '').trim();
+      if (!cn || !seat) throw new Error('缺少班級或座號');
+      var rule = normalizeConductRules_(store.conductRules).items.filter(function (r) { return r.id === body.ruleId; })[0];
+      if (!rule) throw new Error('找不到這項規範，請到設定重新整理規範清單');
+      var date = store.scoreDate || scoreDateFromNow_();
+      var at = nowIso();
+      var rec = normalizeConductRecord_({
+        id: 'cd' + Date.now() + Math.floor(Math.random() * 1000),
+        className: cn, seatNo: seat, ruleId: rule.id, name: rule.name, points: rule.points,
+        date: date, at: at, updatedAt: at
+      }, cn);
+      store.conduct = normalizeConduct_(store.conduct);
+      store.conduct[cn] = (store.conduct[cn] || []).concat([rec]);
+      // 和加扣分一樣先暫存在這台，按「立即同步」或換機前才上傳
+      saveStore(store, { cloud: false });
+      var monday = mondayKeyFromDate_(new Date(date + 'T12:00:00'));
+      var mine = activeConduct_(store, cn).filter(function (r) { return String(r.seatNo) === seat; });
+      return wrap({
+        ok: true,
+        record: clone(rec),
+        weekCount: mine.filter(function (r) { return r.ruleId === rule.id && r.date >= monday && r.date <= date; }).length,
+        conductToday: clone(activeConduct_(store, cn).filter(function (r) { return r.date === date; }))
+      });
+    },
+    deleteConduct: function (body) {
+      body = body || {};
+      var store = loadStore();
+      var cn = String(body.className || '').trim();
+      var id = String(body.id || '').trim();
+      store.conduct = normalizeConduct_(store.conduct);
+      var hit = false;
+      store.conduct[cn] = (store.conduct[cn] || []).map(function (r) {
+        if (r.id !== id) return r;
+        hit = true;
+        return Object.assign({}, r, { deleted: true, updatedAt: nowIso() });
+      });
+      if (!hit) throw new Error('找不到這筆紀錄');
+      saveStore(store);
+      return wrap({ ok: true, conduct: clone(activeConduct_(store, cn)) });
+    },
+    listConduct: function (className) {
+      var store = loadStore();
+      var cn = String(className || '').trim();
+      return wrap({ ok: true, className: cn, conduct: clone(activeConduct_(store, cn)) });
     },
     listGroupDeductions: function (className) {
       var store = loadStore();
