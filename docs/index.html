@@ -218,6 +218,7 @@
         <button type="button" class="tool" data-teacher-tab="grades">成績</button>
         <button type="button" class="tool" data-teacher-tab="journal">教學日誌</button>
         <button type="button" class="tool" data-teacher-tab="missing">缺交作業</button>
+        <button type="button" class="tool" data-teacher-tab="conduct">常規紀錄</button>
         <button type="button" class="tool" data-teacher-tab="settings">設定與上傳</button>
         <button type="button" class="tool" id="btnExport">下載備份</button>
         <button type="button" class="tool" id="btnImport">還原備份</button>
@@ -873,7 +874,32 @@
             <div id="missingList" class="missing-list" aria-live="polite"></div>
           </div>
 
+          <div id="tabConduct" class="teacher-panel conduct-panel" hidden>
+            <p class="hint">上課模式按「扣分」再點學生，選違反的規範就會記在這裡。常規扣分直接從平時成績扣（扣幾分減幾分），不扣座位卡上的分數。同一項一週內第 3 次會跳提醒。記錯了可以刪除。</p>
+            <div class="conduct-toolbar">
+              <label>期間
+                <select id="conductRange">
+                  <option value="week">本週</option>
+                  <option value="all">全部</option>
+                </select>
+              </label>
+              <button type="button" class="tool" id="btnConductExport">下載 Excel</button>
+            </div>
+            <div id="conductSummary" aria-live="polite"></div>
+            <h3 class="subhead">每一筆紀錄</h3>
+            <div id="conductRecords"></div>
+          </div>
+
           <div id="tabSettings" class="teacher-panel settings-panel" hidden>
+            <div class="cloud-box conduct-rules-box">
+              <h3>上課規範（扣分項目）</h3>
+              <p class="hint">上課模式扣分時會跳出這些按鈕。改名稱或分數只影響之後的紀錄，已經記過的不變。</p>
+              <div id="conductRuleEditor" class="conduct-rule-editor"></div>
+              <div class="modal-actions">
+                <button type="button" class="tool" id="btnConductRuleAdd">新增一項</button>
+                <button type="button" class="tool primary" id="btnConductRuleSave">儲存規範</button>
+              </div>
+            </div>
             <div class="cloud-box">
               <h3>雲端資料庫（平板與筆電共用）</h3>
               <p class="hint">名單、座位、加扣分與成績都存在「成績資料庫」這份試算表。打開後請看工作表「成績」和「每日加扣」；「雲端資料」是系統備份，不是給人看的分數表。上課課表是另一份檔案，不會寫進這裡。</p>
@@ -1029,6 +1055,20 @@
         <div class="modal-actions">
           <button type="button" class="tool" id="btnTermExportCancel">取消</button>
           <button type="button" class="tool primary" id="btnTermExportGo">下載 Excel</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="conductModal" class="modal" hidden role="dialog" aria-modal="true" aria-labelledby="conductWho">
+      <div class="modal-card conduct-card">
+        <p class="modal-kicker">扣分</p>
+        <h2 id="conductWho" class="conduct-who"></h2>
+        <p class="hint">違反上課規範：記錄原因，結算時直接從平時成績扣（不扣座位卡上的分數）。</p>
+        <div id="conductRuleList" class="conduct-rule-list"></div>
+        <p id="conductToday" class="hint"></p>
+        <div class="modal-actions">
+          <button type="button" class="tool" id="btnConductCancel">取消</button>
+          <button type="button" class="tool" id="btnConductPerf">上課表現扣分</button>
         </div>
       </div>
     </div>

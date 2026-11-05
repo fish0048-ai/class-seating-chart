@@ -1869,7 +1869,35 @@ function mergeProtectCloudStore_(incoming, existing) {
     store.hwMissing = existing.hwMissing;
   }
   store.lotteryCounts = mergeCloudLotteryCounts_(store.lotteryCounts, existing.lotteryCounts);
+  store.conduct = mergeCloudConduct_(store.conduct, existing.conduct);
+  if (!store.conductRules || !Array.isArray(store.conductRules.items) ||
+      (existing.conductRules && String(existing.conductRules.updatedAt || '') > String(store.conductRules.updatedAt || ''))) {
+    if (existing.conductRules && Array.isArray(existing.conductRules.items)) store.conductRules = existing.conductRules;
+  }
   return store;
+}
+
+/** 常規紀錄：各班依 id 合併、較新的蓋舊的（刪除是墓碑），舊分頁沒有這欄也不會清掉。 */
+function mergeCloudConduct_(local, remote) {
+  var out = {};
+  [remote, local].forEach(function (src) {
+    if (!src || typeof src !== 'object') return;
+    Object.keys(src).forEach(function (cn) {
+      (Array.isArray(src[cn]) ? src[cn] : []).forEach(function (rec) {
+        if (!rec || !rec.id) return;
+        out[cn] = out[cn] || {};
+        var prev = out[cn][rec.id];
+        if (!prev || String(rec.updatedAt || '') >= String(prev.updatedAt || '')) out[cn][rec.id] = rec;
+      });
+    });
+  });
+  var res = {};
+  Object.keys(out).forEach(function (cn) {
+    res[cn] = Object.keys(out[cn]).map(function (id) { return out[cn][id]; }).sort(function (a, b) {
+      return String(a.at || '').localeCompare(String(b.at || ''));
+    });
+  });
+  return res;
 }
 
 /** 各班累計被抽次數：兩邊取較大值，舊分頁沒有這欄也不會清掉。 */

@@ -586,6 +586,7 @@
         });
       }
       if (App.teacherTab === 'missing') renderHwMissingTab();
+      if (App.teacherTab === 'conduct') loadConductTab();
       if (App.teacherTab === 'grades' && App.gradesSub === 'stats' && statsNeedsSchool()) {
         ensureSchoolStats();
       }
@@ -623,6 +624,62 @@
       requireTeacher(importClassroomHandouts);
     });
   }
+  var conductList = document.getElementById('conductRuleList');
+  if (conductList) {
+    conductList.addEventListener('click', function (event) {
+      var btn = event.target.closest('[data-conduct-rule]');
+      if (btn) addConductFor(btn.getAttribute('data-conduct-rule'));
+    });
+  }
+  var conductCancel = document.getElementById('btnConductCancel');
+  if (conductCancel) conductCancel.addEventListener('click', closeConductPicker);
+  var conductPerf = document.getElementById('btnConductPerf');
+  if (conductPerf) {
+    conductPerf.addEventListener('click', function () {
+      var student = App.conductStudent;
+      closeConductPicker();
+      if (student) changeScore(student, -App.delta);
+    });
+  }
+  var conductModal = document.getElementById('conductModal');
+  if (conductModal) {
+    conductModal.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape') closeConductPicker();
+    });
+    conductModal.addEventListener('click', function (event) {
+      if (event.target === conductModal) closeConductPicker();
+    });
+  }
+  var conductRange = document.getElementById('conductRange');
+  if (conductRange) conductRange.addEventListener('change', renderConductTab);
+  var conductExport = document.getElementById('btnConductExport');
+  if (conductExport) conductExport.addEventListener('click', downloadConductExcel);
+  var conductRecords = document.getElementById('conductRecords');
+  if (conductRecords) {
+    conductRecords.addEventListener('click', function (event) {
+      var btn = event.target.closest('[data-conduct-del]');
+      if (btn) requireTeacher(function () { deleteConductRecord(btn.getAttribute('data-conduct-del')); });
+    });
+  }
+  var ruleEditor = document.getElementById('conductRuleEditor');
+  if (ruleEditor) {
+    ruleEditor.addEventListener('click', function (event) {
+      var del = event.target.closest('[data-rule-del]');
+      if (del) del.closest('.conduct-rule-row').remove();
+    });
+  }
+  var ruleAdd = document.getElementById('btnConductRuleAdd');
+  if (ruleAdd) {
+    ruleAdd.addEventListener('click', function () {
+      var items = collectConductRuleEditor();
+      items.push({ id: '', name: '', points: 1 });
+      renderConductRuleEditor(items);
+      var inputs = document.querySelectorAll('#conductRuleEditor input[type="text"]');
+      if (inputs.length) inputs[inputs.length - 1].focus();
+    });
+  }
+  var ruleSave = document.getElementById('btnConductRuleSave');
+  if (ruleSave) ruleSave.addEventListener('click', function () { requireTeacher(saveConductRuleEditor); });
   var newWorkBtn = document.getElementById('btnNewClassroomWork');
   if (newWorkBtn) newWorkBtn.addEventListener('click', function () { requireTeacher(openNewWork); });
   var newWorkForm = document.getElementById('newWorkForm');
@@ -1855,7 +1912,7 @@
         if (App.mode === 'plus') {
           beginManualFate(student);
         } else if (App.mode === 'minus') {
-          changeScore(student, -App.delta);
+          openConductPicker(student);
         } else {
           renderAll();
         }
@@ -1875,6 +1932,10 @@
     if (data.classroom && data.plusHits) {
       App.plusHits = App.plusHits || {};
       App.plusHits[data.classroom.className] = Object.assign({}, data.plusHits);
+    }
+    if (data.classroom && data.conductToday) {
+      App.conductToday = App.conductToday || {};
+      App.conductToday[data.classroom.className] = data.conductToday.slice();
     }
     if (data.classroom && data.lotteryCounts) {
       App.lotteryCounts = App.lotteryCounts || {};
@@ -2160,6 +2221,7 @@
         groupBadge + missingBadge +
         '<span class="seat-no">' + escapeHtml(student.seatNo) + '</span>' +
         '<span class="seat-name">' + escapeHtml(student.name) + '</span>' +
+        conductBadgeHtml(student.seatNo) +
         seatScoreBlockHtml(student) +
       '</article></div>';
   }
@@ -2232,8 +2294,10 @@
   /** 讓座位卡可用鍵盤 Tab 選到、Enter／空白鍵等同點一下，螢幕閱讀器也念得出是誰。 */
   function seatA11yAttrs(student) {
     var missing = hwMissingLinesForSeat_(student.seatNo).length;
+    var conductCount = conductTodayList().filter(function (r) { return String(r.seatNo) === String(student.seatNo); }).length;
     var label = student.seatNo + ' 號 ' + (student.name || '') + '，今日 ' + (Number(student.score) || 0) + ' 分' +
-      (missing ? '，缺交 ' + missing + ' 份' : '');
+      (missing ? '，缺交 ' + missing + ' 份' : '') +
+      (conductCount ? '，今天違反規範 ' + conductCount + ' 次' : '');
     return ' tabindex="0" role="button" aria-label="' + escapeHtml(label) + '"';
   }
 
@@ -2286,7 +2350,7 @@
     if (App.mode === 'plus') {
       beginManualFate(student);
     } else if (App.mode === 'minus') {
-      changeScore(student, -App.delta);
+      openConductPicker(student);
     } else {
       renderAll();
     }
@@ -3032,6 +3096,226 @@
     persistGroups('已清除分組，請再按「立即同步」寫上雲端');
   }
 
+  /* ===== 上課規範（常規扣分）：另外記、結算時從平時成績扣，不動座位卡分數 ===== */
+
+  function conductTodayList() {
+    var cn = App.classroom && App.classroom.className;
+    return (cn && App.conductToday && App.conductToday[cn]) || [];
+  }
+
+  function conductBadgeHtml(seatNo) {
+    var mine = conductTodayList().filter(function (r) { return String(r.seatNo) === String(seatNo); });
+    if (!mine.length) return '';
+    var counts = {};
+    mine.forEach(function (r) { counts[r.name] = (counts[r.name] || 0) + 1; });
+    var text = Object.keys(counts).map(function (n) { return n + (counts[n] > 1 ? '×' + counts[n] : ''); }).join('、');
+    var pts = mine.reduce(function (s, r) { return s + (Number(r.points) || 0); }, 0);
+    return '<span class="seat-conduct" title="今天違反規範：' + escapeHtml(text) + '（共扣 ' + pts + ' 分）">⚠ ' + escapeHtml(text) + '</span>';
+  }
+
+  function openConductPicker(student) {
+    if (!canEdit()) {
+      toast('未登入教師帳號，不能扣分');
+      return;
+    }
+    App.conductStudent = student;
+    App.selectedSeatNo = student.seatNo;
+    api('getConductRules', []).then(function (data) {
+      var items = (data && data.conductRules && data.conductRules.items) || [];
+      document.getElementById('conductWho').textContent = student.seatNo + ' ' + student.name;
+      document.getElementById('conductRuleList').innerHTML = items.map(function (r) {
+        return '<button type="button" class="tool conduct-rule" data-conduct-rule="' + escapeHtml(r.id) + '">' +
+          escapeHtml(r.name) + '<b>−' + r.points + '</b></button>';
+      }).join('') || '<p class="hint">還沒有規範，請到「設定與上傳」新增。</p>';
+      var mine = conductTodayList().filter(function (r) { return String(r.seatNo) === String(student.seatNo); });
+      document.getElementById('conductToday').textContent = mine.length
+        ? '今天已記：' + mine.map(function (r) { return r.name; }).join('、')
+        : '';
+      var perf = document.getElementById('btnConductPerf');
+      if (perf) perf.textContent = '上課表現扣分 −' + App.delta + '（扣座位卡分數）';
+      document.getElementById('conductModal').hidden = false;
+      var first = document.querySelector('#conductRuleList button');
+      if (first) first.focus();
+      renderAll();
+    });
+  }
+
+  function closeConductPicker() {
+    document.getElementById('conductModal').hidden = true;
+  }
+
+  function addConductFor(ruleId) {
+    var student = App.conductStudent;
+    if (!student || !App.classroom) return;
+    var cn = App.classroom.className;
+    closeConductPicker();
+    api('addConduct', [{ className: cn, seatNo: student.seatNo, ruleId: ruleId }]).then(function (data) {
+      App.conductToday = App.conductToday || {};
+      App.conductToday[cn] = (data && data.conductToday) || [];
+      var rec = data && data.record;
+      renderBoard();
+      flashSeat(student.seatNo, 'score-minus');
+      if (data && data.weekCount >= 3) {
+        toast('⚠ ' + student.seatNo + ' ' + student.name + '：本週第 ' + data.weekCount + ' 次「' + rec.name + '」，請留意', 9000);
+      } else {
+        toast(student.seatNo + ' ' + student.name + '：' + rec.name + ' −' + rec.points + '（從平時成績扣）');
+      }
+      renderMeta();
+    }).catch(function (err) {
+      toast(err && err.message ? err.message : '記錄失敗');
+    });
+  }
+
+  /* ===== 教師模式「常規紀錄」分頁 ===== */
+
+  function clockOf(iso) {
+    var d = new Date(iso || '');
+    return isNaN(d.getTime()) ? '' : String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+
+  function loadConductTab() {
+    var cn = teacherTargetClass();
+    var sum = document.getElementById('conductSummary');
+    if (!cn) {
+      if (sum) sum.innerHTML = '<p class="hint">請先在上方選班級。</p>';
+      return;
+    }
+    api('listConduct', [cn]).then(function (data) {
+      App.conductAll = { className: cn, list: (data && data.conduct) || [] };
+      renderConductTab();
+    });
+  }
+
+  function conductInRange(r) {
+    var range = (document.getElementById('conductRange') || {}).value || 'week';
+    if (range === 'all') return true;
+    var monday = mondayKeyOf(new Date());
+    return r.date >= monday && r.date <= sundayOf(monday);
+  }
+
+  function renderConductTab() {
+    var st = App.conductAll || { list: [] };
+    var cn = st.className;
+    var list = st.list.filter(conductInRange);
+    var nameOf = {};
+    studentsForMissingClass_(cn).forEach(function (s) { nameOf[normalizeDisplaySeat_(s.seatNo)] = s.name || ''; });
+    var rules = [];
+    list.forEach(function (r) { if (rules.indexOf(r.name) < 0) rules.push(r.name); });
+    var bySeat = {};
+    list.forEach(function (r) {
+      var k = normalizeDisplaySeat_(r.seatNo);
+      bySeat[k] = bySeat[k] || { seat: k, counts: {}, points: 0 };
+      bySeat[k].counts[r.name] = (bySeat[k].counts[r.name] || 0) + 1;
+      bySeat[k].points += Number(r.points) || 0;
+    });
+    var rows = Object.keys(bySeat).map(function (k) { return bySeat[k]; })
+      .sort(function (a, b) { return b.points - a.points || Number(a.seat) - Number(b.seat); });
+    var sum = document.getElementById('conductSummary');
+    if (sum) {
+      sum.innerHTML = rows.length
+        ? '<div class="table-scroll"><table class="assess-table"><thead><tr><th>座號</th><th>姓名</th>' +
+          rules.map(function (n) { return '<th>' + escapeHtml(n) + '</th>'; }).join('') +
+          '<th>共扣</th></tr></thead><tbody>' +
+          rows.map(function (row) {
+            return '<tr><td>' + escapeHtml(row.seat) + '</td><td>' + escapeHtml(nameOf[row.seat] || '') + '</td>' +
+              rules.map(function (n) { return '<td>' + (row.counts[n] || '') + '</td>'; }).join('') +
+              '<td class="grid-low">−' + row.points + '</td></tr>';
+          }).join('') + '</tbody></table></div>'
+        : '<p class="hint">' + escapeHtml(cn || '') + ' 這段期間沒有違反規範的紀錄。</p>';
+    }
+    var box = document.getElementById('conductRecords');
+    if (box) {
+      box.innerHTML = list.length
+        ? '<ul class="conduct-records">' + list.slice().reverse().map(function (r) {
+          var seat = normalizeDisplaySeat_(r.seatNo);
+          return '<li><span>' + escapeHtml(r.date + ' ' + clockOf(r.at)) +
+            '</span><b>' + escapeHtml(seat + ' ' + (nameOf[seat] || '')) + '</b><span>' + escapeHtml(r.name) + ' −' + r.points + '</span>' +
+            '<button type="button" class="tool" data-conduct-del="' + escapeHtml(r.id) + '">刪除</button></li>';
+        }).join('') + '</ul>'
+        : '';
+    }
+  }
+
+  function deleteConductRecord(id) {
+    var st = App.conductAll || {};
+    var rec = (st.list || []).filter(function (r) { return r.id === id; })[0];
+    if (!rec || !window.confirm('刪除這筆紀錄？\n' + rec.date + ' ' + normalizeDisplaySeat_(rec.seatNo) + ' ' + rec.name + ' −' + rec.points)) return;
+    api('deleteConduct', [{ className: st.className, id: id }]).then(function (data) {
+      App.conductAll = { className: st.className, list: (data && data.conduct) || [] };
+      if (App.conductToday && App.conductToday[st.className]) {
+        App.conductToday[st.className] = App.conductToday[st.className].filter(function (r) { return r.id !== id; });
+      }
+      renderConductTab();
+      toast('已刪除');
+    }).catch(function (err) {
+      toast(err && err.message ? err.message : '刪除失敗');
+    });
+  }
+
+  function downloadConductExcel() {
+    var st = App.conductAll || { list: [] };
+    var list = st.list.filter(conductInRange);
+    if (!list.length) {
+      toast('這段期間沒有紀錄');
+      return;
+    }
+    var nameOf = {};
+    studentsForMissingClass_(st.className).forEach(function (s) { nameOf[normalizeDisplaySeat_(s.seatNo)] = s.name || ''; });
+    withXlsx(function (X) {
+      var rows = [['日期', '時間', '座號', '姓名', '規範', '扣分']].concat(list.map(function (r) {
+        var seat = normalizeDisplaySeat_(r.seatNo);
+        return [r.date, clockOf(r.at), seat, nameOf[seat] || '', r.name, -(Number(r.points) || 0)];
+      }));
+      var wb = X.utils.book_new();
+      X.utils.book_append_sheet(wb, X.utils.aoa_to_sheet(rows), '常規紀錄');
+      X.writeFile(wb, st.className + '-常規紀錄.xlsx');
+    });
+  }
+
+  /* ===== 設定：上課規範清單 ===== */
+
+  function renderConductRuleEditor(items) {
+    var box = document.getElementById('conductRuleEditor');
+    if (!box) return;
+    box.innerHTML = (items || []).map(function (r) {
+      return '<div class="conduct-rule-row" data-rule-id="' + escapeHtml(r.id || '') + '">' +
+        '<input type="text" maxlength="20" aria-label="規範名稱" value="' + escapeHtml(r.name || '') + '" />' +
+        '<label>扣 <input type="number" min="1" max="20" aria-label="扣幾分" value="' + (Number(r.points) || 1) + '" /> 分</label>' +
+        '<button type="button" class="tool" data-rule-del>刪除</button></div>';
+    }).join('');
+  }
+
+  function loadConductRuleEditor() {
+    api('getConductRules', []).then(function (data) {
+      renderConductRuleEditor((data && data.conductRules && data.conductRules.items) || []);
+    });
+  }
+
+  function collectConductRuleEditor() {
+    return Array.prototype.map.call(document.querySelectorAll('#conductRuleEditor .conduct-rule-row'), function (row) {
+      var inputs = row.querySelectorAll('input');
+      return {
+        id: row.getAttribute('data-rule-id') || ('r' + Date.now() + Math.floor(Math.random() * 1000)),
+        name: inputs[0].value.trim(),
+        points: Number(inputs[1].value) || 1
+      };
+    }).filter(function (r) { return r.name; });
+  }
+
+  function saveConductRuleEditor() {
+    var items = collectConductRuleEditor();
+    if (!items.length) {
+      toast('至少要有一項規範');
+      return;
+    }
+    api('saveConductRules', [{ items: items }]).then(function (data) {
+      renderConductRuleEditor((data && data.conductRules && data.conductRules.items) || items);
+      toast('已儲存 ' + items.length + ' 項上課規範');
+    }).catch(function (err) {
+      toast(err && err.message ? err.message : '儲存失敗');
+    });
+  }
+
   function changeScore(student, delta, forceGroup, causeSeatNo, opts) {
     if (!canEdit()) {
       toast('未登入教師帳號，不能加扣分');
@@ -3222,8 +3506,10 @@
     var timetable = document.getElementById('tabTimetable');
     var journal = document.getElementById('tabJournal');
     var missing = document.getElementById('tabMissing');
+    var conductTab = document.getElementById('tabConduct');
     var settings = document.getElementById('tabSettings');
     var gradesSubnav = document.getElementById('gradesSubnav');
+    if (conductTab) conductTab.hidden = App.teacherTab !== 'conduct';
     if (roster) roster.hidden = App.teacherTab !== 'roster';
     if (timetable) timetable.hidden = App.teacherTab !== 'timetable';
     if (journal) journal.hidden = App.teacherTab !== 'journal';
@@ -3268,6 +3554,7 @@
     if (App.teacherTab === 'missing') {
       loadHwMissingTab();
     }
+    if (App.teacherTab === 'conduct') loadConductTab();
     if (App.teacherTab === 'timetable') {
       App.ttFocusKey = '';
       loadTimetable();
@@ -5802,6 +6089,7 @@
       labs: [],
       practicals: [],
       homeworks: [],
+      conduct: [],
       rules: defaultGradeRules()
     };
   }
@@ -5842,10 +6130,22 @@
     return top > 0 && net > 0 ? round1(net / top * bonusMax) : 0;
   }
 
-  function usualFromParts(hwAvg, quizAvg, bonus) {
+  /** conduct＝期間常規扣分合計，直接從平時成績扣（最低 0）。 */
+  function usualFromParts(hwAvg, quizAvg, bonus, conduct) {
     var parts = [hwAvg, quizAvg].filter(function (v) { return v != null; });
     if (!parts.length) return null;
-    return Math.min(100, round1(parts.reduce(function (a, b) { return a + b; }, 0) / parts.length + (bonus || 0)));
+    var usual = Math.min(100, round1(parts.reduce(function (a, b) { return a + b; }, 0) / parts.length + (bonus || 0)));
+    return Math.max(0, round1(usual - (Number(conduct) || 0)));
+  }
+
+  /** 某生在期間內的常規扣分合計；inRange(dateKey) 不給就算全部。 */
+  function conductPoints(list, seatNo, inRange) {
+    var keys = seatKeyAliases(seatNo);
+    return (list || []).reduce(function (sum, r) {
+      if (!r || r.deleted || keys.indexOf(String(r.seatNo)) < 0) return sum;
+      if (inRange && !inRange(String(r.date || ''))) return sum;
+      return sum + (Number(r.points) || 0);
+    }, 0);
   }
 
   function termTotal(usual, exam, w) {
@@ -5865,7 +6165,8 @@
     if (p.quiz != null) base.push('平時考試 ' + p.quiz);
     var usualText = p.usual == null ? '' :
       '平時（' + (base.length > 1 ? '(' + base.join(' ＋ ') + ')÷2' : base.join('')) +
-      (p.classBonus ? ' ＋ 上課加分 ' + p.classBonus : '') + ' ＝ ' + p.usual + '）';
+      (p.classBonus ? ' ＋ 上課加分 ' + p.classBonus : '') +
+      (p.conduct ? ' − 常規扣分 ' + p.conduct : '') + ' ＝ ' + p.usual + '）';
     if (p.usual != null && p.exam != null) {
       return usualText + '×' + w.usual + '% ＋ 段考 ' + p.exam + '×' + w.exam + '% → ' + p.total;
     }
@@ -6138,6 +6439,7 @@
       labs: data.labs || [],
       practicals: data.practicals || [],
       homeworks: data.homeworks || [],
+      conduct: data.conduct || [],
       rules: Object.assign(defaultGradeRules(), data.rules || {})
     };
     App.gradebookClass = String(data.className || '');
@@ -6222,12 +6524,16 @@
     var hwAvg = averageHomework(homeworks, stu.seatNo);
     var quiz = quizExamAvg(yellow, morning, stu.seatNo);
     var bonus = classBonusFrom(act.raw, classNetTop(mondayKey), w.bonusMax);
-    var usual = usualFromParts(hwAvg, quiz, bonus);
+    var conduct = conductPoints(book.conduct, stu.seatNo, mondayKey
+      ? function (d) { return d >= mondayKey && d <= sundayOf(mondayKey); }
+      : null);
+    var usual = usualFromParts(hwAvg, quiz, bonus, conduct);
     var examAvg = average100(exams, stu.seatNo);
     return {
       classRaw: act.raw,
       hasClass: act.has,
       classBonus: bonus,
+      conduct: conduct,
       labAvg: average100(labs, stu.seatNo),
       pracAvg: average100(practicals, stu.seatNo),
       hwAvg: hwAvg,
@@ -6393,7 +6699,7 @@
     });
     rows.sort(seatOrder);
 
-    var usualHead = '<th>上課加扣</th><th>上課加分</th>' +
+    var usualHead = '<th>上課加扣</th><th>上課加分</th><th>常規扣分</th>' +
       labs.map(function (col) { return gradeColHead(col, 'lab'); }).join('') +
       (labs.length ? '<th>實作評量平均<small>不列入</small></th>' : '') +
       practicals.map(function (col) { return gradeColHead(col, 'practical'); }).join('') +
@@ -6407,6 +6713,7 @@
       return '<tr>' + studentBodyCells(row) +
         '<td class="' + scoreCellClass(row.classRaw) + '">' + scoreCellText(row.classRaw) + '</td>' +
         '<td>' + (row.classBonus ? row.classBonus : '0') + '</td>' +
+        '<td class="' + (row.conduct ? 'grid-low' : '') + '">' + (row.conduct ? '−' + row.conduct : '0') + '</td>' +
         labs.map(function (col) { return scoreCellHtml('lab', col, row.seatNo, false); }).join('') +
         (labs.length ? '<td>' + fmtScore(row.labAvg) + '</td>' : '') +
         practicals.map(function (col) { return scoreCellHtml('practical', col, row.seatNo, false); }).join('') +
@@ -6438,13 +6745,14 @@
         '<td class="col-total">' + fmtScore(row.exam) + '</td></tr>';
     }).join('');
 
-    var sumHead = '<th>作業平均</th><th>平時考試</th><th>上課加分</th><th>平時成績</th><th>段考平均</th>' +
+    var sumHead = '<th>作業平均</th><th>平時考試</th><th>上課加分</th><th>常規扣分</th><th>平時成績</th><th>段考平均</th>' +
       '<th class="col-total">學期成績</th><th>名次</th>';
     var sumBody = rows.map(function (row) {
       return '<tr>' + studentBodyCells(row) +
         '<td>' + fmtScore(row.hwAvg) + '</td>' +
         '<td>' + fmtScore(row.quiz) + '</td>' +
         '<td>' + (row.classBonus || 0) + '</td>' +
+        '<td class="' + (row.conduct ? 'grid-low' : '') + '">' + (row.conduct ? '−' + row.conduct : '0') + '</td>' +
         '<td>' + fmtScore(row.usual) + '</td>' +
         '<td>' + fmtScore(row.exam) + '</td>' +
         '<td class="col-total" title="' + escapeHtml(termFormula(row)) + '">' + fmtScore(row.total) + '</td>' +
@@ -6473,11 +6781,11 @@
     var students = (model.rows || []).slice().sort(seatOrder);
     els.gradeWeekHead.innerHTML = '<tr>' +
       '<th class="sticky-1">座號</th><th class="sticky-2">姓名</th>' +
-      '<th>上課加扣</th><th>上課加分</th><th>作業</th><th>平時考試</th><th>平時成績</th><th>段考</th>' +
+      '<th>上課加扣</th><th>上課加分</th><th>常規扣分</th><th>作業</th><th>平時考試</th><th>平時成績</th><th>段考</th>' +
       '<th class="col-total">每週成績</th><th>計算過程</th>' +
       '</tr>';
     if (!students.length) {
-      els.gradeWeekBody.innerHTML = '<tr><td colspan="10">這個班還沒有學生</td></tr>';
+      els.gradeWeekBody.innerHTML = '<tr><td colspan="11">這個班還沒有學生</td></tr>';
       return;
     }
     els.gradeWeekBody.innerHTML = students.map(function (stu) {
@@ -6487,6 +6795,7 @@
         '<td class="sticky-2 name-col">' + escapeHtml(stu.name) + '</td>' +
         '<td class="' + scoreCellClass(parts.classRaw) + '">' + scoreCellText(parts.classRaw) + '</td>' +
         '<td>' + (parts.classBonus || 0) + '</td>' +
+        '<td>' + (parts.conduct ? '−' + parts.conduct : '0') + '</td>' +
         '<td>' + (parts.hwAvg == null ? '無' : parts.hwAvg) + '</td>' +
         '<td>' + (parts.quiz == null ? '無' : parts.quiz) + '</td>' +
         '<td>' + (parts.usual == null ? '無' : parts.usual) + '</td>' +
@@ -6504,7 +6813,7 @@
       '<details class="rule-details">' +
       '<summary>成績計算規則（學期成績、每週成績、整年級成績簿都用這套）</summary>' +
       '<ol>' +
-      '<li><strong>平時成績</strong> ＝（作業平均 ＋ 平時考試平均）÷ 2 ＋ 上課加分，最高 100；只有其中一項就用那一項。</li>' +
+      '<li><strong>平時成績</strong> ＝（作業平均 ＋ 平時考試平均）÷ 2 ＋ 上課加分，最高 100；只有其中一項就用那一項。再減去期間的<strong>常規扣分</strong>（違反上課規範，扣幾分就減幾分，最低 0）。</li>' +
       '<li><strong>上課加分</strong>：期間內上課加扣合計，全班最高的人加 ' + w.bonusMax + ' 分，其他人依比例（合計 ÷ 全班最高 × ' +
         w.bonusMax + '），0 以下不加。小組分已算在每位組員的加扣裡。</li>' +
       '<li><strong>學期成績</strong> ＝ 平時成績 × ' + w.usual + '% ＋ 段考平均 × ' + w.exam + '%；缺一項就只算另一項。</li>' +
@@ -9005,11 +9314,11 @@
   }
 
   function buildTermSheetRows(students) {
-    var rows = [['座號', '姓名', '上課加扣', '上課加分', '作業平均', '黃卷平均', '早自習平均', '平時考試平均', '平時成績', '段考平均', '學期成績', '實作評量平均（不列入）', '實作成績平均（不列入）']];
+    var rows = [['座號', '姓名', '上課加扣', '上課加分', '常規扣分', '作業平均', '黃卷平均', '早自習平均', '平時考試平均', '平時成績', '段考平均', '學期成績', '實作評量平均（不列入）', '實作成績平均（不列入）']];
     students.forEach(function (stu) {
       var p = studentGradeParts(stu, '');
       rows.push([
-        stu.seatNo, stu.name, p.classRaw, p.classBonus || 0,
+        stu.seatNo, stu.name, p.classRaw, p.classBonus || 0, p.conduct ? -p.conduct : 0,
         p.hwAvg == null ? '' : p.hwAvg,
         p.yellowAvg == null ? '' : p.yellowAvg,
         p.morningAvg == null ? '' : p.morningAvg,
@@ -9027,11 +9336,11 @@
   function buildWeekSheetRows(students) {
     var monday = App.weekKey || mondayOf(formatDateKey(new Date()));
     var rows = [['週次', formatZhDate(monday) + '～' + formatZhDate(sundayOf(monday))]];
-    rows.push(['座號', '姓名', '上課加扣', '上課加分', '作業', '平時考試', '平時成績', '段考', '每週成績', '計算過程']);
+    rows.push(['座號', '姓名', '上課加扣', '上課加分', '常規扣分', '作業', '平時考試', '平時成績', '段考', '每週成績', '計算過程']);
     students.forEach(function (stu) {
       var p = studentGradeParts(stu, monday);
       rows.push([
-        stu.seatNo, stu.name, p.classRaw, p.classBonus || 0,
+        stu.seatNo, stu.name, p.classRaw, p.classBonus || 0, p.conduct ? -p.conduct : 0,
         p.hwAvg == null ? '' : p.hwAvg,
         p.quiz == null ? '' : p.quiz,
         p.usual == null ? '' : p.usual,
@@ -9202,7 +9511,7 @@
     var rows = [
       [cls.className + '　' + opt.title + '　結算'],
       ['結算期間：' + (opt.start || '學期開始') + ' ～ ' + opt.end + '　本班期間上課加扣最高 ' + bonus.top + ' 分'],
-      ['平時成績 ＝（作業平均 ＋ 平時考試平均）÷ 2 ＋ 上課加分（最高 100）；上課加分 ＝ 期間加扣合計 ÷ 全班最高 × ' +
+      ['平時成績 ＝（作業平均 ＋ 平時考試平均）÷ 2 ＋ 上課加分（最高 100）－ 期間常規扣分（最低 0）；上課加分 ＝ 期間加扣合計 ÷ 全班最高 × ' +
         w.bonusMax + '（0 以下不加）；結算成績 ＝ 平時成績 × ' + w.usual +
         '% ＋ 段考 × ' + w.exam + '%。作業有繳交保底 ' + HW_SUBMITTED_FLOOR +
         '（' + HW_SUBMITTED_FLOOR + '＋原始×' + ((100 - HW_SUBMITTED_FLOOR) / 100) + '）、未繳交 0；請假不計；實作不列入。'],
@@ -9211,7 +9520,7 @@
     rows.push(['座號', '姓名']
       .concat(hws.map(function (c) { return '作業｜' + (c.title || '作業'); }))
       .concat(quizzes.map(function (c) { return '平時考試｜' + (c.title || '考卷'); }))
-      .concat(['作業平均', '平時考試平均', '上課加扣合計', '上課加分', '平時成績', opt.title, '結算成績', '備註']));
+      .concat(['作業平均', '平時考試平均', '上課加扣合計', '上課加分', '常規扣分', '平時成績', opt.title, '結算成績', '備註']));
     (cls.students || []).slice().sort(seatOrder).forEach(function (s) {
       var seat = s.seatNo;
       var hwVals = [];
@@ -9234,7 +9543,8 @@
       var hwAvg = hwVals.length ? round1(hwVals.reduce(function (a, b) { return a + b; }, 0) / hwVals.length) : null;
       var quizAvg = average100(quizzes, seat);
       var plus = bonus.bonusOf(seat);
-      var usual = usualFromParts(hwAvg, quizAvg, plus);
+      var conduct = conductPoints(book.conduct, seat, function (d) { return inTermRange(d, opt); });
+      var usual = usualFromParts(hwAvg, quizAvg, plus, conduct);
       var examRaw = exam ? readSeatScore(exam.scores, seat) : '';
       var examCell = '';
       var examScore = null;
@@ -9255,7 +9565,7 @@
         .concat(hwCells)
         .concat(quizCells)
         .concat([hwAvg == null ? '' : hwAvg, quizAvg == null ? '' : quizAvg, bonus.netOf(seat), plus,
-          usual == null ? '' : usual, examCell, total, note.join('、')]));
+          conduct ? -conduct : 0, usual == null ? '' : usual, examCell, total, note.join('、')]));
     });
     return { rows: rows, headerRow: 4 };
   }
@@ -9776,7 +10086,7 @@
     var hwAvg = averageHomework(book.homeworks || [], student.seatNo);
     var quiz = quizExamAvg(book.yellow, book.morning, student.seatNo);
     var bonus = classBonusFrom(raw, Math.max(classNetTop(''), raw), termWeights().bonusMax);
-    var usual = usualFromParts(hwAvg, quiz, bonus);
+    var usual = usualFromParts(hwAvg, quiz, bonus, conductPoints(book.conduct, student.seatNo));
     return usual == null ? 60 : usual;
   }
 
@@ -10258,6 +10568,7 @@
           labs: book.labs || [],
           practicals: book.practicals || [],
           homeworks: book.homeworks || [],
+          conduct: book.conduct || [],
           rules: Object.assign(defaultGradeRules(), book.rules || {})
         })
       };
@@ -10546,6 +10857,7 @@
     renderUploadPreview(null);
     fillCloudSettings();
     renderClassroomSources();
+    loadConductRuleEditor();
   }
 
   function classroomSourceClassNames() {
