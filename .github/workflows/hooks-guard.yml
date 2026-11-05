@@ -1,0 +1,22 @@
+name: Hook guard
+
+on:
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: Hook 安全檢查
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - name: 取出程式
+        uses: actions/checkout@v4
+
+      - name: 執行 hook 測試
+        shell: powershell
+        run: ./.cursor/hooks/guard.tests.ps1
