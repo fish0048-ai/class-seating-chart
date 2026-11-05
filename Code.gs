@@ -10,7 +10,8 @@ const SHEETS = {
   HELP: '使用說明',
   CLOUD: '雲端資料',
   GRADES: '成績',
-  DAILY: '每日加扣'
+  DAILY: '每日加扣',
+  CONDUCT: '常規紀錄'
 };
 
 const CLOUD_CHUNK = 45000;
@@ -20,7 +21,8 @@ const HEADERS = {
   CONFIG: ['班級', '列數', '欄數', '版本', '更新時間'],
   HISTORY: ['時間', '班級', '類型', '座號', '姓名', '分數變化', '新分數', '詳情', '可復原', '已復原'],
   GRADES: ['班級', '座號', '姓名', '類型', '項目', '日期', '分數', '滿分', '狀態'],
-  DAILY: ['班級', '日期', '座號', '姓名', '加扣分']
+  DAILY: ['班級', '日期', '座號', '姓名', '加扣分'],
+  CONDUCT: ['班級', '日期', '時間', '座號', '姓名', '規範', '扣分']
 };
 
 /** 你的座位表／成績資料庫（Google 試算表 ID）。課表不在這份裡。 */
@@ -1493,6 +1495,44 @@ function syncReadableNow_(ss, store) {
   try {
     syncReadableGrades_(ss, store);
   } catch (gradeErr) {}
+  try {
+    syncReadableConduct_(ss, store);
+  } catch (conductErr) {}
+}
+
+/** 「常規紀錄」工作表：給人看的副本，每筆一列（已刪除的不列），依班級、日期、時間排。 */
+function syncReadableConduct_(ss, store) {
+  var sheet = ensureSheetWithHeaders_(ss, SHEETS.CONDUCT, HEADERS.CONDUCT);
+  var nameOf = {};
+  var classes = (store && store.classes) || {};
+  Object.keys(classes).forEach(function (cn) {
+    ((classes[cn] && classes[cn].students) || []).forEach(function (s) {
+      nameOf[cn + '|' + seatNoValue_(s.seatNo)] = s.name || '';
+    });
+  });
+  var rows = [];
+  var conduct = (store && store.conduct) || {};
+  Object.keys(conduct).sort().forEach(function (cn) {
+    (Array.isArray(conduct[cn]) ? conduct[cn] : []).filter(function (r) {
+      return r && !r.deleted && r.date;
+    }).sort(function (a, b) {
+      return String(a.date + a.at).localeCompare(String(b.date + b.at));
+    }).forEach(function (r) {
+      var at = r.at ? new Date(r.at) : null;
+      rows.push([
+        cn,
+        String(r.date),
+        at && !isNaN(at.getTime()) ? Utilities.formatDate(at, 'Asia/Taipei', 'HH:mm') : '',
+        String(r.seatNo || ''),
+        nameOf[cn + '|' + seatNoValue_(r.seatNo)] || '',
+        String(r.name || ''),
+        -(Number(r.points) || 0)
+      ]);
+    });
+  });
+  // 日期、座號維持文字，避免被試算表自動轉成日期或數字
+  sheet.getRange(2, 1, Math.max(rows.length, 1), 4).setNumberFormat('@');
+  rewriteSheetBody_(sheet, HEADERS.CONDUCT, rows);
 }
 
 /**
@@ -2388,6 +2428,7 @@ function ensureSheets_(ss) {
   ensureSheetWithHeaders_(ss, SHEETS.HISTORY, HEADERS.HISTORY);
   ensureSheetWithHeaders_(ss, SHEETS.GRADES, HEADERS.GRADES);
   ensureSheetWithHeaders_(ss, SHEETS.DAILY, HEADERS.DAILY);
+  ensureSheetWithHeaders_(ss, SHEETS.CONDUCT, HEADERS.CONDUCT);
   ensureCloudSheet_(ss);
   ensureHelpSheet_(ss);
 
@@ -2439,7 +2480,8 @@ function ensureHelpSheet_(ss) {
     ['2. 「雲端資料」是系統備份，請不要改、也不用從這裡找分數。'],
     ['3. 考卷、作業、段考請看「成績」工作表。'],
     ['4. 每天的上課加扣紀錄請看「每日加扣」工作表。'],
-    ['5. 分數是從座位表網頁存檔後寫進來的；若這幾張表是空的，請到網頁教師模式改一筆再同步。'],
+    ['5. 違反上課規範（常規扣分）請看「常規紀錄」工作表；常規扣分直接從平時成績扣。'],
+    ['6. 分數是從座位表網頁存檔後寫進來的；若這幾張表是空的，請到網頁教師模式改一筆再同步。'],
     [''],
     ['三、發布網頁給平板使用'],
     ['1. 上方選單：擴充功能 > Apps Script。'],
