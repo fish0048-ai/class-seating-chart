@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeShellExecution": [
+      {
+        "command": ".cursor/hooks/guard.ps1",
+        "failClosed": true,
+        "timeout": 15
+      }
+    ],
+    "beforeMCPExecution": [
+      {
+        "command": ".cursor/hooks/guard.ps1",
+        "failClosed": true,
+        "timeout": 15
+      }
+    ]
+  }
+}
