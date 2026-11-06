@@ -1,0 +1,26 @@
+name: Front-back sync
+
+on:
+  pull_request:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    name: 前後端同步檢查
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - name: 取出程式
+        uses: actions/checkout@v4
+
+      - name: 檢查程式本身的測試
+        shell: powershell
+        run: ./.github/scripts/check-front-back-sync.tests.ps1
+
+      - name: 比對前端與 Code.gs
+        shell: powershell
+        run: ./.github/scripts/check-front-back-sync.ps1
