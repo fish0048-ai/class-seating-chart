@@ -17,6 +17,7 @@ alwaysApply: true
 - 學生個資 CSV 不要 commit
 - 教師為 `chunhsinkuo@kcis.hc.edu.tw`、`chiajungtu@kcis.hc.edu.tw`；寫入必須後端驗證 Google token。教師信箱改 `config.js` 的 `teacherEmails` 時，`Code.gs` 的 `TEACHER_EMAILS` 要一起改
 - 改 `Code.gs` 後要提醒老師貼上 Apps Script，並在「管理部署」**編輯現有部署、版本選新版本**（`/exec` 不變）；只 push GitHub 不會更新後端
+- 前端 `api.js` 與後端 `Code.gs` 有成對的合併／保護函式（清單在 `docs/專案現況.md` §4.1）：改其中一邊，另一邊要照著改，並在 PR 說明寫出兩邊都改了。新增成對規則要在該表加一列，CI「前後端同步檢查」會自動納入
 - `app.js` 啟動程式要留在 IIFE 最後；`styles.css` 改 `@media` 後確認括號成對
 - 改 `app.js` 後必須在瀏覽器確認有座位卡，不要只看截圖（括號多一個整站會空白）
 
