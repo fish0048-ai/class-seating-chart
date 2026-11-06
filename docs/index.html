@@ -451,17 +451,39 @@
 
           <div id="tabStats" class="teacher-panel stats-panel" hidden>
             <div class="stats-switch" role="tablist" aria-label="統計分頁">
-              <button type="button" class="tool tab-on" data-stats-view="check">成績檢核</button>
+              <button type="button" class="tool tab-on" data-stats-view="overview">總覽</button>
               <button type="button" class="tool" data-stats-view="paper">考後檢討</button>
-              <button type="button" class="tool" data-stats-view="care">需要關心</button>
-              <button type="button" class="tool" data-stats-view="compare">各班比較</button>
-              <button type="button" class="tool" data-stats-view="class">上課表現</button>
               <button type="button" class="tool" data-stats-view="person">個人</button>
+              <button type="button" class="tool" data-stats-view="class">上課表現</button>
+              <button type="button" class="tool" data-stats-view="compare">各班比較</button>
             </div>
             <p class="hint" id="statsHint"></p>
 
-            <div data-stats-panel="check">
-              <div id="statsCards" class="stat-cards stats-hero"></div>
+            <div data-stats-panel="overview">
+              <div id="statsSegTabs" class="term-seg-tabs"></div>
+              <div id="ovCards" class="stat-cards stats-hero"></div>
+              <section class="stats-block">
+                <h3>要關心的學生</h3>
+                <p class="hint"><span class="risk-dot risk-red"></span>紅＝警訊多，先處理；<span class="risk-dot risk-amber"></span>黃＝留意。依警訊多寡與嚴重度排，退步中的排前面。點學生看個人分析。</p>
+                <div id="ovCare"></div>
+              </section>
+              <section class="stats-block">
+                <h3>成績熱圖</h3>
+                <p class="hint">一列一位學生、一欄一份考卷或作業，越紅分數越低。整欄偏紅＝那份全班都不好（可能要重教）；整列偏紅＝那位學生全面落後。點欄名看考後檢討，點學生看個人。</p>
+                <div id="ovHeat" class="check-grid-wrap"></div>
+              </section>
+              <div class="chart-grid">
+                <figure class="chart-card">
+                  <figcaption>成績分布</figcaption>
+                  <div id="chartTerm"></div>
+                </figure>
+                <section class="stats-block">
+                  <h3>及格邊緣（55～未滿 60）</h3>
+                  <div id="checkBorder"></div>
+                </section>
+              </div>
+              <details class="stats-block ov-check">
+                <summary id="ovCheckSummary">資料檢查</summary>
               <section class="stats-block">
                 <h3>各欄完整度</h3>
                 <p class="hint">每一張考卷／作業有幾人有分數、請假、空白。空白不算進平均；整項空白時學期總分會把比重重新分配。</p>
@@ -493,21 +515,7 @@
                   </table>
                 </div>
               </section>
-              <div class="chart-grid">
-                <section class="stats-block">
-                  <h3>及格邊緣（55～未滿 60）</h3>
-                  <div id="checkBorder"></div>
-                </section>
-                <figure class="chart-card">
-                  <figcaption>學期總分分布</figcaption>
-                  <div id="chartTerm"></div>
-                </figure>
-              </div>
-              <section class="stats-block">
-                <h3>成績總表（依日期）</h3>
-                <p class="hint">數字是百分制；<span class="grid-key grid-blank">空白</span> 還沒輸入、<span class="grid-key grid-leave">假</span> 請假、<span class="grid-key grid-low">紅</span> 未滿 60。</p>
-                <div id="checkGrid" class="check-grid-wrap"></div>
-              </section>
+              </details>
             </div>
 
             <div data-stats-panel="paper" hidden>
@@ -591,28 +599,6 @@
               </section>
             </div>
 
-            <div data-stats-panel="care" hidden>
-              <div class="stats-switch care-scope" role="tablist" aria-label="範圍">
-                <button type="button" class="tool tab-on" data-care-scope="class">本班</button>
-                <button type="button" class="tool" data-care-scope="school">全校</button>
-              </div>
-              <div id="careChips" class="stats-inventory-chips"></div>
-              <div class="db-table-wrap stats-table-wrap">
-                <table class="db-table stats-wide">
-                  <thead>
-                    <tr>
-                      <th>班級</th>
-                      <th>座號</th>
-                      <th>姓名</th>
-                      <th>學期總分</th>
-                      <th>原因</th>
-                    </tr>
-                  </thead>
-                  <tbody id="careBody"></tbody>
-                </table>
-              </div>
-            </div>
-
             <div data-stats-panel="compare" hidden>
               <div id="schoolCards" class="stat-cards stats-hero"></div>
               <div class="chart-grid">
@@ -663,6 +649,25 @@
                       </tr>
                     </thead>
                     <tbody id="schoolClassBody"></tbody>
+                  </table>
+                </div>
+              </section>
+              <section class="stats-block">
+                <h3>全校需要關心</h3>
+                <p class="hint">各班學期未滿 60、未繳作業、段考失常、連續退步、成績不穩、上課扣分多的學生。點學生看個人。</p>
+                <div id="careChips" class="stats-inventory-chips"></div>
+                <div class="db-table-wrap stats-table-wrap">
+                  <table class="db-table stats-wide">
+                    <thead>
+                      <tr>
+                        <th>班級</th>
+                        <th>座號</th>
+                        <th>姓名</th>
+                        <th>學期總分</th>
+                        <th>原因</th>
+                      </tr>
+                    </thead>
+                    <tbody id="careBody"></tbody>
                   </table>
                 </div>
               </section>
