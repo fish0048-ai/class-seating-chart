@@ -1509,6 +1509,87 @@
   .grade-board.tone-exam > summary { border-left-color: #b4413c; }
   .grade-board.tone-sum > summary { border-left-color: #1b3a4b; }
 
+  .term-seg-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 8px;
+  }
+
+  .term-seg-tab {
+    display: grid;
+    justify-items: start;
+    gap: 0;
+    padding: 6px 14px;
+    text-align: left;
+  }
+
+  .term-seg-tab small {
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .term-seg-tab.tab-on {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+  }
+
+  .term-seg-tab.tab-on small {
+    color: inherit;
+    opacity: 0.85;
+  }
+
+  .term-seg-note {
+    margin: 0 0 6px;
+  }
+
+  #gradeTermWrap > .sheet-wrap {
+    max-height: min(68vh, 640px);
+    overflow: auto;
+  }
+
+  .term-one-table thead tr:first-child th {
+    height: 38px;
+  }
+
+  .term-one-table thead tr:nth-child(2) th {
+    top: 38px;
+  }
+
+  .term-one-table th.grp-head {
+    background: #e2ebf0;
+    font-weight: 700;
+  }
+
+  .term-one-table th.grp-hw { background: #eaf6ee; }
+  .term-one-table th.grp-quiz { background: #fff4dc; }
+  .term-one-table th.grp-class { background: #eef0fb; }
+  .term-one-table th.grp-lab { background: #f1f1f1; }
+  .term-one-table th.grp-exam { background: #fdecea; }
+
+  .grp-toggle {
+    min-height: 32px;
+    padding: 2px 8px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    font-weight: 700;
+    cursor: pointer;
+  }
+
+  .grp-toggle:hover,
+  .grp-toggle:focus-visible {
+    background: rgba(255, 255, 255, 0.7);
+  }
+
+  .term-one-table .grp-avg {
+    font-weight: 700;
+    background: #f7f9fb;
+  }
+
   .grade-board .sheet-wrap {
     flex: none;
     min-height: 0;

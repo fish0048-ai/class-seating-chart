@@ -28,6 +28,11 @@ test('教師模式可查看名單、成績、日誌、缺交與課表', async fu
   await page.getByRole('button', { name: '成績', exact: true }).click();
   await expect(page.getByRole('button', { name: '學期成績', exact: true })).toBeVisible();
   await expect(page.locator('#gradeTermView')).toBeVisible();
+  await expect(page.locator('#gradeTermWrap')).toContainText('新增期中考（段考）後會自動分成上半、下半學期');
+  await expect(page.getByRole('tablist', { name: '學期分段' })).toHaveCount(0);
+
+  await page.getByRole('button', { name: '常規紀錄', exact: true }).click();
+  await expect(page.locator('#conductSummary')).toContainText('沒有違反規範的紀錄');
 
   await page.getByRole('button', { name: '設定與上傳', exact: true }).click();
   await expect(page.getByRole('heading', { name: '雲端資料庫（平板與筆電共用）' })).toBeVisible();
