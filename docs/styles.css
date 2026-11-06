@@ -1568,21 +1568,41 @@
   .term-one-table th.grp-lab { background: #f1f1f1; }
   .term-one-table th.grp-exam { background: #fdecea; }
 
-  .grp-toggle {
-    min-height: 32px;
-    padding: 2px 8px;
-    border: 0;
-    border-radius: 8px;
-    background: transparent;
-    color: inherit;
-    font: inherit;
-    font-weight: 700;
-    cursor: pointer;
+  .term-cat-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0 0 8px;
   }
 
-  .grp-toggle:hover,
-  .grp-toggle:focus-visible {
-    background: rgba(255, 255, 255, 0.7);
+  .term-cat-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 40px;
+    padding: 0 14px;
+    border-radius: 999px;
+  }
+
+  .term-cat-tab small {
+    min-width: 1.6em;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: #eef2f5;
+    color: var(--muted);
+    font-size: 11px;
+    text-align: center;
+  }
+
+  .term-cat-tab.tab-on {
+    background: var(--primary);
+    border-color: var(--primary);
+    color: #fff;
+  }
+
+  .term-cat-tab.tab-on small {
+    background: rgba(255, 255, 255, 0.2);
+    color: #fff;
   }
 
   .term-one-table .grp-avg {

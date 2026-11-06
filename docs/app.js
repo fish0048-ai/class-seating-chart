@@ -816,15 +816,11 @@
   if (gradeTermWrap) {
     gradeTermWrap.addEventListener('click', function (event) {
       var segBtn = event.target.closest('[data-term-seg]');
-      var grpBtn = event.target.closest('[data-term-group]');
-      if (segBtn || grpBtn) {
+      var catBtn = event.target.closest('[data-term-cat]');
+      if (segBtn || catBtn) {
         keepGradeEditsInMemory();
         if (segBtn) App.termSeg = segBtn.getAttribute('data-term-seg');
-        if (grpBtn) {
-          var g = grpBtn.getAttribute('data-term-group');
-          App.gradeGroupsCollapsed = App.gradeGroupsCollapsed || { lab: true };
-          App.gradeGroupsCollapsed[g] = !App.gradeGroupsCollapsed[g];
-        }
+        if (catBtn) App.termCat = catBtn.getAttribute('data-term-cat');
         renderTermGrades();
         return;
       }
@@ -6822,83 +6818,113 @@
     wrap.innerHTML = tabs + termSegTableHtml(book, seg, students, !segs.length);
   }
 
-  function termGroupHead(key, title, count, extra) {
-    var collapsed = !!(App.gradeGroupsCollapsed || {})[key];
-    return '<th class="grp-head grp-' + key + '" colspan="' + count + '">' +
-      '<button type="button" class="grp-toggle" data-term-group="' + key + '" aria-expanded="' + !collapsed + '">' +
-      (collapsed ? '▸ ' : '▾ ') + escapeHtml(title) + '</button>' + (extra || '') + '</th>';
-  }
+  var TERM_CATS = [
+    { key: 'overview', label: '總覽' },
+    { key: 'hw', label: '作業' },
+    { key: 'yellow', label: '黃卷' },
+    { key: 'morning', label: '早自習' },
+    { key: 'class', label: '上課' },
+    { key: 'exam', label: '段考' },
+    { key: 'lab', label: '實作（不列入）' }
+  ];
 
+  /**
+   * 一段的成績：上方分類切換，一次只看一類（不必一直往右捲）。
+   * 總覽只放各類平均；其他分類放那一類的欄位（可直接輸入）＋平均。
+   */
   function termSegTableHtml(book, seg, students, wholeTerm) {
-    var collapsed = App.gradeGroupsCollapsed || (App.gradeGroupsCollapsed = { lab: true });
     var pick = function (cols, dateOf) {
       return (cols || []).filter(function (c) { return wholeTerm || inSegment(dateOf(c), seg); });
     };
     var byDate = function (c) { return c.date; };
-    var hws = pick(book.homeworks, colDateKey);
-    var yellow = pick(book.yellow, byDate);
-    var morning = pick(book.morning, byDate);
-    var labs = pick(book.labs, byDate);
-    var practicals = pick(book.practicals, byDate);
-    var exams = wholeTerm ? (book.exams || []) : (seg.exam ? [seg.exam] : []);
+    var lists = {
+      hw: pick(book.homeworks, colDateKey),
+      yellow: pick(book.yellow, byDate),
+      morning: pick(book.morning, byDate),
+      lab: pick(book.labs, byDate).map(function (c) { return { col: c, kind: 'lab' }; })
+        .concat(pick(book.practicals, byDate).map(function (c) { return { col: c, kind: 'practical' }; })),
+      exam: wholeTerm ? (book.exams || []) : (seg.exam ? [seg.exam] : [])
+    };
     var rows = students.map(function (stu) {
       var p = wholeTerm ? studentGradeParts(stu, '') : segmentGradeParts(stu, seg);
       if (wholeTerm) p.total = termTotal(p.usual, p.exam, termWeights());
-      return Object.assign({ seatNo: stu.seatNo, name: stu.name }, p,
-        { labAvg: average100(labs, stu.seatNo), pracAvg: average100(practicals, stu.seatNo) });
+      var labVals = lists.lab.map(function (x) { return columnScore100(x.col, stu.seatNo); }).filter(function (v) { return v != null; });
+      return Object.assign({ seatNo: stu.seatNo, name: stu.name }, p, {
+        yellowAvg: average100(lists.yellow, stu.seatNo),
+        morningAvg: average100(lists.morning, stu.seatNo),
+        labAvg: labVals.length ? round1(labVals.reduce(function (a, b) { return a + b; }, 0) / labVals.length) : null
+      });
     });
     rankRows(rows, 'total');
-    var groups = [
-      { key: 'hw', title: '作業（' + hws.length + '）',
-        cols: hws.map(function (col) {
-          return { head: gradeColHead(col, 'homework', ' · 期限 ' + shortDate(col.dueDate || col.date)), cell: function (r) { return hwCellHtml(col, r.seatNo); } };
-        }),
-        avg: { head: '<th class="grp-avg">作業平均</th>', cell: function (r) { return '<td class="grp-avg">' + fmtScore(r.hwAvg) + '</td>'; } } },
-      { key: 'quiz', title: '平時考試（' + (yellow.length + morning.length) + '）',
-        cols: yellow.map(function (col) { return { head: gradeColHead(col, 'yellow'), cell: function (r) { return scoreCellHtml('yellow', col, r.seatNo, true); } }; })
-          .concat(morning.map(function (col) { return { head: gradeColHead(col, 'morning'), cell: function (r) { return scoreCellHtml('morning', col, r.seatNo, true); } }; })),
-        avg: { head: '<th class="grp-avg">平時考試平均</th>', cell: function (r) { return '<td class="grp-avg">' + fmtScore(r.quiz) + '</td>'; } } },
-      { key: 'class', title: '上課',
-        cols: [
-          { head: '<th>上課加扣</th>', cell: function (r) { return '<td class="' + scoreCellClass(r.classRaw) + '">' + scoreCellText(r.classRaw) + '</td>'; } },
-          { head: '<th>常規扣分</th>', cell: function (r) { return conductCell(r.conduct); } }
-        ],
-        avg: { head: '<th class="grp-avg">上課加分</th>', cell: function (r) { return '<td class="grp-avg">' + (r.classBonus || 0) + '</td>'; } } }
-    ];
-    if (labs.length || practicals.length) {
-      groups.push({ key: 'lab', title: '實作（不列入）',
-        cols: labs.map(function (col) { return { head: gradeColHead(col, 'lab'), cell: function (r) { return scoreCellHtml('lab', col, r.seatNo, false); } }; })
-          .concat(practicals.map(function (col) { return { head: gradeColHead(col, 'practical'), cell: function (r) { return scoreCellHtml('practical', col, r.seatNo, false); } }; })),
-        avg: { head: '<th class="grp-avg">實作平均</th>', cell: function (r) {
-          var vals = [r.labAvg, r.pracAvg].filter(function (v) { return v != null; });
-          return '<td class="grp-avg">' + fmtScore(vals.length ? round1(vals.reduce(function (a, b) { return a + b; }, 0) / vals.length) : null) + '</td>';
-        } } });
+    var counts = { hw: lists.hw.length, yellow: lists.yellow.length, morning: lists.morning.length, exam: lists.exam.length, lab: lists.lab.length };
+    var cats = TERM_CATS.filter(function (c) { return c.key !== 'lab' || counts.lab; });
+    var cat = cats.some(function (c) { return c.key === App.termCat; }) ? App.termCat : 'overview';
+    App.termCat = cat;
+    var catTabs = '<div class="term-cat-tabs" role="tablist" aria-label="成績分類">' + cats.map(function (c) {
+      var n = counts[c.key];
+      return '<button type="button" role="tab" class="tool term-cat-tab' + (c.key === cat ? ' tab-on' : '') + '" aria-selected="' + (c.key === cat) +
+        '" data-term-cat="' + c.key + '">' + escapeHtml(c.label) + (n != null ? '<small>' + n + '</small>' : '') + '</button>';
+    }).join('') + '</div>';
+    var avgCell = function (v) { return '<td class="grp-avg">' + fmtScore(v) + '</td>'; };
+    var totalTitle = wholeTerm ? '學期成績' : '結算成績';
+    var cols;
+    if (cat === 'hw') {
+      cols = lists.hw.map(function (col) {
+        return { head: gradeColHead(col, 'homework', ' · 期限 ' + shortDate(col.dueDate || col.date)), cell: function (r) { return hwCellHtml(col, r.seatNo); } };
+      }).concat([{ head: '<th class="grp-avg">作業平均</th>', cell: function (r) { return avgCell(r.hwAvg); } }]);
+    } else if (cat === 'yellow' || cat === 'morning') {
+      cols = lists[cat].map(function (col) {
+        return { head: gradeColHead(col, cat), cell: function (r) { return scoreCellHtml(cat, col, r.seatNo, true); } };
+      }).concat([
+        { head: '<th class="grp-avg">' + (cat === 'yellow' ? '黃卷平均' : '早自習平均') + '</th>', cell: function (r) { return avgCell(cat === 'yellow' ? r.yellowAvg : r.morningAvg); } },
+        { head: '<th>平時考試平均<small>黃卷＋早自習</small></th>', cell: function (r) { return '<td>' + fmtScore(r.quiz) + '</td>'; } }
+      ]);
+    } else if (cat === 'class') {
+      cols = [
+        { head: '<th>上課加扣</th>', cell: function (r) { return '<td class="' + scoreCellClass(r.classRaw) + '">' + scoreCellText(r.classRaw) + '</td>'; } },
+        { head: '<th class="grp-avg">上課加分</th>', cell: function (r) { return avgCell(r.classBonus || 0); } },
+        { head: '<th>常規扣分</th>', cell: function (r) { return conductCell(r.conduct); } }
+      ];
+    } else if (cat === 'exam') {
+      cols = (lists.exam.length
+        ? lists.exam.map(function (col) { return { head: gradeColHead(col, 'exam'), cell: function (r) { return scoreCellHtml('exam', col, r.seatNo, true); } }; })
+        : [{ head: '<th>段考</th>', cell: function () { return '<td>還沒有段考</td>'; } }])
+        .concat([
+          { head: '<th>平時成績</th>', cell: function (r) { return '<td>' + fmtScore(r.usual) + '</td>'; } },
+          { head: '<th class="col-total">' + totalTitle + '</th>', cell: function (r) { return '<td class="col-total" title="' + escapeHtml(termFormula(r)) + '">' + fmtScore(r.total) + '</td>'; } }
+        ]);
+    } else if (cat === 'lab') {
+      cols = lists.lab.map(function (x) {
+        return { head: gradeColHead(x.col, x.kind), cell: function (r) { return scoreCellHtml(x.kind, x.col, r.seatNo, false); } };
+      }).concat([{ head: '<th class="grp-avg">實作平均</th>', cell: function (r) { return avgCell(r.labAvg); } }]);
+    } else {
+      cols = [
+        { head: '<th>作業平均</th>', cell: function (r) { return '<td>' + fmtScore(r.hwAvg) + '</td>'; } },
+        { head: '<th>黃卷平均</th>', cell: function (r) { return '<td>' + fmtScore(r.yellowAvg) + '</td>'; } },
+        { head: '<th>早自習平均</th>', cell: function (r) { return '<td>' + fmtScore(r.morningAvg) + '</td>'; } },
+        { head: '<th>平時考試平均</th>', cell: function (r) { return '<td>' + fmtScore(r.quiz) + '</td>'; } },
+        { head: '<th>上課加分</th>', cell: function (r) { return '<td>' + (r.classBonus || 0) + '</td>'; } },
+        { head: '<th>常規扣分</th>', cell: function (r) { return conductCell(r.conduct); } },
+        { head: '<th class="grp-avg">平時成績</th>', cell: function (r) { return avgCell(r.usual); } },
+        { head: '<th>' + (lists.exam.length === 1 ? escapeHtml(lists.exam[0].title) : '段考') + '</th>', cell: function (r) {
+          return '<td>' + (r.examLeave ? '請假' : fmtScore(r.exam)) + '</td>';
+        } },
+        { head: '<th class="col-total">' + totalTitle + '</th>', cell: function (r) { return '<td class="col-total" title="' + escapeHtml(termFormula(r)) + '">' + fmtScore(r.total) + '</td>'; } },
+        { head: '<th>名次</th>', cell: function (r) { return '<td>' + r.rank + '</td>'; } }
+      ];
     }
-    groups.forEach(function (g) { g.shown = collapsed[g.key] ? [] : g.cols; });
-    var examHeadTitle = wholeTerm ? '段考' : (seg.exam ? escapeHtml(seg.exam.title) : '段考');
-    var head1 = '<tr><th class="sticky-1" rowspan="2">座號</th><th class="sticky-2" rowspan="2">姓名</th>' +
-      groups.map(function (g) { return termGroupHead(g.key, g.title, g.shown.length + 1); }).join('') +
-      '<th class="col-total" rowspan="2">平時成績</th>' +
-      '<th class="grp-head grp-exam" colspan="' + Math.max(1, exams.length) + '">' + examHeadTitle + '</th>' +
-      '<th class="col-total" rowspan="2">' + (wholeTerm ? '學期成績' : '結算成績') + '</th><th rowspan="2">名次</th></tr>';
-    var head2 = '<tr>' + groups.map(function (g) {
-      return g.shown.map(function (c) { return c.head; }).join('') + g.avg.head;
-    }).join('') + (exams.length ? exams.map(function (col) { return gradeColHead(col, 'exam'); }).join('') : '<th>—</th>') + '</tr>';
+    var empty = cat !== 'overview' && cat !== 'class' && cat !== 'exam' && !counts[cat];
+    var head = '<tr><th class="sticky-1">座號</th><th class="sticky-2">姓名</th>' + cols.map(function (c) { return c.head; }).join('') + '</tr>';
     var body = rows.map(function (r) {
-      return '<tr>' + studentBodyCells(r) +
-        groups.map(function (g) { return g.shown.map(function (c) { return c.cell(r); }).join('') + g.avg.cell(r); }).join('') +
-        '<td class="col-total">' + fmtScore(r.usual) + '</td>' +
-        (exams.length ? exams.map(function (col) { return scoreCellHtml('exam', col, r.seatNo, true); }).join('') : '<td>—</td>') +
-        '<td class="col-total" title="' + escapeHtml(termFormula(r)) + '">' + fmtScore(r.total) + '</td>' +
-        '<td>' + r.rank + '</td></tr>';
+      return '<tr>' + studentBodyCells(r) + cols.map(function (c) { return c.cell(r); }).join('') + '</tr>';
     }).join('');
     var note = wholeTerm ? '' : '<p class="hint term-seg-note">' + escapeHtml(seg.label + '：' + seg.range) +
-      '。這段的作業、平時考試、上課加扣與常規扣分算平時成績，結算成績 ＝ 平時成績 × ' + termWeights().usual + '% ＋ ' +
-      (seg.exam ? seg.exam.title : '段考') + ' × ' + termWeights().exam + '%。其他段的欄位請用上方切換。</p>';
-    return note + '<div class="sheet-wrap"><table class="sheet-table report-table term-one-table">' +
-      '<thead>' + head1 + head2 + '</thead><tbody>' + body + '</tbody></table></div>';
+      '。結算成績 ＝ 平時成績 × ' + termWeights().usual + '% ＋ ' + (seg.exam ? seg.exam.title : '段考') + ' × ' + termWeights().exam + '%。</p>';
+    return note + catTabs + (empty
+      ? '<p class="hint">這段還沒有' + escapeHtml((TERM_CATS.filter(function (c) { return c.key === cat; })[0] || {}).label || '') + '欄，可用上方「新增這一欄」新增。</p>'
+      : '<div class="sheet-wrap"><table class="sheet-table report-table term-one-table term-cat-' + cat + '">' +
+        '<thead>' + head + '</thead><tbody>' + body + '</tbody></table></div>');
   }
-
   function termAllTableHtml(segs, students) {
     var rows = students.map(function (stu) {
       var parts = segs.map(function (seg) { return segmentGradeParts(stu, seg); });
@@ -7138,13 +7164,9 @@
     }).then(function (data) {
       applyGradebook(data);
       if (els.gradeColName) els.gradeColName.value = '';
-      // 跳到新欄位所在的那一段，並展開那一群
+      // 跳到新欄位所在的那一段與那一類
       App.termSegFocusDate = type === 'homework' ? (due || date) : date;
-      var group = { yellow: 'quiz', morning: 'quiz', lab: 'lab', practical: 'lab', homework: 'hw' }[type];
-      if (group) {
-        App.gradeGroupsCollapsed = App.gradeGroupsCollapsed || { lab: true };
-        App.gradeGroupsCollapsed[group] = false;
-      }
+      App.termCat = { yellow: 'yellow', morning: 'morning', exam: 'exam', lab: 'lab', practical: 'lab', homework: 'hw' }[type] || 'overview';
       var term = document.getElementById('gradeTermView');
       if (term) term.open = true;
       renderGradebook();
