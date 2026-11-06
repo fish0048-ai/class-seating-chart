@@ -174,11 +174,6 @@
     chartPersonBand: document.getElementById('chartPersonBand'),
     chartPersonSeries: document.getElementById('chartPersonSeries'),
     schoolCards: document.getElementById('schoolCards'),
-    chartSchoolTermAvg: document.getElementById('chartSchoolTermAvg'),
-    chartSchoolPass: document.getElementById('chartSchoolPass'),
-    chartSchoolClassRaw: document.getElementById('chartSchoolClassRaw'),
-    chartSchoolQuizAvg: document.getElementById('chartSchoolQuizAvg'),
-    chartSchoolExamAvg: document.getElementById('chartSchoolExamAvg'),
     schoolClassBody: document.getElementById('schoolClassBody'),
     schoolTopBody: document.getElementById('schoolTopBody'),
     timetableSheets: document.getElementById('timetableSheets'),
@@ -454,6 +449,24 @@
       var row = event.target.closest('tr[data-seat]');
       if (!row) return;
       App.statsSeatNo = row.getAttribute('data-seat');
+      setStatsView('person');
+    });
+  }
+  var compareSegTabs = document.getElementById('compareSegTabs');
+  if (compareSegTabs) {
+    compareSegTabs.addEventListener('click', function (event) {
+      var btn = event.target.closest('[data-compare-seg]');
+      if (!btn) return;
+      App.compareSeg = btn.getAttribute('data-compare-seg');
+      renderCompareView();
+    });
+  }
+  var paperLists = document.getElementById('paperLists');
+  if (paperLists) {
+    paperLists.addEventListener('click', function (event) {
+      var btn = event.target.closest('[data-seat]');
+      if (!btn) return;
+      App.statsSeatNo = btn.getAttribute('data-seat');
       setStatsView('person');
     });
   }
@@ -7552,11 +7565,28 @@
     return { bands: bands, n: n };
   }
 
+  /** 用別班的成績簿與上課加扣算成績（上課加分要用那一班自己的加扣，不能用目前畫面的班）。 */
+  function withClassData(book, days, fn) {
+    var prevDays = App.dailyDays;
+    App.dailyDays = days || [];
+    try {
+      return withGradebook(book, fn);
+    } finally {
+      App.dailyDays = prevDays;
+    }
+  }
+
   function summarizeClassPack(pack) {
     var book = Object.assign(emptyGradebook(), pack.gradebook || {});
     var model = buildSheetModelFrom(pack.className, pack.students || [], pack.days || []);
-    var people = withGradebook(book, function () {
-      return enrichStatsRows(model, pack.className);
+    var segRows = {};
+    var segs = [];
+    var people = withClassData(book, pack.days || [], function () {
+      var list = enrichStatsRows(model, pack.className);
+      segs = termSegments(book);
+      segs.forEach(function (seg) { segRows[seg.key] = overviewRows(list, seg, overviewSpecs(seg)); });
+      segRows.all = overviewRows(list, null, overviewSpecs(null));
+      return list;
     });
     people.forEach(function (row) { row.className = pack.className; });
     var termScores = people.map(function (row) { return row.total; }).filter(function (n) { return n != null; });
@@ -7585,7 +7615,9 @@
       hwMissingPeople: hwMissingPeople,
       hwMissingCount: hwMissingCount,
       needHelp: needHelp,
-      needCount: needHelp.length
+      needCount: needHelp.length,
+      segs: segs,
+      segRows: segRows
     };
   }
 
@@ -8153,6 +8185,8 @@
         (a.total == null ? 999 : a.total) - (b.total == null ? 999 : b.total) ||
         String(a.className || '').localeCompare(String(b.className || '')) || seatOrder(a, b);
     });
+    var careSummary = document.getElementById('careSummary');
+    if (careSummary) careSummary.textContent = '全校需要關心（' + list.length + ' 人，點開看）';
     if (chips) {
       chips.innerHTML = '<span class="stats-chip"><em>需要關心</em><strong>' + list.length + ' / ' + people.length + ' 人</strong></span>' +
         careKeys().map(function (pair) {
@@ -8290,8 +8324,8 @@
   function statsHint(view) {
     return {
       overview: '先看要關心誰、哪一份大家都不好；資料空白或分數怪怪的收在最下面「資料檢查」。',
-      paper: '選一張考卷：本班分布、未滿 60、和上一次比；下面是同一張考卷的全校排名與各班比較。',
-      compare: '比較你教的每一班（不含範例班），以及全校需要關心的學生。點某一班會改看那一班。',
+      paper: '選一張考卷：最上面一句話看結論，再看要補救、退步、進步的人；下面是同一張考卷的各班分散與全校排名。',
+      compare: '比較你教的每一班（不含範例班）：可切上半／下半學期；綠＝比年級好、紅＝比年級差。點某一班會改看那一班。',
       class: '上課加扣分、參與度與小組扣分。',
       person: '單一學生的總分組成、走勢、與全班比較。可用上一位／下一位切換。'
     }[view] || '';
@@ -8401,14 +8435,15 @@
     var hintEl = document.getElementById('schoolPaperHint');
     var cardsEl = document.getElementById('schoolPaperCards');
     var watchEl = document.getElementById('schoolPaperWatch');
-    var avgEl = document.getElementById('chartSchoolPaperAvg');
-    var passEl = document.getElementById('chartSchoolPaperPass');
+    var spreadEl = document.getElementById('chartSchoolPaperSpread');
     var bandsEl = document.getElementById('schoolPaperBands');
     var bodyEl = document.getElementById('schoolPaperBody');
+    var rankSummary = document.getElementById('schoolPaperRankSummary');
     function clear(msg) {
       if (hintEl) hintEl.textContent = msg;
-      [cardsEl, watchEl, avgEl, passEl, bandsEl].forEach(function (el) { if (el) el.innerHTML = ''; });
+      [cardsEl, watchEl, spreadEl, bandsEl].forEach(function (el) { if (el) el.innerHTML = ''; });
       if (bodyEl) bodyEl.innerHTML = '';
+      if (rankSummary) rankSummary.textContent = '全校排名';
     }
     var current = null;
     listStatsPapers().forEach(function (p) { if (p.key === App.statsPaperKey) current = p; });
@@ -8447,11 +8482,19 @@
     var withAvg = perClass.filter(function (c) { return c.avg != null; }).sort(function (a, b) { return b.avg - a.avg; });
     var leaves = paper.rows.filter(function (r) { return r.leave; });
     var mineVals = (perClass.filter(function (c) { return c.className === cls; })[0] || {});
+    var mineRank = mineVals.avg == null ? null : rankAmong(mineVals.avg, withAvg.map(function (c) { return c.avg; }));
+    App.paperSchoolInfo = {
+      key: current.key,
+      schoolAvg: meanOf(scores),
+      rank: mineRank,
+      classCount: withAvg.length
+    };
+    renderPaperSummary();
 
     if (cardsEl) {
       cardsEl.innerHTML =
         statCard('全校平均', fmtMaybe(meanOf(scores))) +
-        statCard('本班平均', fmtMaybe(mineVals.avg)) +
+        statCard('本班平均', fmtMaybe(mineVals.avg) + (mineRank ? '（第 ' + mineRank + '）' : '')) +
         statCard('中位數', fmtMaybe(medianOf(scores))) +
         statCard('全校及格率', fmtMaybe(passRateOf(scores), '%')) +
         statCard('有成績', scores.length + ' / ' + paper.rows.length);
@@ -8474,13 +8517,12 @@
       }
       watchEl.innerHTML = cards.join('');
     }
-    if (avgEl) avgEl.innerHTML = svgBars(classNamesList, perClass.map(function (c) { return c.avg; }), { zeroLine: false });
-    if (passEl) {
-      passEl.innerHTML = svgBars(classNamesList, perClass.map(function (c) { return c.pass; }), {
-        zeroLine: false,
-        barColors: classNamesList.map(function () { return '#2f6f8f'; })
-      });
+    if (spreadEl) {
+      spreadEl.innerHTML = svgSpread(perClass.map(function (c) {
+        return { label: c.className, values: c.values, mine: c.className === cls };
+      }));
     }
+    if (rankSummary) rankSummary.textContent = '全校排名（' + paper.scored.length + ' 人，點開看）';
     if (bandsEl) {
       var bandLabels = scoreBands([]).bands.map(function (b) { return b.label; });
       bandsEl.innerHTML = '<table class="assess-table"><thead><tr><th>班級</th><th>有成績</th><th>平均</th><th>及格率</th>' +
@@ -8539,59 +8581,9 @@
     var people = [];
     packs.forEach(function (pack) { people = people.concat(pack.people); });
     var names = packs.map(function (pack) { return pack.className; });
-    var termScores = numsOf(people.map(function (row) { return row.total; }));
     var rankedTerm = people.filter(function (row) { return row.total != null; }).sort(function (a, b) {
       return b.total - a.total || String(a.className).localeCompare(String(b.className)) || seatOrder(a, b);
     });
-    var needTotal = packs.reduce(function (sum, pack) { return sum + pack.needCount; }, 0);
-
-    if (els.schoolCards) {
-      els.schoolCards.innerHTML = packs.length
-        ? statCard('班級數', packs.length) +
-          statCard('學生總數', people.length) +
-          statCard('全校學期平均', fmtMaybe(meanOf(termScores))) +
-          statCard('全校中位數', fmtMaybe(termScores.length ? medianOf(termScores) : null)) +
-          statCard('全校及格率', fmtMaybe(passRateOf(termScores), '%')) +
-          statCard('需要關心', needTotal + ' 人') +
-          statCard('學期第一', tiedText(topTiedRows(rankedTerm, 'total'), 'total', 3, true))
-        : statCard('全校統計', '還沒有正式班級');
-    }
-    function bars(id, values, opts, empty) {
-      var el = document.getElementById(id);
-      if (!el) return;
-      el.innerHTML = values.some(function (v) { return v != null; })
-        ? svgBars(names, values, opts || { zeroLine: false })
-        : chartEmpty(empty);
-    }
-    var blue = { zeroLine: false, barColors: names.map(function () { return '#2f6f8f'; }) };
-    bars('chartSchoolTermAvg', packs.map(function (p) { return p.termAvg; }), null, '有學期總分後，這裡會比較各班平均');
-    bars('chartSchoolPass', packs.map(function (p) { return p.passRate; }), blue, '有學期總分後，這裡會比較各班及格率');
-    bars('chartSchoolQuizAvg', packs.map(function (p) { return p.quizAvg; }), null, '輸入黃卷或早自習後，這裡會比較各班平時考試');
-    bars('chartSchoolExamAvg', packs.map(function (p) { return p.examAvg; }), null, '輸入段考後，這裡會比較各班段考');
-    bars('chartSchoolClassRaw', packs.map(function (p) { return p.count ? p.classAvg : null; }), { zeroLine: true }, '有上課加扣後，這裡會比較各班');
-    bars('chartSchoolNeed', packs.map(function (p) { return p.count ? p.needCount : null; }), {
-      zeroLine: false,
-      barColors: names.map(function () { return '#b4413c'; })
-    }, '匯入名單後，這裡會比較各班需要關心人數');
-
-    if (els.schoolClassBody) {
-      els.schoolClassBody.innerHTML = packs.length ? packs.map(function (pack) {
-        return '<tr data-class="' + escapeHtml(pack.className) + '">' +
-          '<td>' + escapeHtml(pack.className) + '</td>' +
-          '<td>' + pack.count + '</td>' +
-          '<td class="col-total">' + fmtMaybe(pack.termAvg) + '</td>' +
-          '<td>' + fmtMaybe(pack.termMedian) + '</td>' +
-          '<td>' + fmtMaybe(pack.passRate, '%') + '</td>' +
-          '<td>' + fmtMaybe(pack.quizAvg) + '</td>' +
-          '<td>' + fmtMaybe(pack.quizPass, '%') + '</td>' +
-          '<td>' + fmtMaybe(pack.examAvg) + '</td>' +
-          '<td>' + fmtMaybe(pack.examPass, '%') + '</td>' +
-          '<td class="' + scoreCellClass(pack.classAvg) + '">' + scoreCellText(pack.classAvg) + '</td>' +
-          '<td>' + pack.hwMissingPeople + '</td>' +
-          '<td>' + pack.needCount + '</td>' +
-          '</tr>';
-      }).join('') : '<tr><td colspan="12">還沒有正式班級</td></tr>';
-    }
     if (els.schoolTopBody) {
       var schoolTotals = rankedTerm.map(function (row) { return row.total; });
       els.schoolTopBody.innerHTML = rankedTerm.length
@@ -8611,8 +8603,147 @@
     }
     App.schoolClassNames = names;
     App.schoolPapers = collectSchoolPapers(rawClasses);
+    renderCompareView();
     renderSchoolPaper();
     renderCarePanel();
+  }
+
+  /** 各班比較用的分段：以目前這班的段考切法為準，各班用同一個順序（第 N 段）。 */
+  function compareSegments() {
+    var segs = termSegments();
+    if (!segs.length) {
+      var withSegs = (App.schoolPacks || []).filter(function (p) { return p.segs && p.segs.length; })[0];
+      segs = withSegs ? withSegs.segs : [];
+    }
+    var keys = segs.map(function (s) { return s.key; }).concat(['all']);
+    if (!App.compareSeg || keys.indexOf(App.compareSeg) < 0) {
+      App.compareSeg = segs.length ? statsSegmentNow().key : 'all';
+      if (keys.indexOf(App.compareSeg) < 0) App.compareSeg = 'all';
+    }
+    return { segs: segs, key: App.compareSeg, seg: segs.filter(function (s) { return s.key === App.compareSeg; })[0] || null };
+  }
+
+  function compareMetrics(rows) {
+    rows = rows || [];
+    var totals = numsOf(rows.map(function (r) { return r.total; }));
+    return {
+      count: rows.length,
+      totals: totals,
+      avg: meanOf(totals),
+      median: totals.length ? medianOf(totals) : null,
+      pass: passRateOf(totals),
+      usual: meanOf(rows.map(function (r) { return r.usual; })),
+      quiz: meanOf(rows.map(function (r) { return r.quiz; })),
+      exam: meanOf(rows.map(function (r) { return r.exam; })),
+      classRaw: meanOf(rows.map(function (r) { return r.classRaw; })),
+      hw: rows.reduce(function (s, r) { return s + (r.hwMissing || 0); }, 0),
+      care: rows.filter(function (r) { return r.risk && (r.risk.level === 'red' || r.risk.level === 'amber'); }).length
+    };
+  }
+
+  /** 比年級好（綠）／差（紅）；thr 以內不上色。lowerBetter：數字越小越好。 */
+  function cmpCell(v, ref, thr, opts) {
+    opts = opts || {};
+    if (v == null) return '<td class="cmp-none">—</td>';
+    var d = ref == null ? null : round1(v - ref);
+    var good = d != null && (opts.lowerBetter ? d <= -thr : d >= thr);
+    var bad = d != null && (opts.lowerBetter ? d >= thr : d <= -thr);
+    var diff = d == null || opts.noDiff ? '' : '<small>' + (d === 0 ? '±0' : (d > 0 ? '+' : '') + d + (opts.suffix || '')) + '</small>';
+    return '<td class="' + (good ? 'cmp-good' : (bad ? 'cmp-bad' : '')) + (opts.main ? ' col-total' : '') + '">' +
+      escapeHtml(String(opts.text != null ? opts.text : v) + (opts.text != null ? '' : (opts.suffix || ''))) + diff + '</td>';
+  }
+
+  function renderCompareView() {
+    var packs = App.schoolPacks || [];
+    var info = compareSegments();
+    var tabsEl = document.getElementById('compareSegTabs');
+    if (tabsEl) {
+      tabsEl.innerHTML = info.segs.length
+        ? info.segs.concat([{ key: 'all', label: '全學期', range: '各段結算平均' }]).map(function (s) {
+          return '<button type="button" class="tool term-seg-tab' + (s.key === info.key ? ' tab-on' : '') +
+            '" data-compare-seg="' + s.key + '" aria-pressed="' + (s.key === info.key) + '">' + escapeHtml(s.label) +
+            '<small>' + escapeHtml(s.range || '') + '</small></button>';
+        }).join('')
+        : '';
+    }
+    var cls = (App.statsModel && App.statsModel.className) || teacherTargetClass();
+    var perClass = packs.map(function (pack) {
+      var rows = (pack.segRows && pack.segRows[info.key]) || [];
+      return { className: pack.className, rows: rows, m: compareMetrics(rows) };
+    });
+    var allRows = [];
+    perClass.forEach(function (c) { allRows = allRows.concat(c.rows); });
+    var grade = compareMetrics(allRows);
+    var settledLabel = info.key === 'all' ? '學期平均' : (info.seg && !info.seg.exam ? '平時平均（還沒段考）' : '結算平均');
+    var head = document.getElementById('cmpTotalHead');
+    if (head) head.textContent = settledLabel;
+    var withAvg = perClass.filter(function (c) { return c.m.avg != null; }).sort(function (a, b) { return b.m.avg - a.m.avg; });
+
+    if (els.schoolCards) {
+      els.schoolCards.innerHTML = packs.length
+        ? statCard('班級數', packs.length) +
+          statCard('學生數', allRows.length) +
+          statCard('年級' + settledLabel.replace(/（.*）/, ''), fmtMaybe(grade.avg)) +
+          statCard('年級及格率', fmtMaybe(grade.pass, '%')) +
+          statCard('班級落差', withAvg.length >= 2
+            ? round1(withAvg[0].m.avg - withAvg[withAvg.length - 1].m.avg) + ' 分（' + withAvg[0].className + '→' + withAvg[withAvg.length - 1].className + '）'
+            : '—') +
+          statCard('要關心', grade.care + ' 人')
+        : statCard('全校統計', '還沒有正式班級');
+    }
+
+    if (els.schoolClassBody) {
+      var rate = function (n, count) { return count ? round1(n / count * 100) : null; };
+      var gradeHwRate = rate(grade.hw, grade.count);
+      var gradeCareRate = rate(grade.care, grade.count);
+      var rowHtml = function (name, m, isGrade) {
+        var ref = isGrade ? {} : grade;
+        return '<tr' + (isGrade ? ' class="cmp-grade"' : ' data-class="' + escapeHtml(name) + '"' + (name === cls ? ' class="check-info"' : '')) + '>' +
+          '<td>' + escapeHtml(name) + '</td>' +
+          '<td>' + m.count + '</td>' +
+          cmpCell(m.avg, ref.avg, 3, { main: true }) +
+          cmpCell(m.median, ref.median, 3) +
+          cmpCell(m.pass, ref.pass, 10, { suffix: '%' }) +
+          cmpCell(m.usual, ref.usual, 3) +
+          cmpCell(m.quiz, ref.quiz, 3) +
+          cmpCell(m.exam, ref.exam, 3) +
+          cmpCell(m.classRaw, ref.classRaw, 2) +
+          cmpCell(rate(m.hw, m.count), isGrade ? null : gradeHwRate, 10, { lowerBetter: true, noDiff: true, text: m.hw + ' 份' }) +
+          cmpCell(rate(m.care, m.count), isGrade ? null : gradeCareRate, 10, { lowerBetter: true, noDiff: true, text: m.care + ' 人' }) +
+          '</tr>';
+      };
+      els.schoolClassBody.innerHTML = packs.length
+        ? perClass.map(function (c) { return rowHtml(c.className, c.m, false); }).join('') + rowHtml('全年級', grade, true)
+        : '<tr><td colspan="11">還沒有正式班級</td></tr>';
+    }
+
+    var spreadEl = document.getElementById('chartSchoolSpread');
+    if (spreadEl) {
+      spreadEl.innerHTML = svgSpread(perClass.map(function (c) {
+        return { label: c.className, values: c.m.totals, mine: c.className === cls };
+      }));
+    }
+
+    var trendEl = document.getElementById('chartSchoolTrend');
+    if (trendEl) {
+      var names = perClass.map(function (c) { return c.className; });
+      var papers = (App.schoolPapers || []).filter(function (p) {
+        var classes = names.filter(function (cn) { return p.scored.some(function (r) { return r.className === cn; }); });
+        return classes.length >= 2 && (!info.seg || inSegment(p.date, info.seg));
+      }).sort(function (a, b) { return String(a.date).localeCompare(String(b.date)); }).slice(-12);
+      trendEl.innerHTML = svgMultiLine(papers.map(function (p) {
+        return p.kindLabel + (p.date ? ' ' + shortDate(p.date) : '');
+      }), names.map(function (cn, i) {
+        return {
+          name: cn,
+          mine: cn === cls,
+          color: CLASS_LINE_COLORS[i % CLASS_LINE_COLORS.length],
+          values: papers.map(function (p) {
+            return meanOf(p.scored.filter(function (r) { return r.className === cn; }).map(function (r) { return r.score; }));
+          })
+        };
+      }));
+    }
   }
 
   function fillPersonSelect(people) {
@@ -8938,6 +9069,44 @@
     renderSchoolPaper();
   }
 
+  var PAPER_MOVE = 10;
+
+  /** 考後檢討最上面的一段結論：本班平均、比上次、比全校、未滿 60、進退步。 */
+  function renderPaperSummary() {
+    var el = document.getElementById('paperSummary');
+    if (!el) return;
+    var p = App.paperInfo;
+    if (!p || !p.n) {
+      el.innerHTML = '';
+      return;
+    }
+    var s = App.paperSchoolInfo;
+    var bits = [];
+    var head = '<strong>' + escapeHtml(p.kindLabel + '「' + p.title + '」') + '</strong>本班平均 <strong>' + p.avg + '</strong>';
+    var cmp = [];
+    if (s && s.key === p.key && s.schoolAvg != null) {
+      var d = round1(p.avg - s.schoolAvg);
+      cmp.push(d === 0 ? '和全校平均一樣' : '比全校' + (d > 0 ? '高 ' : '低 ') + '<b class="' + (d > 0 ? 'up' : 'down') + '">' + Math.abs(d) + '</b> 分');
+      if (s.rank && s.classCount) cmp.push('各班第 ' + s.rank + '／' + s.classCount);
+    }
+    if (p.avgDelta != null) {
+      cmp.push(p.avgDelta === 0 ? '和上一次一樣' : '比上一次' + (p.avgDelta > 0 ? '進步 ' : '退步 ') +
+        '<b class="' + (p.avgDelta > 0 ? 'up' : 'down') + '">' + Math.abs(p.avgDelta) + '</b> 分');
+    }
+    bits.push(head + (cmp.length ? '，' + cmp.join('、') : '') + '。');
+    var names = function (list) {
+      return list.slice(0, 3).map(function (r) { return escapeHtml(r.seatNo + ' ' + r.name); }).join('、') + (list.length > 3 ? ' 等' : '');
+    };
+    bits.push(p.low.length
+      ? '未滿 60 有 <b class="down">' + p.low.length + '</b> 人（' + names(p.low) + '）。'
+      : '全部及格。');
+    var moves = [];
+    if (p.drops.length) moves.push('退步 ' + PAPER_MOVE + ' 分以上 ' + p.drops.length + ' 人（' + names(p.drops) + '）');
+    if (p.rises.length) moves.push('進步 ' + PAPER_MOVE + ' 分以上 ' + p.rises.length + ' 人（' + names(p.rises) + '）');
+    if (moves.length) bits.push(moves.join('；') + '。');
+    el.innerHTML = '<p>' + bits.join('') + '</p>';
+  }
+
   function rawScoreText(col, seatNo) {
     var v = col && col.scores ? readSeatScore(col.scores, seatNo) : null;
     if (isLeaveScore(v)) return '請假';
@@ -8960,6 +9129,10 @@
       if (select) select.innerHTML = '<option value="">尚無考卷</option>';
       if (cardsEl) cardsEl.innerHTML = '';
       if (watchEl) watchEl.innerHTML = '';
+      var emptyLists = document.getElementById('paperLists');
+      if (emptyLists) emptyLists.innerHTML = '';
+      App.paperInfo = null;
+      renderPaperSummary();
       if (distEl) distEl.innerHTML = chartEmpty('到「學期成績」新增黃卷、早自習、段考或實作欄位後，這裡可以逐張看');
       if (deltaEl) deltaEl.innerHTML = '';
       if (bodyEl) bodyEl.innerHTML = '<tr><td colspan="7">尚無考卷</td></tr>';
@@ -9006,38 +9179,70 @@
     var leaves = rows.filter(function (r) { return r.leave; });
     var blanks = rows.filter(function (r) { return r.score == null && !r.leave; });
 
+    var drops = rows.filter(function (r) { return r.delta != null && r.delta <= -PAPER_MOVE; })
+      .sort(function (a, b) { return a.delta - b.delta || seatOrder(a, b); });
+    var rises = rows.filter(function (r) { return r.delta != null && r.delta >= PAPER_MOVE; })
+      .sort(function (a, b) { return b.delta - a.delta || seatOrder(a, b); });
+    App.paperInfo = {
+      key: current.key,
+      kindLabel: current.kindLabel,
+      title: col.title || '未命名',
+      avg: avg,
+      avgDelta: avgDelta,
+      prevTitle: current.prev ? (current.prev.title || '未命名') : '',
+      low: low,
+      drops: drops,
+      rises: rises,
+      n: scores.length,
+      full: full
+    };
+    App.paperSchoolInfo = null;
+    renderPaperSummary();
+
     if (cardsEl) {
       cardsEl.innerHTML = scores.length
-        ? statCard('全班平均', fmtMaybe(avg)) +
+        ? statCard('全班平均', fmtMaybe(avg) + (avgDelta == null ? '' : '（' + (avgDelta > 0 ? '+' : '') + avgDelta + '）')) +
           statCard('中位數', fmtMaybe(medianOf(scores))) +
-          statCard('標準差', stdevOf(scores)) +
-          statCard('最高／最低', info.max + '／' + info.min) +
           statCard('及格率', fmtMaybe(info.passRate, '%')) +
-          statCard('有成績', info.n + ' / ' + people.length) +
-          statCard('比上一次平均', avgDelta == null ? '—' : (avgDelta > 0 ? '+' : '') + avgDelta) +
-          statCard('滿分', Number(col.max) || 100)
+          statCard('最高／最低', info.max + '／' + info.min) +
+          statCard('有成績', info.n + ' / ' + people.length)
         : statCard('這張考卷', '還沒有輸入分數');
     }
 
+    var listsEl = document.getElementById('paperLists');
+    if (listsEl) {
+      var personItems = function (list, fmt) {
+        return '<ul>' + list.map(function (r) {
+          return '<li><button type="button" class="link-btn" data-seat="' + escapeHtml(String(r.seatNo)) + '">' +
+            escapeHtml(r.seatNo + ' ' + r.name) + '</button> <span>' + escapeHtml(fmt(r)) + '</span></li>';
+        }).join('') + '</ul>';
+      };
+      var box = function (tone, title, list, fmt, empty, limit) {
+        var shown = limit ? list.slice(0, limit) : list;
+        return '<article class="paper-list tone-' + tone + '"><h4>' + escapeHtml(title) + '<small>' + list.length + ' 人</small></h4>' +
+          (list.length ? personItems(shown, fmt) + (list.length > shown.length ? '<p class="hint">另有 ' + (list.length - shown.length) + ' 人，見下方表格</p>' : '')
+            : '<p class="hint">' + escapeHtml(empty) + '</p>') + '</article>';
+      };
+      var noPrev = '這是' + current.kindLabel + '第一次，沒有上一次可比';
+      listsEl.innerHTML = scores.length
+        ? box('alert', '要補救（未滿 60）', low, function (r) { return String(r.score); }, '全部及格') +
+          box('warn', '退步最多（掉 ' + PAPER_MOVE + ' 分以上）', drops, function (r) { return r.prev + '→' + r.score + '（' + r.delta + '）'; },
+            current.prev ? '沒有人退步 ' + PAPER_MOVE + ' 分以上' : noPrev, 8) +
+          box('good', '進步最多（多 ' + PAPER_MOVE + ' 分以上，可表揚）', rises, function (r) { return r.prev + '→' + r.score + '（+' + r.delta + '）'; },
+            current.prev ? '沒有人進步 ' + PAPER_MOVE + ' 分以上' : noPrev, 8)
+        : '';
+    }
+
     if (watchEl) {
-      var cards = [];
-      cards.push(watchCard('good', '最高分', scored.length ? tiedText(topTiedRows(scored, 'score'), 'score', 5) : '尚無'));
-      if (full.length) cards.push(watchCard('good', '滿分', peopleText(full, 5)));
-      cards.push(watchCard(low.length ? 'alert' : 'good', '未滿 60 分', low.length
-        ? low.slice(0, 5).map(function (r) { return r.seatNo + ' ' + r.name + '（' + r.score + '）'; }).join('、') +
-          (low.length > 5 ? ' 等 ' + low.length + ' 人' : '')
-        : '全部及格'));
-      if (leaves.length || blanks.length) {
-        var bits = [];
-        if (leaves.length) bits.push('請假 ' + peopleText(leaves, 4));
-        if (blanks.length) bits.push('未填 ' + peopleText(blanks, 4));
-        cards.push(watchCard('warn', '請假／未填', bits.join('；')));
-      }
+      var bits = [];
+      if (full.length) bits.push('滿分：' + peopleText(full, 6));
+      if (leaves.length) bits.push('請假：' + peopleText(leaves, 4));
+      if (blanks.length) bits.push('未填：' + peopleText(blanks, 4));
       if (current.prev) {
-        cards.push(watchCard('info', '比較對象', current.kindLabel + '上一次：' + (current.prev.title || '未命名') +
-          (prevInfo && prevInfo.avg != null ? '（平均 ' + prevInfo.avg + '）' : '')));
+        bits.push('比較對象：' + current.kindLabel + '上一次「' + (current.prev.title || '未命名') + '」' +
+          (prevInfo && prevInfo.avg != null ? '（平均 ' + prevInfo.avg + '）' : ''));
       }
-      watchEl.innerHTML = cards.join('');
+      watchEl.textContent = bits.join('　｜　');
     }
 
     if (distEl) {
@@ -9051,16 +9256,11 @@
     }
 
     if (deltaEl) {
-      var movers = rows.filter(function (r) { return r.delta != null && r.delta !== 0; })
-        .sort(function (a, b) { return b.delta - a.delta; });
-      var pick = movers.slice(0, 5).concat(movers.length > 5 ? movers.slice(-5).filter(function (r) {
-        return movers.indexOf(r) >= 5;
-      }) : []);
       deltaEl.innerHTML = !current.prev
         ? chartEmpty('這是' + current.kindLabel + '第一次，還沒有上一次可以比')
-        : (pick.length
-          ? svgHBars(pick.map(function (r) { return r.seatNo + ' ' + r.name; }), pick.map(function (r) { return r.delta; }))
-          : chartEmpty('和上一次相比沒有變化'));
+        : svgScatter(rows.map(function (r) {
+          return { x: r.prev, y: r.score, label: r.seatNo + ' ' + r.name };
+        }));
     }
 
     if (bodyEl) {
@@ -9283,6 +9483,145 @@
         '<text x="' + (l + iw + 6) + '" y="' + (y + 16) + '" font-size="12" fill="#5b7380">' + v + '</text>';
     }).join('');
     return '<svg viewBox="0 0 ' + w + ' ' + h + '" class="chart-svg" role="img">' + bars + '</svg>';
+  }
+
+  function quantileOf(sorted, p) {
+    if (!sorted.length) return null;
+    var pos = (sorted.length - 1) * p;
+    var lo = Math.floor(pos);
+    var hi = Math.ceil(pos);
+    return round1(sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo));
+  }
+
+  /** 各組（班）分數分散：每點一人、方框＝中間一半（Q1～Q3）、粗線＝中位數、◆＝平均、虛線＝60。 */
+  function svgSpread(groups) {
+    var list = (groups || []).filter(function (g) { return numsOf(g.values).length; });
+    if (!list.length) return chartEmpty('還沒有分數');
+    var w = 640;
+    var rowH = 36;
+    var l = 64;
+    var r = 16;
+    var t = 22;
+    var iw = w - l - r;
+    var h = t + list.length * rowH + 6;
+    function xOf(v) { return round1(l + Math.max(0, Math.min(100, v)) / 100 * iw); }
+    var grid = [0, 20, 40, 60, 80, 100].map(function (v) {
+      return '<line x1="' + xOf(v) + '" x2="' + xOf(v) + '" y1="' + (t - 4) + '" y2="' + (h - 4) + '" stroke="' + (v === 60 ? '#b4413c' : '#eee6d8') + '"' +
+        (v === 60 ? ' stroke-dasharray="4 3"' : '') + '/>' +
+        '<text x="' + xOf(v) + '" y="' + (t - 8) + '" text-anchor="middle" font-size="10" fill="#5b7380">' + v + '</text>';
+    }).join('');
+    var rows = list.map(function (g, i) {
+      var vals = numsOf(g.values).slice().sort(function (a, b) { return a - b; });
+      var cy = t + i * rowH + rowH / 2;
+      var q1 = quantileOf(vals, 0.25);
+      var q2 = quantileOf(vals, 0.5);
+      var q3 = quantileOf(vals, 0.75);
+      var mean = meanOf(vals);
+      var color = g.mine ? '#2f6f8f' : '#7d8f99';
+      var tip = escapeHtml(g.label + '：' + vals.length + ' 人，最低 ' + vals[0] + '、中間一半 ' + q1 + '～' + q3 +
+        '、中位數 ' + q2 + '、平均 ' + mean + '、最高 ' + vals[vals.length - 1]);
+      var dots = vals.map(function (v, k) {
+        var jitter = ((k * 7) % 5 - 2) * 2.4;
+        return '<circle cx="' + xOf(v) + '" cy="' + round1(cy + jitter) + '" r="2.4" fill="' + color + '" fill-opacity="0.45"/>';
+      }).join('');
+      return '<g><title>' + tip + '</title>' +
+        '<text x="' + (l - 8) + '" y="' + (cy + 4) + '" text-anchor="end" font-size="12" font-weight="' + (g.mine ? 700 : 400) + '" fill="#16303c">' + escapeHtml(g.label) + '</text>' +
+        '<line x1="' + xOf(vals[0]) + '" x2="' + xOf(vals[vals.length - 1]) + '" y1="' + cy + '" y2="' + cy + '" stroke="' + color + '" stroke-width="1.5"/>' +
+        '<rect x="' + xOf(q1) + '" y="' + (cy - 9) + '" width="' + Math.max(2, xOf(q3) - xOf(q1)) + '" height="18" rx="3" fill="' + color + '" fill-opacity="0.18" stroke="' + color + '"/>' +
+        '<line x1="' + xOf(q2) + '" x2="' + xOf(q2) + '" y1="' + (cy - 9) + '" y2="' + (cy + 9) + '" stroke="' + color + '" stroke-width="3"/>' +
+        dots +
+        '<path d="M' + xOf(mean) + ' ' + (cy - 5) + ' l4 5 l-4 5 l-4 -5 z" fill="#d9852b"/>' +
+        '</g>';
+    }).join('');
+    return '<svg viewBox="0 0 ' + w + ' ' + h + '" class="chart-svg chart-limit" role="img" aria-label="各班分數分散圖">' + grid + rows + '</svg>';
+  }
+
+  /** 這次（縱軸）vs 上一次（橫軸）：斜線上方進步、下方退步，差 5 分以上才上色。 */
+  function svgScatter(points) {
+    var list = (points || []).filter(function (p) { return p.x != null && p.y != null; });
+    if (!list.length) return chartEmpty('沒有同時考過兩次的學生');
+    var w = 640;
+    var h = 300;
+    var l = 40;
+    var r = 16;
+    var t = 12;
+    var b = 34;
+    var iw = w - l - r;
+    var ih = h - t - b;
+    var lo = Math.max(0, Math.floor(Math.min.apply(null, list.map(function (p) { return Math.min(p.x, p.y); })) / 10) * 10 - 10);
+    var hi = 100;
+    function xOf(v) { return round1(l + (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo) * iw); }
+    function yOf(v) { return round1(t + ih - (Math.max(lo, Math.min(hi, v)) - lo) / (hi - lo) * ih); }
+    var ticks = [];
+    for (var v = lo; v <= hi; v += (hi - lo > 50 ? 20 : 10)) ticks.push(v);
+    var grid = ticks.map(function (v) {
+      return '<line x1="' + l + '" x2="' + (w - r) + '" y1="' + yOf(v) + '" y2="' + yOf(v) + '" stroke="#f0e9dc"/>' +
+        '<text x="' + (l - 6) + '" y="' + (yOf(v) + 4) + '" text-anchor="end" font-size="10" fill="#5b7380">' + v + '</text>' +
+        '<text x="' + xOf(v) + '" y="' + (h - b + 14) + '" text-anchor="middle" font-size="10" fill="#5b7380">' + v + '</text>';
+    }).join('');
+    var pass = lo < 60
+      ? '<line x1="' + xOf(60) + '" x2="' + xOf(60) + '" y1="' + t + '" y2="' + (t + ih) + '" stroke="#b4413c" stroke-dasharray="4 3" stroke-opacity="0.6"/>' +
+        '<line x1="' + l + '" x2="' + (w - r) + '" y1="' + yOf(60) + '" y2="' + yOf(60) + '" stroke="#b4413c" stroke-dasharray="4 3" stroke-opacity="0.6"/>'
+      : '';
+    var diag = '<line x1="' + xOf(lo) + '" y1="' + yOf(lo) + '" x2="' + xOf(hi) + '" y2="' + yOf(hi) + '" stroke="#9aa8b0" stroke-width="1.5"/>';
+    var dots = list.map(function (p) {
+      var d = p.y - p.x;
+      var color = d >= 5 ? '#2c7a4b' : (d <= -5 ? '#b4413c' : '#7d8f99');
+      return '<circle cx="' + xOf(p.x) + '" cy="' + yOf(p.y) + '" r="5" fill="' + color + '" fill-opacity="0.75" stroke="#fff">' +
+        '<title>' + escapeHtml(p.label + '：上一次 ' + p.x + ' → 這次 ' + p.y + '（' + (d > 0 ? '+' : '') + round1(d) + '）') + '</title></circle>';
+    }).join('');
+    var axes = '<text x="' + (l + iw / 2) + '" y="' + (h - 4) + '" text-anchor="middle" font-size="11" fill="#5b7380">上一次 →</text>' +
+      '<text x="12" y="' + (t + ih / 2) + '" text-anchor="middle" font-size="11" fill="#5b7380" transform="rotate(-90 12 ' + (t + ih / 2) + ')">這次 →</text>';
+    return '<svg viewBox="0 0 ' + w + ' ' + h + '" class="chart-svg chart-limit" role="img" aria-label="這次與上一次分數對照">' + grid + pass + diag + dots + axes + '</svg>';
+  }
+
+  var CLASS_LINE_COLORS = ['#2f6f8f', '#c0392b', '#2c7a4b', '#d9852b', '#7b5ea7', '#8c6d3f', '#1f9e9e', '#c2577a'];
+
+  /** 多條折線（各班）＋圖例；mine 那條加粗。 */
+  function svgMultiLine(labels, series) {
+    var w = 640;
+    var h = 240;
+    var l = 36;
+    var r = 16;
+    var t = 14;
+    var b = 44;
+    var iw = w - l - r;
+    var ih = h - t - b;
+    var all = [];
+    series.forEach(function (s) { all = all.concat(numsOf(s.values)); });
+    if (!all.length || labels.length < 1) return chartEmpty('還沒有各班都考過的同一張考卷');
+    var lo = Math.max(0, Math.floor(Math.min.apply(null, all) / 10) * 10 - 10);
+    var hi = Math.min(100, Math.ceil(Math.max.apply(null, all) / 10) * 10);
+    if (hi <= lo) hi = lo + 10;
+    function xOf(i) { return round1(l + (labels.length <= 1 ? iw / 2 : i * iw / (labels.length - 1))); }
+    function yOf(v) { return round1(t + ih - (v - lo) / (hi - lo) * ih); }
+    var grid = [lo, Math.round((lo + hi) / 2), hi].map(function (v) {
+      return '<line x1="' + l + '" x2="' + (w - r) + '" y1="' + yOf(v) + '" y2="' + yOf(v) + '" stroke="#f0e9dc"/>' +
+        '<text x="' + (l - 6) + '" y="' + (yOf(v) + 4) + '" text-anchor="end" font-size="10" fill="#5b7380">' + v + '</text>';
+    }).join('');
+    var step = Math.max(1, Math.ceil(labels.length / 7));
+    var xl = labels.map(function (lb, i) {
+      if (i % step && i !== labels.length - 1) return '';
+      var anchor = labels.length > 1 && i === 0 ? 'start' : (labels.length > 1 && i === labels.length - 1 ? 'end' : 'middle');
+      return '<text x="' + xOf(i) + '" y="' + (h - b + 16) + '" text-anchor="' + anchor + '" font-size="10" fill="#5b7380">' + escapeHtml(lb) + '</text>';
+    }).join('');
+    var lines = series.map(function (s) {
+      var pts = [];
+      var dots = '';
+      s.values.forEach(function (v, i) {
+        if (v == null) return;
+        pts.push(xOf(i) + ',' + yOf(v));
+        dots += '<circle cx="' + xOf(i) + '" cy="' + yOf(v) + '" r="' + (s.mine ? 4 : 3) + '" fill="' + s.color + '"><title>' +
+          escapeHtml(s.name + '｜' + labels[i] + '：' + v) + '</title></circle>';
+      });
+      return (pts.length > 1 ? '<polyline fill="none" stroke="' + s.color + '" stroke-width="' + (s.mine ? 3.5 : 2) + '" points="' + pts.join(' ') + '"/>' : '') + dots;
+    }).join('');
+    var legend = series.map(function (s, i) {
+      var x = l + i * 76;
+      return '<rect x="' + x + '" y="' + (h - 16) + '" width="12" height="4" fill="' + s.color + '"/>' +
+        '<text x="' + (x + 16) + '" y="' + (h - 11) + '" font-size="11" font-weight="' + (s.mine ? 700 : 400) + '" fill="#16303c">' + escapeHtml(s.name) + '</text>';
+    }).join('');
+    return '<svg viewBox="0 0 ' + w + ' ' + h + '" class="chart-svg chart-limit" role="img" aria-label="各班走勢">' + grid + xl + lines + legend + '</svg>';
   }
 
   function svgLine(labels, values, opts) {

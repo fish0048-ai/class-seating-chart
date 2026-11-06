@@ -524,17 +524,19 @@
                 <select id="statsPaperSelect" aria-label="選擇考卷"></select>
                 <button type="button" class="tool" id="btnPaperNext" aria-label="下一張考卷">下一張 ›</button>
               </div>
+              <div id="paperSummary" class="paper-summary" aria-live="polite"></div>
               <section class="stats-block">
                 <h3>本班</h3>
                 <div id="statsPaperCards" class="stat-cards"></div>
-                <div id="statsPaperWatch" class="stats-watch"></div>
+                <div id="paperLists" class="paper-lists"></div>
+                <p id="statsPaperWatch" class="hint"></p>
                 <div class="chart-grid">
                   <figure class="chart-card">
                     <figcaption>分數分布</figcaption>
                     <div id="chartPaperDist"></div>
                   </figure>
                   <figure class="chart-card">
-                    <figcaption>和同類型上一次比（進步／退步最多）</figcaption>
+                    <figcaption>這次 vs 上一次（每點一位學生；斜線上方＝進步、下方＝退步）</figcaption>
                     <div id="chartPaperDelta"></div>
                   </figure>
                 </div>
@@ -560,19 +562,14 @@
                 <p class="hint" id="schoolPaperHint"></p>
                 <div id="schoolPaperCards" class="stat-cards"></div>
                 <div id="schoolPaperWatch" class="stats-watch"></div>
-                <div class="chart-grid">
-                  <figure class="chart-card">
-                    <figcaption>各班平均</figcaption>
-                    <div id="chartSchoolPaperAvg"></div>
-                  </figure>
-                  <figure class="chart-card">
-                    <figcaption>各班及格率（60 分）</figcaption>
-                    <div id="chartSchoolPaperPass"></div>
-                  </figure>
-                </div>
+                <figure class="chart-card chart-wide">
+                  <figcaption>各班分數分散（每點一位學生；方框＝中間一半的人、粗線＝中位數、◆＝平均、虛線＝60 分）</figcaption>
+                  <div id="chartSchoolPaperSpread"></div>
+                </figure>
                 <h4 class="chart-sub">各班分數分布（人數）</h4>
                 <div id="schoolPaperBands" class="assess-wrap"></div>
-                <h4 class="chart-sub">全校排名</h4>
+                <details class="stats-fold">
+                  <summary id="schoolPaperRankSummary">全校排名</summary>
                 <div class="db-table-wrap stats-table-wrap">
                   <table class="db-table">
                     <thead>
@@ -589,6 +586,7 @@
                     <tbody id="schoolPaperBody"></tbody>
                   </table>
                 </div>
+                </details>
               </section>
               <section class="stats-block">
                 <h3>本班各次考卷走勢</h3>
@@ -600,60 +598,42 @@
             </div>
 
             <div data-stats-panel="compare" hidden>
+              <div id="compareSegTabs" class="term-seg-tabs"></div>
               <div id="schoolCards" class="stat-cards stats-hero"></div>
-              <div class="chart-grid">
-                <figure class="chart-card">
-                  <figcaption>各班學期平均</figcaption>
-                  <div id="chartSchoolTermAvg"></div>
-                </figure>
-                <figure class="chart-card">
-                  <figcaption>各班學期及格率（60 分）</figcaption>
-                  <div id="chartSchoolPass"></div>
-                </figure>
-                <figure class="chart-card">
-                  <figcaption>各班平時考試平均</figcaption>
-                  <div id="chartSchoolQuizAvg"></div>
-                </figure>
-                <figure class="chart-card">
-                  <figcaption>各班段考平均</figcaption>
-                  <div id="chartSchoolExamAvg"></div>
-                </figure>
-                <figure class="chart-card">
-                  <figcaption>各班上課加扣平均</figcaption>
-                  <div id="chartSchoolClassRaw"></div>
-                </figure>
-                <figure class="chart-card">
-                  <figcaption>各班需要關心人數</figcaption>
-                  <div id="chartSchoolNeed"></div>
-                </figure>
-              </div>
               <section class="stats-block">
-                <h3>各班一覽</h3>
-                <p class="hint">點某一班會改看該班的成績檢核。不含範例班。</p>
+                <h3>各班比較表</h3>
+                <p class="hint">和全年級比：<span class="cmp-key cmp-good">綠＝比年級好</span><span class="cmp-key cmp-bad">紅＝比年級差</span>（分數差 3 分、比率差 10% 以上才上色）。點一班改看那一班的總覽。不含範例班。</p>
                 <div class="db-table-wrap stats-table-wrap">
-                  <table class="db-table stats-wide">
+                  <table class="db-table compare-matrix">
                     <thead>
                       <tr>
                         <th>班級</th>
                         <th>人數</th>
-                        <th>學期平均</th>
+                        <th id="cmpTotalHead">平均</th>
                         <th>中位數</th>
                         <th>及格率</th>
+                        <th>平時成績</th>
                         <th>平時考試</th>
-                        <th>平時考試及格率</th>
                         <th>段考</th>
-                        <th>段考及格率</th>
-                        <th>上課加扣平均</th>
-                        <th>未繳作業人數</th>
-                        <th>需關心</th>
+                        <th>上課加扣</th>
+                        <th>未繳作業</th>
+                        <th>要關心</th>
                       </tr>
                     </thead>
                     <tbody id="schoolClassBody"></tbody>
                   </table>
                 </div>
               </section>
-              <section class="stats-block">
-                <h3>全校需要關心</h3>
+              <figure class="chart-card chart-wide">
+                <figcaption>各班成績分散（每點一位學生；方框＝中間一半的人、粗線＝中位數、◆＝平均、虛線＝60 分）</figcaption>
+                <div id="chartSchoolSpread"></div>
+              </figure>
+              <figure class="chart-card chart-wide">
+                <figcaption>各班走勢（同一張考卷的各班平均，依日期）</figcaption>
+                <div id="chartSchoolTrend"></div>
+              </figure>
+              <details class="stats-block stats-fold">
+                <summary id="careSummary">全校需要關心</summary>
                 <p class="hint">各班學期未滿 60、未繳作業、段考失常、連續退步、成績不穩、上課扣分多的學生。點學生看個人。</p>
                 <div id="careChips" class="stats-inventory-chips"></div>
                 <div class="db-table-wrap stats-table-wrap">
@@ -670,9 +650,9 @@
                     <tbody id="careBody"></tbody>
                   </table>
                 </div>
-              </section>
-              <section class="stats-block">
-                <h3>全校學期前 10 名</h3>
+              </details>
+              <details class="stats-block stats-fold">
+                <summary>全校學期前 10 名</summary>
                 <div class="db-table-wrap stats-table-wrap">
                   <table class="db-table stats-wide">
                     <thead>
@@ -690,7 +670,7 @@
                     <tbody id="schoolTopBody"></tbody>
                   </table>
                 </div>
-              </section>
+              </details>
             </div>
 
             <div data-stats-panel="class" hidden>
