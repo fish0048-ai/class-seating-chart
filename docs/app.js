@@ -808,6 +808,19 @@
       requireTeacher(saveClassroomSources);
     });
   }
+  var handoutAutoOn = document.getElementById('handoutAutoOn');
+  if (handoutAutoOn) {
+    handoutAutoOn.addEventListener('change', function () {
+      var on = handoutAutoOn.checked;
+      requireTeacher(function () { setHandoutAuto(on); });
+    });
+  }
+  var handoutAutoRun = document.getElementById('btnHandoutAutoRun');
+  if (handoutAutoRun) {
+    handoutAutoRun.addEventListener('click', function () {
+      requireTeacher(runHandoutAutoNow);
+    });
+  }
   document.addEventListener('click', function (event) {
     document.querySelectorAll('details.tool-menu[open]').forEach(function (menu) {
       if (!menu.contains(event.target) || event.target.closest('.tool-menu-item')) menu.open = false;
@@ -11567,7 +11580,81 @@
     return (App.classNames || []).filter(function (n) { return n && n.indexOf('範例') < 0; });
   }
 
+  function handoutAutoErrorText(err) {
+    var msg = err && err.message ? err.message : String(err || '');
+    if (/未知的操作/.test(msg)) return '後端還沒更新：請把新版 Code.gs 貼到 Apps Script，並在「管理部署」編輯現有部署、版本選新版本。';
+    return msg || '讀取失敗';
+  }
+
+  /** 設定頁顯示：開關狀態＋上次自動更新的結果。 */
+  function paintHandoutAuto(status) {
+    var box = document.getElementById('handoutAutoOn');
+    var line = document.getElementById('handoutAutoStatus');
+    if (box) box.checked = !!(status && status.on);
+    if (!line) return;
+    var bits = [status && status.on ? '已開啟：每個工作天約 7:00 自動更新。' : '目前沒有開啟自動更新。'];
+    var last = status && status.last;
+    if (last && last.at) {
+      var classes = (last.classes || []).map(function (c) {
+        var parts = [];
+        if (c.created && c.created.length) parts.push('新增 ' + c.created.join('、'));
+        if (c.updated && c.updated.length) parts.push('更新 ' + c.updated.length + ' 份');
+        if (c.skipped && c.skipped.length) parts.push('略過 ' + c.skipped.length + ' 份（已刪除或太舊）');
+        return c.className + (parts.length ? '：' + parts.join('，') : '：沒有變動');
+      });
+      bits.push('上次' + (last.source === 'manual' ? '試跑' : '自動更新') + '：' + formatHistoryTime(last.at) +
+        (classes.length ? '。' + classes.join('；') : '') + '。');
+      if (last.errors && last.errors.length) bits.push('問題：' + last.errors.join('；'));
+    }
+    line.textContent = bits.join(' ');
+  }
+
+  function loadHandoutAuto() {
+    var line = document.getElementById('handoutAutoStatus');
+    if (!line) return;
+    api('getHandoutAuto', []).then(paintHandoutAuto).catch(function (err) {
+      line.textContent = handoutAutoErrorText(err);
+    });
+  }
+
+  function setHandoutAuto(on) {
+    var line = document.getElementById('handoutAutoStatus');
+    if (line) line.textContent = on ? '正在開啟…' : '正在關閉…';
+    api('setHandoutAuto', [on]).then(function (status) {
+      paintHandoutAuto(status);
+      toast(status.on ? '已開啟：每個工作天早上 7 點自動更新學習講義' : '已關閉自動更新');
+    }).catch(function (err) {
+      toast(handoutAutoErrorText(err), 9000);
+      loadHandoutAuto();
+    });
+  }
+
+  function runHandoutAutoNow() {
+    var btn = document.getElementById('btnHandoutAutoRun');
+    var line = document.getElementById('handoutAutoStatus');
+    if (btn) btn.disabled = true;
+    if (line) line.textContent = '正在讀 Classroom 並更新，各班約要十幾秒…';
+    api('runHandoutAuto', []).then(function (status) {
+      paintHandoutAuto(status);
+      var changed = ((status.result && status.result.classes) || []).some(function (c) {
+        return (c.created && c.created.length) || (c.updated && c.updated.length);
+      });
+      toast(changed ? '已從 Classroom 更新學習講義' : 'Classroom 的學習講義沒有新的變動');
+      if (changed && typeof SeatDB !== 'undefined' && SeatDB.pullIfNewer && !App.dirty && !gradeSaveTimer) {
+        SeatDB.pullIfNewer(App.classroom && App.classroom.className).then(function (data) {
+          if (data && data.changed) applyPayload(data, true);
+        }).catch(function () {});
+      }
+    }).catch(function (err) {
+      toast(handoutAutoErrorText(err), 9000);
+      loadHandoutAuto();
+    }).then(function () {
+      if (btn) btn.disabled = false;
+    });
+  }
+
   function renderClassroomSources() {
+    loadHandoutAuto();
     var wrap = document.getElementById('classroomSourceList');
     if (!wrap) return;
     api('getClassroomSources', []).then(function (data) {

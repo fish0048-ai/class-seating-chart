@@ -243,6 +243,12 @@ function handleRequest_(req) {
         return startHandoutCheckApi_(req.className, req.title, req.recheck === true || req.recheck === 'true');
       case 'getHandoutCheck':
         return refreshHandoutCheckApi_(req.className, req.title);
+      case 'getHandoutAuto':
+        return handoutAutoStatusApi_();
+      case 'setHandoutAuto':
+        return setHandoutAutoApi_(req.on === true || req.on === 'true');
+      case 'runHandoutAuto':
+        return runHandoutAutoApi_();
       default:
         return { ok: false, error: '未知的操作：' + action };
     }
@@ -618,6 +624,221 @@ function readClassroomCourseInner_(cn) {
   best.source = 'classroom';
   best.title = matched.map(function (c) { return c.name; }).join('、');
   return best;
+}
+
+/* ===== 學習講義自動更新：工作天（週一～五）早上 7 點，觸發器讀 Classroom 寫進作業欄 ===== */
+
+var HANDOUT_AUTO_FN_ = 'autoUpdateHandouts';
+var HANDOUT_AUTO_LAST_KEY_ = 'HANDOUT_AUTO_LAST';
+/** 自動更新只新增最近這幾天內到期（或還沒到期）的講義；更早的請在網站手動匯入。 */
+var HANDOUT_AUTO_NEW_DAYS_ = 45;
+
+function handoutAutoTriggers_() {
+  return ScriptApp.getProjectTriggers().filter(function (t) {
+    return t.getHandlerFunction() === HANDOUT_AUTO_FN_;
+  });
+}
+
+function handoutAutoStatusApi_() {
+  var last = null;
+  try {
+    last = JSON.parse(PropertiesService.getScriptProperties().getProperty(HANDOUT_AUTO_LAST_KEY_) || 'null');
+  } catch (ignore) {}
+  return { ok: true, on: handoutAutoTriggers_().length > 0, last: last };
+}
+
+function setHandoutAutoApi_(on) {
+  handoutAutoTriggers_().forEach(function (t) { ScriptApp.deleteTrigger(t); });
+  if (on) {
+    ScriptApp.newTrigger(HANDOUT_AUTO_FN_).timeBased().atHour(7).nearMinute(0).everyDays(1)
+      .inTimezone('Asia/Taipei').create();
+  }
+  return handoutAutoStatusApi_();
+}
+
+/** 觸發器每天呼叫；週末不跑。 */
+function autoUpdateHandouts() {
+  var weekday = Number(Utilities.formatDate(new Date(), 'Asia/Taipei', 'u'));
+  if (weekday > 5) return;
+  runHandoutAuto_('auto');
+}
+
+/** 網站「現在試跑一次」。 */
+function runHandoutAutoApi_() {
+  var result = runHandoutAuto_('manual');
+  var status = handoutAutoStatusApi_();
+  status.result = result;
+  return status;
+}
+
+/** 刪除作業欄時記的標題（removedCols 的值是「時間｜標題」）；自動更新不會再把它建回來。 */
+function removedHomeworkTitles_(book) {
+  var titles = {};
+  var rm = (book && book.removedCols) || {};
+  Object.keys(rm).forEach(function (id) {
+    var v = String(rm[id] || '');
+    var at = v.indexOf('｜');
+    if (at >= 0) titles[v.slice(at + 1).trim()] = true;
+  });
+  return titles;
+}
+
+function seatAliasKeysGs_(seatNo) {
+  var raw = String(seatNo == null ? '' : seatNo).trim();
+  var keys = [raw];
+  if (/^\d+$/.test(raw)) {
+    var n = String(Number(raw));
+    keys.push(n, n.length < 2 ? '0' + n : n);
+  }
+  return keys.filter(function (k, i) { return k !== '' && keys.indexOf(k) === i; });
+}
+
+/**
+ * 把一班的 Classroom 學習講義寫進雲端資料（和網站 api.js importClassroomHandouts 同一套規則）：
+ * 有分數＝已繳＋分數；已繳未打分＝已繳（網站已有分數就保留）；空白＝未繳；整欄空白先跳過。
+ * 有變動的欄記 classroomAt，網站舊分頁存檔時不會用舊紀錄蓋回去。
+ */
+function applyHandoutColumns_(store, cn, columns, stamp) {
+  var room = store.classes && store.classes[cn];
+  var report = { className: cn, created: [], updated: [], blank: [], skipped: [], changed: false };
+  if (!room) return report;
+  var seatOf = {};
+  (room.students || []).forEach(function (s) {
+    seatAliasKeysGs_(s.seatNo).forEach(function (k) { seatOf[k] = String(s.seatNo); });
+  });
+  store.grades = store.grades || {};
+  var book = store.grades[cn] = store.grades[cn] || {};
+  if (!Array.isArray(book.homeworks)) book.homeworks = [];
+  var removedTitles = removedHomeworkTitles_(book);
+  var removedIds = book.removedCols || {};
+  var today = taipeiTime_(new Date(), 'yyyy-MM-dd');
+  var oldest = taipeiTime_(new Date(Date.now() - HANDOUT_AUTO_NEW_DAYS_ * 86400000), 'yyyy-MM-dd');
+  columns.forEach(function (col) {
+    var title = String(col.title || '').trim().slice(0, 80);
+    if (!title) return;
+    var hasAny = Object.keys(col.scores || {}).some(function (k) {
+      var v = col.scores[k];
+      return (typeof v === 'number' && isFinite(v)) || v === 'submitted';
+    });
+    if (!hasAny) {
+      report.blank.push(title);
+      return;
+    }
+    var due = /^\d{4}-\d{2}-\d{2}$/.test(String(col.dueDate || '')) ? String(col.dueDate) : '';
+    var hit = book.homeworks.filter(function (h) {
+      return h && !removedIds[String(h.id)] && String(h.title || '').trim() === title;
+    })[0];
+    if (!hit) {
+      if (removedTitles[title] || (due && due < oldest)) {
+        report.skipped.push(title);
+        return;
+      }
+      hit = {
+        id: 'h' + Date.now() + Math.floor(Math.random() * 100000),
+        title: title,
+        date: due || today,
+        dueDate: due || today,
+        max: clampInt_(col.max || 100, 1, 200, 100),
+        excluded: false,
+        records: {}
+      };
+      book.homeworks.push(hit);
+      report.created.push(title);
+    }
+    var before = JSON.stringify([hit.records || {}, hit.dueDate, hit.max]);
+    hit.records = hit.records || {};
+    if (due) hit.dueDate = due;
+    hit.max = clampInt_(col.max || hit.max || 100, 1, 200, 100);
+    Object.keys(col.scores || {}).forEach(function (key) {
+      var seat = seatOf[String(key)];
+      if (!seat) return;
+      var v = col.scores[key];
+      if (typeof v === 'number' && isFinite(v)) {
+        hit.records[seat] = { status: 'submitted', score: v };
+      } else if (v === 'submitted') {
+        var prev = hit.records[seat];
+        if (!(prev && prev.status === 'submitted' && typeof prev.score === 'number' && isFinite(prev.score))) {
+          hit.records[seat] = { status: 'submitted' };
+        }
+      } else {
+        hit.records[seat] = { status: 'missing' };
+      }
+    });
+    if (JSON.stringify([hit.records, hit.dueDate, hit.max]) !== before) {
+      hit.classroomAt = stamp;
+      report.changed = true;
+      if (report.created.indexOf(title) < 0) report.updated.push(title);
+    }
+  });
+  return report;
+}
+
+/** 讀各班 Classroom（慢，不拿鎖），再拿鎖把有變動的寫進雲端資料。結果記在指令碼屬性，網站設定頁會顯示。 */
+function runHandoutAuto_(source) {
+  var result = { at: new Date().toISOString(), source: source, classes: [], errors: [] };
+  try {
+    var loaded = getCloudStore();
+    var names = loaded.store ? Object.keys(loaded.store.classes || {}).filter(function (cn) {
+      return /^\d{3}$/.test(cn);
+    }).sort() : [];
+    if (!names.length) result.errors.push('雲端還沒有班級');
+    var reads = {};
+    names.forEach(function (cn) {
+      try {
+        var sheet = readClassroomCourseApi_(cn);
+        var codes = sheet.classCodes || [];
+        if (codes.length && codes.indexOf(cn) < 0) {
+          result.errors.push(cn + '：Classroom 課程裡是 ' + codes.join('、') + ' 班的學生，已略過');
+          return;
+        }
+        reads[cn] = (sheet.columns || []).map(function (col) {
+          var scores = {};
+          Object.keys(col.scores || {}).forEach(function (code) {
+            var m = code.match(/^(\d{3})-(\d+)$/);
+            if (m && m[1] === cn) scores[m[2]] = col.scores[code];
+          });
+          return { title: col.title, dueDate: col.dueDate, max: col.max, scores: scores };
+        });
+      } catch (err) {
+        result.errors.push(cn + '：' + String(err && err.message ? err.message : err).replace(/^CLASSROOM_[A-Z_]+：/, ''));
+      }
+    });
+    if (Object.keys(reads).length) {
+      withLock_(function () {
+        var ss = getSs_();
+        var sheet = ensureCloudSheet_(ss);
+        var json = readCloudChunks_(sheet);
+        if (!json) return;
+        var store = JSON.parse(json);
+        var stamp = new Date().toISOString();
+        var changed = false;
+        Object.keys(reads).forEach(function (cn) {
+          var rep = applyHandoutColumns_(store, cn, reads[cn], stamp);
+          if (rep.changed) changed = true;
+          result.classes.push({
+            className: cn,
+            created: rep.created,
+            updated: rep.updated,
+            blank: rep.blank.length,
+            skipped: rep.skipped
+          });
+        });
+        if (changed) {
+          store.updatedAt = stamp;
+          writeCloudChunks_(sheet, JSON.stringify(store), store.updatedAt);
+          noteStoreUpdated_(store.updatedAt);
+          scheduleReadableSync_(ss, store);
+        }
+      });
+    }
+  } catch (err) {
+    result.errors.push(String(err && err.message ? err.message : err));
+  }
+  result.errors = result.errors.slice(0, 10);
+  try {
+    PropertiesService.getScriptProperties().setProperty(HANDOUT_AUTO_LAST_KEY_, JSON.stringify(result).slice(0, 8000));
+  } catch (ignore) {}
+  return result;
 }
 
 /**
@@ -1747,8 +1968,16 @@ function mergeCloudGradeColumns_(localList, remoteList, fillEmptyScores) {
       byId[id] = local.length - 1;
       return;
     }
-    if (!fillEmptyScores) return;
     var cur = local[byId[id]];
+    // Classroom 自動更新過的作業欄：雲端那份比較新時，以雲端的繳交紀錄為準（舊分頁存檔不蓋回去）
+    if (remoteCol.classroomAt && String(remoteCol.classroomAt) > String(cur.classroomAt || '')) {
+      cur.records = JSON.parse(JSON.stringify(remoteCol.records || {}));
+      cur.classroomAt = remoteCol.classroomAt;
+      if (remoteCol.dueDate) cur.dueDate = remoteCol.dueDate;
+      if (remoteCol.max) cur.max = remoteCol.max;
+      return;
+    }
+    if (!fillEmptyScores) return;
     if (remoteCol.scores) cur.scores = mergeCloudScoreMap_(cur.scores, remoteCol.scores);
     if (remoteCol.records) {
       cur.records = cur.records || {};

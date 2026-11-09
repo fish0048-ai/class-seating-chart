@@ -2764,6 +2764,16 @@
     border-color: #cfe0ea;
   }
 
+  .handout-auto {
+    margin: 8px 0 12px;
+    padding: 10px 12px;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    background: #fbf8f2;
+  }
+
+  .handout-auto .hint { margin: 4px 0; }
+
   .paper-summary:empty { display: none; }
 
   .paper-summary {

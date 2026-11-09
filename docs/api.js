@@ -278,6 +278,7 @@
         dueDate: col.dueDate,
         max: col.max,
         excluded: !!col.excluded,
+        classroomAt: col.classroomAt || undefined,
         scores: Object.assign({}, col.scores || {}),
         records: col.records ? JSON.parse(JSON.stringify(col.records)) : undefined
       };
@@ -292,8 +293,15 @@
         byId[id] = local.length - 1;
         return;
       }
-      if (!fillEmptyScores) return;
       var cur = local[byId[id]];
+      if (remoteCol.classroomAt && String(remoteCol.classroomAt) > String(cur.classroomAt || '')) {
+        cur.records = JSON.parse(JSON.stringify(remoteCol.records || {}));
+        cur.classroomAt = remoteCol.classroomAt;
+        if (remoteCol.dueDate) cur.dueDate = remoteCol.dueDate;
+        if (remoteCol.max) cur.max = remoteCol.max;
+        return;
+      }
+      if (!fillEmptyScores) return;
       if (remoteCol.scores) {
         cur.scores = mergeScoreMapPreserve_(cur.scores, remoteCol.scores);
       }
@@ -645,7 +653,7 @@
         }
         records[String(seatNo)] = item;
       });
-      return {
+      var col = {
         id: String(raw.id || ('h' + Date.now())),
         title: String(raw.title || '').trim() || '作業',
         date: String(raw.date || todayKey_()),
@@ -654,6 +662,9 @@
         excluded: !!raw.excluded,
         records: records
       };
+      // Classroom 更新時間：雲端合併時較新的那份繳交紀錄為準（Code.gs mergeCloudGradeColumns_）
+      if (raw.classroomAt) col.classroomAt = String(raw.classroomAt);
+      return col;
     });
   }
 
@@ -2741,6 +2752,19 @@
       if (!cloudOn()) return Promise.reject(new Error('尚未連上雲端，無法建立 Classroom 作業'));
       return CloudStore.classroomWork('createClassroomWork', body);
     },
+    /** 學習講義自動更新（工作天早上 7 點）：查狀態、開關、現在試跑一次。 */
+    getHandoutAuto: function () {
+      if (!cloudOn()) return Promise.reject(new Error('尚未連上雲端'));
+      return CloudStore.classroomWork('getHandoutAuto', {});
+    },
+    setHandoutAuto: function (on) {
+      if (!cloudOn()) return Promise.reject(new Error('尚未連上雲端'));
+      return CloudStore.classroomWork('setHandoutAuto', { on: !!on });
+    },
+    runHandoutAuto: function () {
+      if (!cloudOn()) return Promise.reject(new Error('尚未連上雲端'));
+      return CloudStore.classroomWork('runHandoutAuto', {});
+    },
     startHandoutCheck: function (body) {
       if (!cloudOn()) return Promise.reject(new Error('尚未連上雲端，無法使用 AI 檢查'));
       return CloudStore.handoutCheck('startHandoutCheck', body);
@@ -2833,6 +2857,7 @@
           }
           if (!body.dryRun) hit.records[seat] = rec;
         });
+        if (!body.dryRun) hit.classroomAt = nowIso();
       });
       if (body.dryRun) return wrap(report);
       book.homeworks = normalizeHomeworkColumns_(book.homeworks);
@@ -2933,9 +2958,11 @@
         return wrap({ ok: true, title: title, classCount: removed, scoreCount: scoreCount });
       }
       var at = nowIso();
+      // 作業欄記下標題（時間｜標題），Classroom 自動更新才不會把刪掉的講義再建回來
+      var mark = type === 'homework' && title ? at + '｜' + title.slice(0, 80) : at;
       targets.forEach(function (cn) {
         var book = ensureGrades_(store, cn);
-        book.removedCols[id] = at;
+        book.removedCols[id] = mark;
         applyRemovedCols_(book);
       });
       saveStore(store);
