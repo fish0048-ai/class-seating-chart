@@ -914,6 +914,12 @@
             <div class="cloud-box classroom-sources">
               <h3>Classroom 學習講義</h3>
               <p class="hint">在「成績 → 學期成績」按「匯入成績 → 從 Classroom 更新學習講義」，會直接讀 Classroom 裡課程名稱含班級（例如 801）的最新學習講義成績（只讀，其他科略過），寫進作業欄。後端還沒開啟 Classroom 讀取時，改讀下面貼的成績表網址（Classroom「複製到 Google 試算表」的快照，可不填）。</p>
+              <div class="handout-auto">
+                <label class="check"><input type="checkbox" id="handoutAutoOn" /> 每個工作天（週一～五）早上 7 點自動從 Classroom 更新學習講義</label>
+                <p class="hint">由 Apps Script 在雲端執行，網站不用開著。規則和手動更新一樣；整欄還沒分數的講義、網站上刪掉的講義、45 天前到期的舊講義不會自動新增。</p>
+                <p id="handoutAutoStatus" class="hint" aria-live="polite"></p>
+                <button type="button" class="tool" id="btnHandoutAutoRun">現在試跑一次</button>
+              </div>
               <div id="classroomSourceList" class="classroom-source-list"></div>
               <div class="modal-actions">
                 <button type="button" class="tool primary" id="btnClassroomSourcesSave">儲存網址</button>
