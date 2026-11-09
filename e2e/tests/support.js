@@ -103,6 +103,7 @@ function cloudPayload(action, store, body) {
 async function installCloud(page, options) {
   const mode = (options && options.mode) || 'ok';
   let store = freshStore();
+  if (options && typeof options.mutate === 'function') options.mutate(store);
   page.on('dialog', function (dialog) { return dialog.accept(); });
   await blockOutside(page);
   await page.route('https://script.google.com/**', async function (route) {
@@ -199,6 +200,7 @@ async function expectTappable(locator) {
 
 module.exports = {
   TEACHER_EMAIL: TEACHER_EMAIL,
+  taipeiDate: taipeiDate,
   trackHealth: trackHealth,
   expectHealthy: expectHealthy,
   blockOutside: blockOutside,

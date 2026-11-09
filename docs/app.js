@@ -689,6 +689,17 @@
       if (student) changeScore(student, -App.delta);
     });
   }
+  var hwRemindModal = document.getElementById('hwRemindModal');
+  if (hwRemindModal) {
+    hwRemindModal.addEventListener('keydown', function (event) {
+      if (event.key === 'Escape') closeHwRemind();
+    });
+    hwRemindModal.addEventListener('click', function (event) {
+      if (event.target === hwRemindModal) closeHwRemind();
+    });
+    var hwRemindOk = document.getElementById('btnHwRemindOk');
+    if (hwRemindOk) hwRemindOk.addEventListener('click', closeHwRemind);
+  }
   var conductModal = document.getElementById('conductModal');
   if (conductModal) {
     conductModal.addEventListener('keydown', function (event) {
@@ -1596,6 +1607,7 @@
       if (!settle()) return;
       applyPayload(data, true);
       fillCloudSettings();
+      remindHwMissingOnEnter();
       var merged = typeof SeatDB !== 'undefined' && SeatDB.takeHoldMerged ? SeatDB.takeHoldMerged() : 0;
       if (merged) {
         toast('雲端已有別台的新資料，已把這台還沒同步的 ' + merged + ' 筆加扣分合併進去。確認後請按「立即同步」', 9000);
@@ -1874,6 +1886,7 @@
       App.drawn[className] = App.drawn[className] || [];
       applyPayload(data, true);
       refreshClassStats();
+      remindHwMissingOnEnter();
     });
   }
 
@@ -3831,6 +3844,62 @@
     el.innerHTML = '<strong>' + title + '</strong>' + items.map(function (item) {
       return hwMissingLineHtml_(item, severe);
     }).join('');
+  }
+
+  /** 進到班級（剛打開網站、切換班級）時跳出本班缺交名單；同一頁面每班只提醒一次。 */
+  function remindHwMissingOnEnter() {
+    if (!App.classroom || App.appView === 'teacher') return;
+    var cn = App.classroom.className;
+    App.hwReminded = App.hwReminded || {};
+    if (App.hwReminded[cn]) return;
+    var modal = document.getElementById('hwRemindModal');
+    if (!modal) return;
+    var nameOf = {};
+    (App.classroom.students || []).forEach(function (s) {
+      nameOf[normalizeDisplaySeat_(s.seatNo)] = s.name || '';
+    });
+    var bySeat = {};
+    completeHwMissingItems(cn).forEach(function (item) {
+      var days = hwMissingDaysLate_(item);
+      (item.seats || []).forEach(function (seat) {
+        var s = normalizeDisplaySeat_(seat);
+        (bySeat[s] = bySeat[s] || []).push({ title: item.title || '作業', days: days });
+      });
+    });
+    var people = Object.keys(bySeat).map(function (s) {
+      var list = bySeat[s].sort(function (a, b) { return b.days - a.days; });
+      return { seatNo: s, name: nameOf[s] || '', list: list, severe: isHwMissingSevere_(list[0].days) };
+    }).sort(function (a, b) {
+      return (b.severe ? 1 : 0) - (a.severe ? 1 : 0) || b.list.length - a.list.length || seatOrder(a, b);
+    });
+    App.hwReminded[cn] = true;
+    if (!people.length) return;
+    var severeN = people.filter(function (p) { return p.severe; }).length;
+    document.getElementById('hwRemindTitle').textContent = cn + ' 有 ' + people.length + ' 位同學缺交作業' +
+      (severeN ? '（其中 ' + severeN + ' 位嚴重缺交）' : '');
+    var row = function (p) {
+      return '<li class="hw-remind-row' + (p.severe ? ' hw-remind-severe' : '') + '">' +
+        '<b>' + escapeHtml(p.seatNo + ' ' + p.name) + '</b>' +
+        '<span>' + p.list.map(function (it) {
+          return '<span class="hw-remind-item' + (isHwMissingSevere_(it.days) ? ' is-severe' : '') + '">' +
+            escapeHtml(it.title) + '（缺 ' + it.days + ' 天）</span>';
+        }).join('') + '</span></li>';
+    };
+    var severe = people.filter(function (p) { return p.severe; });
+    var normal = people.filter(function (p) { return !p.severe; });
+    document.getElementById('hwRemindBody').innerHTML =
+      (severe.length ? '<h3 class="hw-remind-head is-severe">' + escapeHtml(hwMissingSevereTitle_()) + '</h3><ul class="hw-remind-list">' +
+        severe.map(row).join('') + '</ul>' : '') +
+      (normal.length ? '<h3 class="hw-remind-head">' + (severe.length ? '其他缺交' : '缺交作業') + '</h3><ul class="hw-remind-list">' +
+        normal.map(row).join('') + '</ul>' : '');
+    modal.hidden = false;
+    var ok = document.getElementById('btnHwRemindOk');
+    if (ok) ok.focus();
+  }
+
+  function closeHwRemind() {
+    var modal = document.getElementById('hwRemindModal');
+    if (modal) modal.hidden = true;
   }
 
   function renderHwMissingBanner() {
