@@ -99,24 +99,30 @@ test('沒有過期未繳時不跳提醒（還沒到期、暫不計、都已繳�
 test('按 Esc 可關閉；同一班切走再切回來不會重複提醒，切到別班會提醒那一班', async function ({ page }) {
   const health = support.trackHealth(page);
   const remind = new HwRemindPage(page);
+  // 班名「測試班」排在「測試班二」前面，打開網站時先進「測試班」；過了期限沒紀錄也算未繳，所以每人都給紀錄
   await remind.open(function (store) {
-    addClass(store, '測試二班', [
+    addClass(store, '測試班二', [
       { seatNo: '01', name: '二班甲', score: 0, row: 0, col: 0, note: '' },
       { seatNo: '02', name: '二班乙', score: 0, row: 0, col: 1, note: '' }
     ]);
-    store.grades['測試班'] = { homeworks: [homework('a1', '講義 A', daysAgo(6), { '02': { status: 'missing' } })] };
-    store.grades['測試二班'] = { homeworks: [homework('b1', '講義 B', daysAgo(6), { '01': { status: 'missing' } })] };
+    store.grades['測試班'] = { homeworks: [homework('a1', '講義 A', daysAgo(6), {
+      '01': { status: 'submitted', score: 90 }, '02': { status: 'missing' } })] };
+    store.grades['測試班二'] = { homeworks: [homework('b1', '講義 B', daysAgo(6), {
+      '01': { status: 'missing' }, '02': { status: 'submitted', score: 85 } })] };
   });
 
   await expect(remind.dialog).toBeVisible();
+  await expect(remind.dialog).toContainText('測試班 有 1 位同學缺交作業');
   await expect(remind.dialog).toContainText('02 測生乙');
+  await expect(remind.dialog).not.toContainText('測生甲');
   await page.keyboard.press('Escape');
   await expect(remind.dialog).toBeHidden();
 
-  await remind.switchClass('測試二班');
+  await remind.switchClass('測試班二');
   await expect(remind.dialog).toBeVisible();
-  await expect(remind.dialog).toContainText('測試二班 有 1 位同學缺交作業');
+  await expect(remind.dialog).toContainText('測試班二 有 1 位同學缺交作業');
   await expect(remind.dialog).toContainText('01 二班甲');
+  await expect(remind.dialog).not.toContainText('二班乙');
   await remind.okButton.click();
   await expect(remind.dialog).toBeHidden();
 
