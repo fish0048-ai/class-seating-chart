@@ -12229,7 +12229,7 @@
   /** AI 看到的問題（未通過另扣 AI_CHECK_ERROR_PENALTY）。 */
   function aiCheckIssues(s) {
     if (s.status === '待檢查') return 'AI 檢查中';
-    if (s.status === '沒有檔案') return '沒有上傳照片';
+    if (s.status === '沒有檔案') return '有按繳交，沒有上傳照片（先算有交）';
     if (s.status === '讀取失敗') return '照片讀不到';
     if (s.status === '需確認') return 'AI 沒把握，請看照片' + (s.note ? '：' + s.note : '');
     if (s.status === '未通過') return s.note || '有題目沒寫完或錯題沒寫原因';
@@ -12256,13 +12256,12 @@
   }
 
   /**
-   * 有按繳交就依繳交日給分（AI 的發現只當備註）；沒繳、沒按繳交、扣到 0 分的放提醒清單。
-   * 沒上傳照片的：老師填了紙本繳交日就依那天給分；有按繳交但沒照片、也沒填日期的放「待確認」，不自動給分。
+   * 有按繳交就算有交、依繳交日給分（沒上傳照片也一樣，AI 的發現只當備註）；
+   * 完全沒按繳交、有照片沒按繳交、扣到 0 分的放提醒清單。老師填了紙本繳交日就依那天給分。
    */
   function aiCheckSummary(data) {
     var passes = [];
     var reminders = [];
-    var confirm = [];
     var pending = [];
     var skipped = [];
     ((data && data.students) || []).forEach(function (s) {
@@ -12288,11 +12287,6 @@
         skipped.push(row);
         return;
       }
-      if (s.status === '沒有檔案' && !paper) {
-        row.why = '有按「繳交」但沒上傳照片：請看 Classroom 留言，有交紙本就填紙本繳交日才給分';
-        confirm.push(row);
-        return;
-      }
       if (row.turnedKey && row.score > 0) {
         passes.push(row);
         return;
@@ -12301,10 +12295,10 @@
       else if (s.status === '未按繳交') row.why = '有上傳照片但沒有按「繳交」';
       else row.why = Number(String(s.classroomGrade || '').replace(/^草稿\s*/, '')) > 0
         ? '沒有在 Classroom 繳交，但 Classroom 有分數（可能交紙本）'
-        : '沒有繳交' + (noFile ? '（留言說交紙本的，填紙本繳交日）' : '');
+        : '完全沒有按繳交' + (noFile ? '（留言說交紙本的，填紙本繳交日）' : '');
       reminders.push(row);
     });
-    return { passes: passes, reminders: reminders, confirm: confirm, pending: pending, skipped: skipped };
+    return { passes: passes, reminders: reminders, pending: pending, skipped: skipped };
   }
 
   function saveAiPaper(input) {
@@ -12388,10 +12382,8 @@
       if (r.status === '未按繳交') return head + '有上傳照片，但 Classroom 還沒有按「繳交」，請按繳交。';
       return head + '還沒有繳交，請盡快寫完拍照上傳並按「繳交」。';
     }
-    if (r.status === '沒有檔案' && !r.paper) {
-      return head + '沒有上傳照片。若是交紙本，請在留言寫交紙本的日期；不是的話請把寫好的講義拍照上傳。';
-    }
     var bits = [];
+    if (r.status === '沒有檔案' && !r.paper) bits.push('有按繳交但沒有上傳照片，這次先算有交，請記得把寫好的講義拍照上傳');
     if (r.status === '未通過') {
       if (/^否/.test(r.allAnswered || '')) bits.push('還有題目沒寫完' + (r.allAnswered.replace(/^否：?/, '') ? '（' + r.allAnswered.replace(/^否：?/, '') + '）' : ''));
       if (/缺原因/.test(r.reasons || '')) bits.push('錯題要寫錯誤原因' + (r.reasons.replace(/^缺原因：?/, '') ? '（' + r.reasons.replace(/^缺原因：?/, '') + '）' : ''));
@@ -12478,19 +12470,12 @@
     var status = sum.pending.length
       ? '還有 ' + sum.pending.length + ' 位等 AI 檢查（每分鐘約 5～8 位），這個視窗會自動更新；也可以先關掉，之後再開來看。'
       : '全部檢查完：有繳交 ' + sum.passes.length + ' 位已算好分數，提醒 ' + sum.reminders.length + ' 位' +
-        (sum.confirm.length ? '，沒上傳照片待確認 ' + sum.confirm.length + ' 位' : '') +
         (sum.skipped.length ? '，Classroom 已有分數略過 ' + sum.skipped.length + ' 位' : '') + '。';
     if (data.lastError) status += '　' + data.lastError;
     setAiCheckStatus(status);
     var head = '<tr><th>座號</th><th>說明</th><th>繳交日</th>';
     var tail = '<th>Classroom 分數</th><th>照片</th></tr>';
     var html = aiEntryListHtml(sum);
-    if (sum.confirm.length) {
-      html += '<h3 class="subhead ai-check-warn">待確認：有按繳交但沒上傳照片（' + sum.confirm.length + '）</h3>' +
-        '<p class="hint">請到 Classroom 看這幾位的私人留言：有說交紙本，就在「紙本繳交日」填留言寫的日期（只寫「已繳交」就填留言那天），網站會依這天給分；不填就不給分。</p>' +
-        '<div class="table-scroll"><table class="assess-table"><thead>' + head + tail + '</thead><tbody>' +
-        sum.confirm.map(function (r) { return aiCheckRowHtml(r, false); }).join('') + '</tbody></table></div>';
-    }
     if (sum.reminders.length) {
       html += '<h3 class="subhead ai-check-warn">提醒清單（' + sum.reminders.length + '）</h3>' +
         '<div class="table-scroll"><table class="assess-table"><thead>' + head + tail + '</thead><tbody>' +
@@ -12534,7 +12519,7 @@
     var waiting = sum.passes.length - ready.length;
     if (!window.confirm('把 ' + ready.length + ' 位有繳交的分數寫進網站「' + st.title + '」？\n' +
       (waiting ? '還在等 AI 檢查的 ' + waiting + ' 位先不寫，檢查完再按一次。\n' : '') +
-      '會覆蓋這些人在網站上的分數；提醒清單、待確認的人不會動。Classroom 不會被改，請自己在 Classroom 輸入。')) return;
+      '會覆蓋這些人在網站上的分數；提醒清單的人不會動。Classroom 不會被改，請自己在 Classroom 輸入。')) return;
     var btn = document.getElementById('btnAiCheckApply');
     if (btn) {
       btn.disabled = true;
