@@ -919,6 +919,10 @@
                 <p class="hint">由 Apps Script 在雲端執行，網站不用開著。規則和手動更新一樣；整欄還沒分數的講義、網站上刪掉的講義、45 天前到期的舊講義不會自動新增。</p>
                 <p id="handoutAutoStatus" class="hint" aria-live="polite"></p>
                 <button type="button" class="tool" id="btnHandoutAutoRun">現在試跑一次</button>
+                <label class="check handout-ai-label"><input type="checkbox" id="handoutAiOn" /> 每個工作天早上 7 點自動 AI 檢查學習講義</label>
+                <p class="hint">排各班最近 30 天內到期（或還沒到期）的學習講義，只送「有按繳交、還沒打分數、有上傳照片」的新繳交；檢查過、照片沒換的沿用結果。每分鐘檢查幾位（配合免費額度），打開「AI 檢查作業」就能看結果、寫分數。</p>
+                <p id="handoutAiStatus" class="hint" aria-live="polite"></p>
+                <button type="button" class="tool" id="btnHandoutAiRun">現在檢查一次</button>
               </div>
               <div id="classroomSourceList" class="classroom-source-list"></div>
               <div class="modal-actions">

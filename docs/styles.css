@@ -2774,6 +2774,13 @@
 
   .handout-auto .hint { margin: 4px 0; }
 
+  .handout-auto .handout-ai-label {
+    display: block;
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--line);
+  }
+
   .paper-summary:empty { display: none; }
 
   .paper-summary {

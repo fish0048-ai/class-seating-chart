@@ -837,6 +837,19 @@
       requireTeacher(runHandoutAutoNow);
     });
   }
+  var handoutAiOn = document.getElementById('handoutAiOn');
+  if (handoutAiOn) {
+    handoutAiOn.addEventListener('change', function () {
+      var on = handoutAiOn.checked;
+      requireTeacher(function () { setAiAuto(on); });
+    });
+  }
+  var handoutAiRun = document.getElementById('btnHandoutAiRun');
+  if (handoutAiRun) {
+    handoutAiRun.addEventListener('click', function () {
+      requireTeacher(runAiAutoNow);
+    });
+  }
   document.addEventListener('click', function (event) {
     document.querySelectorAll('details.tool-menu[open]').forEach(function (menu) {
       if (!menu.contains(event.target) || event.target.closest('.tool-menu-item')) menu.open = false;
@@ -11681,6 +11694,53 @@
       if (last.errors && last.errors.length) bits.push('問題：' + last.errors.join('；'));
     }
     line.textContent = bits.join(' ');
+    paintAiAuto(status);
+  }
+
+  /** 設定頁：自動 AI 檢查的開關與上次排了哪些講義。 */
+  function paintAiAuto(status) {
+    var box = document.getElementById('handoutAiOn');
+    var line = document.getElementById('handoutAiStatus');
+    if (box) box.checked = !!(status && status.aiOn);
+    if (!line) return;
+    var bits = [status && status.aiOn ? '已開啟：每個工作天約 7:00 更新完講義後排 AI 檢查。' : '目前沒有開啟自動 AI 檢查。'];
+    if (status && status.aiQueued) bits.push('已排入，約 1～2 分鐘內開始讀 Classroom。');
+    var last = status && status.aiLast;
+    if (last && last.at) {
+      var items = (last.items || []).filter(function (it) { return it.toCheck || it.reused; });
+      var newTotal = (last.items || []).reduce(function (s, it) { return s + (it.toCheck || 0); }, 0);
+      bits.push('上次' + (last.source === 'manual' ? '手動' : '自動') + '排入：' + formatHistoryTime(last.at) + '，新送 AI ' + newTotal + ' 位' +
+        (items.length ? '（' + items.map(function (it) {
+          return it.className + '「' + it.title + '」' + (it.toCheck ? '新 ' + it.toCheck : '') + (it.reused ? (it.toCheck ? '、' : '') + '沿用 ' + it.reused : '');
+        }).join('；') + '）' : '') + '。');
+      if (last.errors && last.errors.length) bits.push('問題：' + last.errors.join('；'));
+    }
+    line.textContent = bits.join(' ');
+  }
+
+  function setAiAuto(on) {
+    var line = document.getElementById('handoutAiStatus');
+    if (line) line.textContent = on ? '正在開啟…' : '正在關閉…';
+    api('setAiAuto', [on]).then(function (status) {
+      paintHandoutAuto(status);
+      toast(status.aiOn ? '已開啟：每個工作天早上 7 點自動 AI 檢查學習講義' : '已關閉自動 AI 檢查');
+    }).catch(function (err) {
+      toast(handoutAutoErrorText(err).replace(/^AI_[A-Z_]+：/, ''), 9000);
+      loadHandoutAuto();
+    });
+  }
+
+  function runAiAutoNow() {
+    var btn = document.getElementById('btnHandoutAiRun');
+    if (btn) btn.disabled = true;
+    api('runAiAuto', []).then(function (status) {
+      paintHandoutAuto(status);
+      toast('已排入 AI 檢查：約 1～2 分鐘後開始，之後每分鐘檢查幾位。稍後打開「AI 檢查作業」看結果', 8000);
+    }).catch(function (err) {
+      toast(handoutAutoErrorText(err).replace(/^AI_[A-Z_]+：/, ''), 9000);
+    }).then(function () {
+      if (btn) btn.disabled = false;
+    });
   }
 
   function loadHandoutAuto() {
