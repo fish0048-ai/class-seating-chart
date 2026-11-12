@@ -650,6 +650,8 @@
             item.score = Number(rec.score);
           }
           if (rec.submittedAt) item.submittedAt = String(rec.submittedAt);
+          // 學生交紙本、老師依 Classroom 留言填的日期（submittedAt）；Classroom 更新不會把它改回未繳
+          if (rec.paper) item.paper = true;
         }
         records[String(seatNo)] = item;
       });
@@ -2752,6 +2754,45 @@
       if (!cloudOn()) return Promise.reject(new Error('尚未連上雲端，無法建立 Classroom 作業'));
       return CloudStore.classroomWork('createClassroomWork', body);
     },
+    /**
+     * 紙本繳交日（老師看 Classroom 留言後填）：記成已繳交＋繳交日＋紙本；清空日期就改回
+     * Classroom 的狀態（有按繳交＝已繳交未評，沒有＝未繳交）。已有的分數保留。
+     */
+    setHandoutPaper: function (body) {
+      body = body || {};
+      var store = loadStore();
+      var cn = String(body.className || '').trim();
+      var title = String(body.title || '').trim();
+      var date = String(body.date || '').trim();
+      if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('日期格式不對');
+      var room = cn && store.classes && store.classes[cn];
+      if (!room) throw new Error('網站上找不到班級 ' + cn);
+      var book = ensureGrades_(store, cn);
+      var hit = book.homeworks.filter(function (h) { return h && String(h.title || '').trim() === title; })[0];
+      if (!hit) throw new Error('網站上找不到作業「' + title + '」');
+      var aliases = seatAliasKeys_(body.seat);
+      var stu = (room.students || []).filter(function (s) {
+        return seatAliasKeys_(s.seatNo).some(function (k) { return aliases.indexOf(k) >= 0; });
+      })[0];
+      if (!stu) throw new Error('名單沒有 ' + body.seat + ' 號');
+      hit.records = hit.records || {};
+      var key = Object.keys(hit.records).filter(function (k) { return aliases.indexOf(k) >= 0; })[0] || String(stu.seatNo);
+      var prev = hit.records[key] || {};
+      var score = typeof prev.score === 'number' && isFinite(prev.score) ? prev.score : null;
+      var rec;
+      if (date) {
+        rec = { status: 'submitted', submittedAt: date, paper: true };
+      } else {
+        rec = { status: body.turned || score != null ? 'submitted' : 'missing' };
+      }
+      if (score != null && rec.status === 'submitted') rec.score = score;
+      hit.records[key] = rec;
+      // 老師在網站改的：舊分頁存檔時不會被雲端較舊的 Classroom 紀錄蓋掉
+      hit.classroomAt = nowIso();
+      book.homeworks = normalizeHomeworkColumns_(book.homeworks);
+      saveStore(store);
+      return gradebookResult_(cn, book);
+    },
     /** 學習講義自動更新（工作天早上 7 點）：查狀態、開關、現在試跑一次。 */
     getHandoutAuto: function () {
       if (!cloudOn()) return Promise.reject(new Error('尚未連上雲端'));
@@ -2837,20 +2878,30 @@
           }
           var v = col.scores[key];
           var rec;
+          var prev = hit && hit.records && hit.records[seat];
+          var paper = prev && prev.paper && prev.status === 'submitted' ? prev : null;
           if (typeof v === 'number' && isFinite(v)) {
             rec = { status: 'submitted', score: v };
+            if (paper) {
+              rec.paper = true;
+              rec.submittedAt = paper.submittedAt;
+            }
             report.submitted += 1;
           } else if (v === 'submitted') {
             // Classroom 還沒打分數時，保留網站已有的分數（例如 AI 檢查依繳交日期給的分）
-            var prev = hit && hit.records && hit.records[seat];
             if (prev && prev.status === 'submitted' && typeof prev.score === 'number' && isFinite(prev.score)) {
               rec = prev;
               report.submitted += 1;
               report.kept += 1;
             } else {
-              rec = { status: 'submitted' };
+              rec = paper || { status: 'submitted' };
               report.pending += 1;
             }
+          } else if (paper) {
+            // 交紙本（老師填了紙本繳交日）：Classroom 沒繳交紀錄也不算未繳
+            rec = paper;
+            report.submitted += 1;
+            report.kept += 1;
           } else {
             rec = { status: 'missing' };
             report.missing += 1;
