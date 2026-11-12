@@ -753,14 +753,18 @@ function applyHandoutColumns_(store, cn, columns, stamp) {
       var seat = seatOf[String(key)];
       if (!seat) return;
       var v = col.scores[key];
+      var prev = hit.records[seat];
+      // 交紙本（老師依留言填了紙本繳交日）：保留日期，Classroom 沒繳交紀錄也不改回未繳
+      var paper = prev && prev.paper && prev.status === 'submitted' ? prev : null;
       if (typeof v === 'number' && isFinite(v)) {
-        hit.records[seat] = { status: 'submitted', score: v };
+        hit.records[seat] = paper
+          ? { status: 'submitted', score: v, submittedAt: paper.submittedAt, paper: true }
+          : { status: 'submitted', score: v };
       } else if (v === 'submitted') {
-        var prev = hit.records[seat];
-        if (!(prev && prev.status === 'submitted' && typeof prev.score === 'number' && isFinite(prev.score))) {
+        if (!(prev && prev.status === 'submitted' && typeof prev.score === 'number' && isFinite(prev.score)) && !paper) {
           hit.records[seat] = { status: 'submitted' };
         }
-      } else {
+      } else if (!paper) {
         hit.records[seat] = { status: 'missing' };
       }
     });

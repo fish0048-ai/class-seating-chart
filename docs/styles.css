@@ -3707,6 +3707,25 @@
     font-weight: 700;
   }
 
+  .ai-paper {
+    display: grid;
+    gap: 2px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .ai-paper input {
+    min-height: 36px;
+    font-size: 14px;
+  }
+
+  .ai-paper + small,
+  .ai-paper ~ small {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+  }
+
   .ai-entry {
     margin-bottom: 10px;
     padding: 8px 12px;
