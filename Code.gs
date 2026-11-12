@@ -249,6 +249,10 @@ function handleRequest_(req) {
         return setHandoutAutoApi_(req.on === true || req.on === 'true');
       case 'runHandoutAuto':
         return runHandoutAutoApi_();
+      case 'setAiAuto':
+        return setAiAutoApi_(req.on === true || req.on === 'true');
+      case 'runAiAuto':
+        return runAiAutoApi_();
       default:
         return { ok: false, error: '未知的操作：' + action };
     }
@@ -639,28 +643,183 @@ function handoutAutoTriggers_() {
   });
 }
 
-function handoutAutoStatusApi_() {
-  var last = null;
+var HANDOUT_AUTO_UPDATE_KEY_ = 'HANDOUT_AUTO_UPDATE';
+var HANDOUT_AUTO_AI_KEY_ = 'HANDOUT_AUTO_AI';
+var HANDOUT_AI_LAST_KEY_ = 'HANDOUT_AI_LAST';
+var HANDOUT_AI_SOURCE_KEY_ = 'HANDOUT_AI_SOURCE';
+var HANDOUT_AI_FN_ = 'autoQueueHandoutChecks';
+/** 自動 AI 檢查只排最近這幾天內到期（或還沒到期）的學習講義。 */
+var HANDOUT_AI_RECENT_DAYS_ = 30;
+
+function readJsonProp_(key) {
   try {
-    last = JSON.parse(PropertiesService.getScriptProperties().getProperty(HANDOUT_AUTO_LAST_KEY_) || 'null');
-  } catch (ignore) {}
-  return { ok: true, on: handoutAutoTriggers_().length > 0, last: last };
+    return JSON.parse(PropertiesService.getScriptProperties().getProperty(key) || 'null');
+  } catch (ignore) {
+    return null;
+  }
 }
 
-function setHandoutAutoApi_(on) {
+/** 7 點的同一個觸發器做兩件事：更新學習講義、排 AI 檢查（各自開關）。舊版只有觸發器沒有旗標時當作開了更新。 */
+function handoutAutoFlags_() {
+  var props = PropertiesService.getScriptProperties();
+  var u = props.getProperty(HANDOUT_AUTO_UPDATE_KEY_);
+  return {
+    update: u === '1' || (u == null && handoutAutoTriggers_().length > 0),
+    ai: props.getProperty(HANDOUT_AUTO_AI_KEY_) === '1'
+  };
+}
+
+function syncHandoutAutoTrigger_(flags) {
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty(HANDOUT_AUTO_UPDATE_KEY_, flags.update ? '1' : '0');
+  props.setProperty(HANDOUT_AUTO_AI_KEY_, flags.ai ? '1' : '0');
   handoutAutoTriggers_().forEach(function (t) { ScriptApp.deleteTrigger(t); });
-  if (on) {
+  if (flags.update || flags.ai) {
     ScriptApp.newTrigger(HANDOUT_AUTO_FN_).timeBased().atHour(7).nearMinute(0).everyDays(1)
       .inTimezone('Asia/Taipei').create();
   }
+}
+
+function handoutAutoStatusApi_() {
+  var flags = handoutAutoFlags_();
+  return {
+    ok: true,
+    on: flags.update,
+    aiOn: flags.ai,
+    last: readJsonProp_(HANDOUT_AUTO_LAST_KEY_),
+    aiLast: readJsonProp_(HANDOUT_AI_LAST_KEY_),
+    aiQueued: ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === HANDOUT_AI_FN_; })
+  };
+}
+
+function setHandoutAutoApi_(on) {
+  var flags = handoutAutoFlags_();
+  flags.update = !!on;
+  syncHandoutAutoTrigger_(flags);
   return handoutAutoStatusApi_();
 }
 
-/** 觸發器每天呼叫；週末不跑。 */
+function setAiAutoApi_(on) {
+  if (on && !PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY')) {
+    throw new Error('AI_NO_KEY：還沒設定 Gemini 金鑰。請到 Apps Script「專案設定 → 指令碼屬性」新增 GEMINI_API_KEY');
+  }
+  var flags = handoutAutoFlags_();
+  flags.ai = !!on;
+  syncHandoutAutoTrigger_(flags);
+  return handoutAutoStatusApi_();
+}
+
+/** 觸發器每天呼叫；週末不跑。先更新學習講義，AI 檢查另開一個 1 分鐘後的觸發器跑（各有 6 分鐘上限）。 */
 function autoUpdateHandouts() {
   var weekday = Number(Utilities.formatDate(new Date(), 'Asia/Taipei', 'u'));
   if (weekday > 5) return;
-  runHandoutAuto_('auto');
+  var flags = handoutAutoFlags_();
+  if (flags.update) runHandoutAuto_('auto');
+  if (flags.ai) scheduleAiQueue_('auto', flags.update ? 60 * 1000 : 1000);
+}
+
+function scheduleAiQueue_(source, ms) {
+  PropertiesService.getScriptProperties().setProperty(HANDOUT_AI_SOURCE_KEY_, source);
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === HANDOUT_AI_FN_) ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger(HANDOUT_AI_FN_).timeBased().after(ms).create();
+}
+
+/** 一次性觸發器：把各班最近的學習講義排進 AI 檢查。 */
+function autoQueueHandoutChecks() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === HANDOUT_AI_FN_) ScriptApp.deleteTrigger(t);
+  });
+  runAiQueue_(PropertiesService.getScriptProperties().getProperty(HANDOUT_AI_SOURCE_KEY_) || 'auto');
+}
+
+/** 網站「現在檢查一次」：讀 Classroom 要幾分鐘，排一個馬上跑的觸發器就回來。 */
+function runAiAutoApi_() {
+  if (!PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY')) {
+    throw new Error('AI_NO_KEY：還沒設定 Gemini 金鑰。請到 Apps Script「專案設定 → 指令碼屬性」新增 GEMINI_API_KEY');
+  }
+  scheduleAiQueue_('manual', 1000);
+  return handoutAutoStatusApi_();
+}
+
+/** 這班 Classroom 裡最近（到期日在 HANDOUT_AI_RECENT_DAYS_ 天內或還沒到期；沒期限看建立日）的學習講義標題。 */
+function classroomRecentHandouts_(cn) {
+  if (typeof Classroom === 'undefined') throw new Error('CLASSROOM_SERVICE_OFF：Apps Script 還沒加入 Google Classroom API 服務');
+  var oldest = taipeiTime_(new Date(Date.now() - HANDOUT_AI_RECENT_DAYS_ * 86400000), 'yyyy-MM-dd');
+  var dueOf = {};
+  classroomListAll_(function (token) {
+    return Classroom.Courses.list({ teacherId: 'me', courseStates: ['ACTIVE'], pageSize: 100, pageToken: token || undefined });
+  }, 'courses').filter(function (c) {
+    return (String(c.name || '') + ' ' + String(c.section || '')).indexOf(cn) >= 0;
+  }).forEach(function (course) {
+    classroomListAll_(function (token) {
+      return Classroom.Courses.CourseWork.list(course.id, { courseWorkStates: ['PUBLISHED'], pageSize: 100, pageToken: token || undefined });
+    }, 'courseWork').forEach(function (cw) {
+      var title = String(cw.title || '').replace(/\s+/g, ' ').trim();
+      if (!/學習講義/.test(title) || HANDOUT_OTHER_SUBJECTS_.test(title)) return;
+      var due = classroomDueKey_(cw);
+      var recent = due ? due >= oldest : String(cw.creationTime || '').slice(0, 10) >= oldest;
+      if (recent) dueOf[title] = due || '9999';
+    });
+  });
+  return Object.keys(dueOf).sort(function (a, b) { return dueOf[a].localeCompare(dueOf[b]); });
+}
+
+/** 各班最近的學習講義都排進 AI 檢查（只送新繳交、沒分數、有照片的；檢查過且照片沒換的沿用）。 */
+function runAiQueue_(source) {
+  var started = Date.now();
+  var result = { at: new Date().toISOString(), source: source, items: [], errors: [] };
+  var props = PropertiesService.getScriptProperties();
+  // 排隊時會刪除、新增「AI作業檢查」的列；每分鐘的檢查器用列號寫回結果，所以先等它停、並擋住它
+  for (var w = 0; w < 6; w++) {
+    var runningAt = Number(props.getProperty(AI_CHECK_RUNNING_KEY_) || 0);
+    if (!runningAt || Date.now() - runningAt > 6 * 60 * 1000) break;
+    Utilities.sleep(15000);
+  }
+  props.setProperty(AI_CHECK_RUNNING_KEY_, String(Date.now()));
+  try {
+    if (!PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY')) throw new Error('還沒設定 Gemini 金鑰');
+    var loaded = getCloudStore();
+    var names = loaded.store ? Object.keys(loaded.store.classes || {}).filter(function (cn) {
+      return /^\d{3}$/.test(cn);
+    }).sort() : [];
+    var outOfTime = false;
+    names.forEach(function (cn) {
+      if (outOfTime) return;
+      var titles = [];
+      try {
+        titles = classroomRecentHandouts_(cn);
+      } catch (err) {
+        result.errors.push(cn + '：' + String(err && err.message ? err.message : err).replace(/^CLASSROOM_[A-Z_]+：/, ''));
+        return;
+      }
+      titles.forEach(function (title) {
+        if (outOfTime) return;
+        if (Date.now() - started > 4.5 * 60 * 1000) {
+          outOfTime = true;
+          result.errors.push('讀 Classroom 時間不夠，' + cn + ' 從「' + title + '」以後的講義下次再排');
+          return;
+        }
+        try {
+          var q = queueHandoutCheck_(cn, title, false);
+          result.items.push({ className: cn, title: q.title, toCheck: q.toCheck, reused: q.reused });
+        } catch (err) {
+          result.errors.push(cn + '「' + title + '」：' + String(err && err.message ? err.message : err).replace(/^CLASSROOM_[A-Z_]+：/, ''));
+        }
+      });
+    });
+    if (result.items.some(function (it) { return it.toCheck > 0; })) ensureAiCheckTrigger_();
+  } catch (err) {
+    result.errors.push(String(err && err.message ? err.message : err));
+  } finally {
+    props.deleteProperty(AI_CHECK_RUNNING_KEY_);
+  }
+  result.errors = result.errors.slice(0, 10);
+  try {
+    PropertiesService.getScriptProperties().setProperty(HANDOUT_AI_LAST_KEY_, JSON.stringify(result).slice(0, 8000));
+  } catch (ignore) {}
+  return result;
 }
 
 /** 網站「現在試跑一次」。 */
@@ -1197,6 +1356,32 @@ function startHandoutCheckApi_(className, title, recheck) {
   if (!PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY')) {
     throw new Error('AI_NO_KEY：還沒設定 Gemini 金鑰。請到 Apps Script「專案設定 → 指令碼屬性」新增 GEMINI_API_KEY');
   }
+  var q = queueHandoutCheck_(className, title, recheck);
+  var props = PropertiesService.getScriptProperties();
+  props.setProperty(AI_CHECK_JOB_KEY_, JSON.stringify({ className: q.className, title: q.title, startedAt: taipeiTime_(new Date()), lastError: '' }));
+  props.deleteProperty(AI_CHECK_RUNNING_KEY_);
+  if (q.toCheck) {
+    ensureAiCheckTrigger_();
+    processHandoutCheck_(10000);
+  }
+  var result = getHandoutCheckApi_(q.className, q.title);
+  result.reused = q.reused;
+  result.newChecks = q.toCheck;
+  return result;
+}
+
+/** 每分鐘的檢查觸發器（重建一個）；沒有觸發器權限時，只能靠網頁按「重新整理」時順便跑。 */
+function ensureAiCheckTrigger_() {
+  try {
+    ScriptApp.getProjectTriggers().forEach(function (t) {
+      if (t.getHandlerFunction() === 'runHandoutCheck') ScriptApp.deleteTrigger(t);
+    });
+    ScriptApp.newTrigger('runHandoutCheck').timeBased().everyMinutes(1).create();
+  } catch (ignore) {}
+}
+
+/** 讀 Classroom 把這班這份講義的名單寫進「AI作業檢查」（待檢查的交給每分鐘觸發器）；回傳要新送 AI 的人數。 */
+function queueHandoutCheck_(className, title, recheck) {
   var target = classroomHandoutTargets_(className, title);
   var cn = String(className).trim();
   var key = cn + '|' + target.title;
@@ -1234,25 +1419,8 @@ function startHandoutCheckApi_(className, title, recheck) {
       target.dueKey, s.grade === '' ? '' : String(s.grade), filesJson, '0', checkedAt, problems];
   });
   if (add.length) sheet.getRange(sheet.getLastRow() + 1, 1, add.length, AI_CHECK_HEADERS_.length).setValues(add);
-  var props = PropertiesService.getScriptProperties();
-  props.setProperty(AI_CHECK_JOB_KEY_, JSON.stringify({ className: cn, title: target.title, startedAt: now, lastError: '' }));
-  props.deleteProperty(AI_CHECK_RUNNING_KEY_);
   var toCheck = add.filter(function (row) { return row[3] === '待檢查'; }).length;
-  if (toCheck) {
-    try {
-      ScriptApp.getProjectTriggers().forEach(function (t) {
-        if (t.getHandlerFunction() === 'runHandoutCheck') ScriptApp.deleteTrigger(t);
-      });
-      ScriptApp.newTrigger('runHandoutCheck').timeBased().everyMinutes(1).create();
-    } catch (err) {
-      // 沒有觸發器權限時，只能靠網頁按「重新整理」時順便跑
-    }
-    processHandoutCheck_(10000);
-  }
-  var result = getHandoutCheckApi_(cn, target.title);
-  result.reused = reused;
-  result.newChecks = toCheck;
-  return result;
+  return { className: cn, title: target.title, toCheck: toCheck, reused: reused, students: add.length };
 }
 
 /** 觸發器每分鐘呼叫：檢查還沒檢查的學生，全部做完就移除觸發器。 */

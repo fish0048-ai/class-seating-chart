@@ -2806,6 +2806,15 @@
       if (!cloudOn()) return Promise.reject(new Error('尚未連上雲端'));
       return CloudStore.classroomWork('runHandoutAuto', {});
     },
+    /** 工作天早上 7 點自動 AI 檢查最近的學習講義：開關、現在排一次。 */
+    setAiAuto: function (on) {
+      if (!cloudOn()) return Promise.reject(new Error('尚未連上雲端'));
+      return CloudStore.classroomWork('setAiAuto', { on: !!on });
+    },
+    runAiAuto: function () {
+      if (!cloudOn()) return Promise.reject(new Error('尚未連上雲端'));
+      return CloudStore.classroomWork('runAiAuto', {});
+    },
     startHandoutCheck: function (body) {
       if (!cloudOn()) return Promise.reject(new Error('尚未連上雲端，無法使用 AI 檢查'));
       return CloudStore.handoutCheck('startHandoutCheck', body);
