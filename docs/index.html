@@ -923,6 +923,11 @@
                 <p class="hint">排各班最近 30 天內到期（或還沒到期）的學習講義，只送「有按繳交、還沒打分數、有上傳照片」的新繳交；檢查過、照片沒換的沿用結果。每分鐘檢查幾位（配合免費額度），打開「AI 檢查作業」就能看結果、寫分數。</p>
                 <p id="handoutAiStatus" class="hint" aria-live="polite"></p>
                 <button type="button" class="tool" id="btnHandoutAiRun">現在檢查一次</button>
+                <details class="handout-skip">
+                  <summary id="handoutSkipSummary">不更新的作業</summary>
+                  <p class="hint">勾起來的講義，手動更新、每天 7 點自動更新、自動 AI 檢查都會略過，不再讀 Classroom（例如已經打完分數的舊講義），省時間與額度。網站上已有的分數不會動；之後要再更新就取消勾選。</p>
+                  <div id="handoutSkipList" class="handout-skip-list"></div>
+                </details>
               </div>
               <div id="classroomSourceList" class="classroom-source-list"></div>
               <div class="modal-actions">

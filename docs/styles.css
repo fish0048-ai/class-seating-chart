@@ -2774,6 +2774,27 @@
 
   .handout-auto .hint { margin: 4px 0; }
 
+  .handout-skip {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px dashed var(--line);
+  }
+
+  .handout-skip > summary {
+    cursor: pointer;
+    font-weight: 700;
+  }
+
+  .handout-skip-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 4px 12px;
+    max-height: 260px;
+    overflow-y: auto;
+  }
+
+  .handout-skip-list small { color: var(--muted); }
+
   .handout-auto .handout-ai-label {
     display: block;
     margin-top: 12px;

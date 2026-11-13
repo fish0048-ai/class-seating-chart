@@ -2812,6 +2812,11 @@
       return CloudStore.classroomWork('runHandoutAuto', {});
     },
     /** 工作天早上 7 點自動 AI 檢查最近的學習講義：開關、現在排一次。 */
+    /** 老師勾了「不更新」的學習講義標題（Classroom 更新與自動 AI 檢查都略過）。 */
+    setHandoutSkip: function (titles) {
+      if (!cloudOn()) return Promise.reject(new Error('尚未連上雲端'));
+      return CloudStore.classroomWork('setHandoutSkip', { titles: titles || [] });
+    },
     setAiAuto: function (on) {
       if (!cloudOn()) return Promise.reject(new Error('尚未連上雲端'));
       return CloudStore.classroomWork('setAiAuto', { on: !!on });
