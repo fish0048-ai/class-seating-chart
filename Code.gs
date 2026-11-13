@@ -239,6 +239,8 @@ function handleRequest_(req) {
         return listClassroomTopicsApi_(req.classNames);
       case 'createClassroomWork':
         return createClassroomWorkApi_(req);
+      case 'writeClassroomGrades':
+        return writeClassroomDraftGradesApi_(req);
       case 'startHandoutCheck':
         return startHandoutCheckApi_(req.className, req.title, req.recheck === true || req.recheck === 'true');
       case 'getHandoutCheck':
@@ -1232,6 +1234,90 @@ function createClassroomWorkApi_(body) {
   });
   if (!created.length && errors.length) throw new Error('CLASSROOM_DENIED：' + errors.join('；'));
   return { ok: true, created: created, errors: errors, linksUsed: links.length };
+}
+
+function seatTwo_(seat) {
+  var s = String(seat == null ? '' : seat).trim();
+  return /^\d+$/.test(s) ? ('0' + Number(s)).slice(-2) : s;
+}
+
+/**
+ * 把網站算好的分數（百分制）寫成 Classroom 草稿分數，老師自己在 Classroom 按「發還」。
+ * Google 只讓程式改「同一個專案建立的作業」（網站「新增 Classroom 作業」建的）；已發還分數的不覆蓋。
+ * 作業滿分不是 100 時依比例換算。
+ */
+function writeClassroomDraftGradesApi_(body) {
+  body = body || {};
+  var cn = String(body.className || '').trim();
+  var want = String(body.title || '').replace(/\s+/g, ' ').trim();
+  var scores = body.scores || {};
+  if (!/^\d{3}$/.test(cn) || !want) throw new Error('請選班級與講義');
+  var seats = Object.keys(scores).filter(function (k) { return isFinite(Number(scores[k])); });
+  if (!seats.length) throw new Error('沒有要寫入的分數');
+  var found = null;
+  var notOurs = false;
+  classroomCoursesForClass_(cn).forEach(function (course) {
+    if (found) return;
+    classroomListAll_(function (token) {
+      return Classroom.Courses.CourseWork.list(course.id, { courseWorkStates: ['PUBLISHED'], pageSize: 100, pageToken: token || undefined });
+    }, 'courseWork').forEach(function (cw) {
+      if (found || String(cw.title || '').replace(/\s+/g, ' ').trim() !== want) return;
+      if (cw.associatedWithDeveloper) found = { course: course, cw: cw };
+      else notOurs = true;
+    });
+  });
+  if (!found) {
+    throw new Error(notOurs
+      ? 'CLASSROOM_NOT_OURS：Classroom 的「' + want + '」不是用網站「新增 Classroom 作業」建立的，Google 不讓程式寫分數，請用輸入用清單在 Classroom 手動輸入'
+      : 'CLASSROOM_NO_COURSE：Classroom 找不到 ' + cn + ' 班已發布的「' + want + '」');
+  }
+  var course = found.course;
+  var cw = found.cw;
+  var max = Number(cw.maxPoints) || 100;
+  var seatOf = {};
+  classroomListAll_(function (token) {
+    return Classroom.Courses.Students.list(course.id, { pageSize: 100, pageToken: token || undefined });
+  }, 'students').forEach(function (s) {
+    var code = classroomSeatCode_(s.profile);
+    if (code && code.slice(0, 3) === cn) seatOf[s.userId] = code.slice(4);
+  });
+  var subBySeat = {};
+  classroomListAll_(function (token) {
+    return Classroom.Courses.CourseWork.StudentSubmissions.list(course.id, cw.id, { pageSize: 100, pageToken: token || undefined });
+  }, 'studentSubmissions').forEach(function (sub) {
+    var seat = seatOf[sub.userId];
+    if (seat) subBySeat[seat] = sub;
+  });
+  var report = {
+    ok: true, className: cn, title: cw.title, courseName: course.name, maxPoints: max,
+    written: 0, same: 0, returned: [], noSubmission: [], failed: []
+  };
+  seats.forEach(function (raw) {
+    var seat = seatTwo_(raw);
+    var sub = subBySeat[seat];
+    if (!sub) {
+      report.noSubmission.push(seat);
+      return;
+    }
+    if (sub.assignedGrade != null) {
+      report.returned.push(seat);
+      return;
+    }
+    var pts = Math.round(Math.max(0, Math.min(100, Number(scores[raw]))) * max / 100 * 10) / 10;
+    if (sub.draftGrade != null && Number(sub.draftGrade) === pts) {
+      report.same += 1;
+      return;
+    }
+    try {
+      Classroom.Courses.CourseWork.StudentSubmissions.patch({ draftGrade: pts }, course.id, cw.id, sub.id, { updateMask: 'draftGrade' });
+      report.written += 1;
+    } catch (err) {
+      var msg = String(err && err.message ? err.message : err);
+      report.failed.push(seat + (/ProjectPermissionDenied|developer project/i.test(msg) ? '（不是網站建立的作業）' : ''));
+    }
+  });
+  report.failed = report.failed.slice(0, 40);
+  return report;
 }
 
 /* ===== AI 檢查學習講義（Gemini；只讀 Classroom 與雲端硬碟，結果寫在成績庫的「AI作業檢查」工作表） ===== */

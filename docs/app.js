@@ -806,6 +806,8 @@
   }
   var aiCheckApply = document.getElementById('btnAiCheckApply');
   if (aiCheckApply) aiCheckApply.addEventListener('click', function () { requireTeacher(applyAiCheckScores); });
+  var aiCheckClassroom = document.getElementById('btnAiCheckClassroom');
+  if (aiCheckClassroom) aiCheckClassroom.addEventListener('click', function () { requireTeacher(writeAiScoresToClassroom); });
   var termExportBtn = document.getElementById('btnTermExport');
   if (termExportBtn) {
     termExportBtn.addEventListener('click', function () {
@@ -12497,11 +12499,57 @@
       });
     }
     if (apply) apply.hidden = !sum.passes.length;
+    var toClassroom = document.getElementById('btnAiCheckClassroom');
+    if (toClassroom) toClassroom.hidden = !sum.passes.length;
     clearTimeout(App.aiCheckTimer);
     var modal = document.getElementById('aiCheckModal');
     if (sum.pending.length && modal && !modal.hidden) {
       App.aiCheckTimer = setTimeout(function () { loadAiCheck(true); }, 45000);
     }
+  }
+
+  /** 有繳交、AI 檢查完的分數寫成 Classroom 草稿（只有網站建立的作業可以；老師自己按發還）。 */
+  function writeAiScoresToClassroom() {
+    var st = App.aiCheck;
+    var sum = aiCheckSummary(st && st.data);
+    var ready = sum.passes.filter(function (r) { return r.status !== '待檢查'; });
+    if (!ready.length) {
+      toast('還在等 AI 檢查，檢查完再寫入');
+      return;
+    }
+    var scores = {};
+    ready.forEach(function (r) { scores[r.seat] = r.score; });
+    var waiting = sum.passes.length - ready.length;
+    if (!window.confirm('把 ' + ready.length + ' 位有繳交的分數寫成 Classroom「' + st.title + '」的草稿分數？\n' +
+      (waiting ? '還在等 AI 檢查的 ' + waiting + ' 位先不寫。\n' : '') +
+      '只有用網站「新增 Classroom 作業」建立的作業才寫得進去；Classroom 已經發還分數的學生不會被改。\n' +
+      '寫完請到 Classroom 確認後自己按「發還」。提醒清單的人不會寫。')) return;
+    var btn = document.getElementById('btnAiCheckClassroom');
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = '寫入 Classroom 中…';
+    }
+    setAiCheckStatus('正在寫入 Classroom 草稿分數（每位約 0.5 秒）…');
+    api('writeClassroomGrades', [{ className: st.className, title: st.title, scores: scores }]).then(function (rep) {
+      var bits = ['已寫入 Classroom 草稿 ' + rep.written + ' 位'];
+      if (rep.same) bits.push(rep.same + ' 位草稿分數本來就一樣');
+      if (rep.returned && rep.returned.length) bits.push('已發還分數、沒有改：' + rep.returned.join('、'));
+      if (rep.noSubmission && rep.noSubmission.length) bits.push('Classroom 找不到這些座號：' + rep.noSubmission.join('、'));
+      if (rep.failed && rep.failed.length) bits.push('寫入失敗：' + rep.failed.join('、'));
+      if (rep.maxPoints && rep.maxPoints !== 100) bits.push('作業滿分 ' + rep.maxPoints + '，已依比例換算');
+      var text = bits.join('；') + '。請到 Classroom 確認後按「發還」。';
+      setAiCheckStatus(text);
+      toast(text, 10000);
+    }).catch(function (err) {
+      var msg = aiCheckErrorText(err);
+      setAiCheckStatus(msg);
+      toast(msg, 10000);
+    }).then(function () {
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = '寫成 Classroom 草稿分數';
+      }
+    });
   }
 
   function applyAiCheckScores() {
