@@ -839,6 +839,13 @@
       requireTeacher(runHandoutAutoNow);
     });
   }
+  var handoutSkipList = document.getElementById('handoutSkipList');
+  if (handoutSkipList) {
+    handoutSkipList.addEventListener('change', function (event) {
+      if (!event.target.closest('[data-handout-skip]')) return;
+      requireTeacher(saveHandoutSkip);
+    });
+  }
   var handoutAiOn = document.getElementById('handoutAiOn');
   if (handoutAiOn) {
     handoutAiOn.addEventListener('change', function () {
@@ -11689,6 +11696,7 @@
         if (c.created && c.created.length) parts.push('新增 ' + c.created.join('、'));
         if (c.updated && c.updated.length) parts.push('更新 ' + c.updated.length + ' 份');
         if (c.skipped && c.skipped.length) parts.push('略過 ' + c.skipped.length + ' 份（已刪除或太舊）');
+        if (c.teacherSkipped) parts.push('設定不更新 ' + c.teacherSkipped + ' 份');
         return c.className + (parts.length ? '：' + parts.join('，') : '：沒有變動');
       });
       bits.push('上次' + (last.source === 'manual' ? '試跑' : '自動更新') + '：' + formatHistoryTime(last.at) +
@@ -11697,6 +11705,66 @@
     }
     line.textContent = bits.join(' ');
     paintAiAuto(status);
+    paintHandoutSkip(status && status.skip);
+  }
+
+  function handoutTitleKey(title) {
+    return String(title || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+  }
+
+  /** 設定頁「不更新的作業」：列各班網站上的學習講義（新的在前），勾起來的 Classroom 更新與自動 AI 檢查都略過。 */
+  function paintHandoutSkip(skip) {
+    var wrap = document.getElementById('handoutSkipList');
+    if (!wrap) return;
+    App.handoutSkip = (skip || []).map(handoutTitleKey).filter(Boolean);
+    var names = classroomSourceClassNames();
+    Promise.all(names.map(function (cn) {
+      return api('getGradebook', [cn]).catch(function () { return null; });
+    })).then(function (books) {
+      var dueOf = {};
+      books.forEach(function (book) {
+        ((book && book.homeworks) || []).forEach(function (h) {
+          var t = handoutTitleKey(h.title);
+          if (!t || !/學習講義/.test(t)) return;
+          var due = String(h.dueDate || h.date || '');
+          if (!(t in dueOf) || due > dueOf[t]) dueOf[t] = due;
+        });
+      });
+      App.handoutSkip.forEach(function (t) { if (!(t in dueOf)) dueOf[t] = ''; });
+      var titles = Object.keys(dueOf).sort(function (a, b) {
+        return String(dueOf[b]).localeCompare(String(dueOf[a])) || a.localeCompare(b);
+      });
+      wrap.innerHTML = titles.length ? titles.map(function (t) {
+        var on = App.handoutSkip.indexOf(t) >= 0;
+        return '<label class="check"><input type="checkbox" data-handout-skip="' + escapeHtml(t) + '"' + (on ? ' checked' : '') + ' /> ' +
+          escapeHtml(t) + (dueOf[t] ? ' <small>期限 ' + escapeHtml(shortDateZh(dueOf[t])) + '</small>' : '') + '</label>';
+      }).join('') : '<p class="hint">網站上還沒有學習講義作業欄。</p>';
+      paintHandoutSkipSummary();
+    });
+  }
+
+  function paintHandoutSkipSummary() {
+    var summary = document.getElementById('handoutSkipSummary');
+    if (summary) summary.textContent = '不更新的作業（已勾 ' + (App.handoutSkip || []).length + ' 份）';
+  }
+
+  function saveHandoutSkip() {
+    var wrap = document.getElementById('handoutSkipList');
+    if (!wrap) return;
+    var boxes = wrap.querySelectorAll('[data-handout-skip]');
+    var titles = [];
+    boxes.forEach(function (b) { if (b.checked) titles.push(b.getAttribute('data-handout-skip')); });
+    boxes.forEach(function (b) { b.disabled = true; });
+    api('setHandoutSkip', [titles]).then(function (status) {
+      App.handoutSkip = (status && status.skip) || titles;
+      paintHandoutSkipSummary();
+      toast('已儲存：' + App.handoutSkip.length + ' 份講義不再從 Classroom 更新');
+    }).catch(function (err) {
+      toast(handoutAutoErrorText(err), 9000);
+      loadHandoutAuto();
+    }).then(function () {
+      boxes.forEach(function (b) { b.disabled = false; });
+    });
   }
 
   /** 設定頁：自動 AI 檢查的開關與上次排了哪些講義。 */
@@ -11897,11 +11965,14 @@
               return { title: col.title, dueDate: col.dueDate, max: col.max, scores: scores };
             });
             if (!columns.length) {
-              errors.push(cn + '：找不到欄名含「學習講義」的理化作業');
+              errors.push(cn + ((sheet.skippedByTeacher || []).length
+                ? '：學習講義都設定「不更新」（' + sheet.skippedByTeacher.length + ' 份），沒有讀'
+                : '：找不到欄名含「學習講義」的理化作業'));
               return;
             }
             return api('importClassroomHandouts', [{ className: cn, columns: columns, dryRun: true }]).then(function (rep) {
-              plans.push({ className: cn, columns: columns, report: rep, source: sheet.sourceLabel, unmatched: sheet.unmatched || 0 });
+              plans.push({ className: cn, columns: columns, report: rep, source: sheet.sourceLabel, unmatched: sheet.unmatched || 0,
+                teacherSkipped: sheet.skippedByTeacher || [] });
             });
           }).catch(function (err) {
             errors.push(cn + '：' + (err && err.message ? err.message : '讀取失敗'));
@@ -11942,6 +12013,7 @@
         if (r.unknownSeats.length) lines.push('　名單沒有這些座號，會略過：' + shortList(r.unknownSeats, 6));
         if (r.kept) lines.push('　Classroom 還沒打分數、但網站已有分數的 ' + r.kept + ' 筆，保留網站的分數');
         if (p.unmatched) lines.push('　有 ' + p.unmatched + ' 位 Classroom 學生的姓名看不出座號（不是「801-01」這種格式），略過');
+        if (p.teacherSkipped.length) lines.push('　設定「不更新」、沒有讀：' + shortList(p.teacherSkipped, 6));
       });
       if (res.errors.length) lines.push('', '略過：', res.errors.join('\n'));
       lines.push('', '有分數的講義裡，空白格記「未繳交」；以 Classroom 為準，會覆蓋網站上同名講義的紀錄。');

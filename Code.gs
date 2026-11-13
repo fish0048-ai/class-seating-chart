@@ -253,6 +253,8 @@ function handleRequest_(req) {
         return runHandoutAutoApi_();
       case 'setAiAuto':
         return setAiAutoApi_(req.on === true || req.on === 'true');
+      case 'setHandoutSkip':
+        return setHandoutSkipApi_(req.titles);
       case 'runAiAuto':
         return runAiAutoApi_();
       default:
@@ -597,21 +599,37 @@ function readClassroomCourseInner_(cn) {
     return (String(c.name || '') + ' ' + String(c.section || '')).indexOf(cn) >= 0;
   });
   if (!matched.length) throw new Error('CLASSROOM_NO_COURSE：Classroom 找不到名稱含「' + cn + '」的課程');
-  var best = { classCodes: [], students: 0, unmatched: 0, columns: [] };
+  var best = { classCodes: [], students: 0, unmatched: 0, columns: [], skippedByTeacher: [] };
   var byTitle = {};
+  var skip = handoutSkipSet_();
   matched.forEach(function (course) {
-    var students = classroomListAll_(function (token) {
-      return Classroom.Courses.Students.list(course.id, { pageSize: 100, pageToken: token || undefined });
-    }, 'students');
     var work = classroomListAll_(function (token) {
       return Classroom.Courses.CourseWork.list(course.id, { courseWorkStates: ['PUBLISHED'], pageSize: 100, pageToken: token || undefined });
     }, 'courseWork').filter(function (cw) {
       return /學習講義/.test(String(cw.title || '')) && !HANDOUT_OTHER_SUBJECTS_.test(String(cw.title || ''));
+    }).filter(function (cw) {
+      var title = handoutTitleKey_(cw.title);
+      if (!skip[title]) return true;
+      if (best.skippedByTeacher.indexOf(title) < 0) best.skippedByTeacher.push(title);
+      return false;
     });
     if (!work.length) return;
-    var subs = classroomListAll_(function (token) {
-      return Classroom.Courses.CourseWork.StudentSubmissions.list(course.id, '-', { pageSize: 1000, pageToken: token || undefined });
-    }, 'studentSubmissions');
+    var students = classroomListAll_(function (token) {
+      return Classroom.Courses.Students.list(course.id, { pageSize: 100, pageToken: token || undefined });
+    }, 'students');
+    // 只剩少數幾份要更新時逐份讀繳交紀錄（老師勾了不更新的就不讀）；很多份時一次讀整門課比較省次數
+    var subs = [];
+    if (work.length <= 5) {
+      work.forEach(function (cw) {
+        subs = subs.concat(classroomListAll_(function (token) {
+          return Classroom.Courses.CourseWork.StudentSubmissions.list(course.id, cw.id, { pageSize: 100, pageToken: token || undefined });
+        }, 'studentSubmissions'));
+      });
+    } else {
+      subs = classroomListAll_(function (token) {
+        return Classroom.Courses.CourseWork.StudentSubmissions.list(course.id, '-', { pageSize: 1000, pageToken: token || undefined });
+      }, 'studentSubmissions');
+    }
     var parsed = classroomCourseColumns_(students, work, subs);
     parsed.classCodes.forEach(function (code) {
       if (best.classCodes.indexOf(code) < 0) best.classCodes.push(code);
@@ -682,6 +700,34 @@ function syncHandoutAutoTrigger_(flags) {
   }
 }
 
+/** 老師勾了「不更新」的學習講義標題（指令碼屬性 HANDOUT_SKIP）：Classroom 更新與自動 AI 檢查都略過。 */
+var HANDOUT_SKIP_KEY_ = 'HANDOUT_SKIP';
+
+function handoutTitleKey_(title) {
+  return String(title || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+}
+
+function handoutSkipList_() {
+  var list = readJsonProp_(HANDOUT_SKIP_KEY_);
+  return Array.isArray(list) ? list.map(handoutTitleKey_).filter(Boolean) : [];
+}
+
+function handoutSkipSet_() {
+  var set = {};
+  handoutSkipList_().forEach(function (t) { set[t] = true; });
+  return set;
+}
+
+function setHandoutSkipApi_(titles) {
+  var list = [];
+  (Array.isArray(titles) ? titles : []).forEach(function (t) {
+    var key = handoutTitleKey_(t);
+    if (key && list.indexOf(key) < 0) list.push(key);
+  });
+  PropertiesService.getScriptProperties().setProperty(HANDOUT_SKIP_KEY_, JSON.stringify(list.slice(0, 300)));
+  return handoutAutoStatusApi_();
+}
+
 function handoutAutoStatusApi_() {
   var flags = handoutAutoFlags_();
   return {
@@ -690,7 +736,8 @@ function handoutAutoStatusApi_() {
     aiOn: flags.ai,
     last: readJsonProp_(HANDOUT_AUTO_LAST_KEY_),
     aiLast: readJsonProp_(HANDOUT_AI_LAST_KEY_),
-    aiQueued: ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === HANDOUT_AI_FN_; })
+    aiQueued: ScriptApp.getProjectTriggers().some(function (t) { return t.getHandlerFunction() === HANDOUT_AI_FN_; }),
+    skip: handoutSkipList_()
   };
 }
 
@@ -750,6 +797,7 @@ function classroomRecentHandouts_(cn) {
   if (typeof Classroom === 'undefined') throw new Error('CLASSROOM_SERVICE_OFF：Apps Script 還沒加入 Google Classroom API 服務');
   var oldest = taipeiTime_(new Date(Date.now() - HANDOUT_AI_RECENT_DAYS_ * 86400000), 'yyyy-MM-dd');
   var dueOf = {};
+  var skip = handoutSkipSet_();
   classroomListAll_(function (token) {
     return Classroom.Courses.list({ teacherId: 'me', courseStates: ['ACTIVE'], pageSize: 100, pageToken: token || undefined });
   }, 'courses').filter(function (c) {
@@ -760,6 +808,7 @@ function classroomRecentHandouts_(cn) {
     }, 'courseWork').forEach(function (cw) {
       var title = String(cw.title || '').replace(/\s+/g, ' ').trim();
       if (!/學習講義/.test(title) || HANDOUT_OTHER_SUBJECTS_.test(title)) return;
+      if (skip[handoutTitleKey_(title)]) return;
       var due = classroomDueKey_(cw);
       var recent = due ? due >= oldest : String(cw.creationTime || '').slice(0, 10) >= oldest;
       if (recent) dueOf[title] = due || '9999';
@@ -948,6 +997,7 @@ function runHandoutAuto_(source) {
     }).sort() : [];
     if (!names.length) result.errors.push('雲端還沒有班級');
     var reads = {};
+    var teacherSkipped = {};
     names.forEach(function (cn) {
       try {
         var sheet = readClassroomCourseApi_(cn);
@@ -956,6 +1006,7 @@ function runHandoutAuto_(source) {
           result.errors.push(cn + '：Classroom 課程裡是 ' + codes.join('、') + ' 班的學生，已略過');
           return;
         }
+        teacherSkipped[cn] = (sheet.skippedByTeacher || []).length;
         reads[cn] = (sheet.columns || []).map(function (col) {
           var scores = {};
           Object.keys(col.scores || {}).forEach(function (code) {
@@ -985,7 +1036,8 @@ function runHandoutAuto_(source) {
             created: rep.created,
             updated: rep.updated,
             blank: rep.blank.length,
-            skipped: rep.skipped
+            skipped: rep.skipped,
+            teacherSkipped: teacherSkipped[cn] || 0
           });
         });
         if (changed) {
