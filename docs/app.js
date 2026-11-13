@@ -12103,6 +12103,25 @@
         }).join('') +
         errs.map(function (e) { return '<p class="ai-check-warn">✘ ' + escapeHtml(e) + '</p>'; }).join('');
       toast('已在 Classroom 建立「' + title + '」（' + made.length + ' 班）', 6000);
+      if (!made.length) return null;
+      // 網站學期成績也馬上建同名作業欄，AI 檢查選單立刻看得到（不必等學生繳交、隔天自動更新）
+      return api('ensureHomeworkColumns', [{
+        classNames: made.map(function (w) { return w.className; }),
+        title: made[0].title || title,
+        dueDate: dueDate,
+        max: Number(document.getElementById('newWorkMax').value) || 100
+      }]).then(function (res) {
+        var cn = teacherTargetClass();
+        var dirty = App.gradeDirty && Object.keys(App.gradeDirty).length;
+        if (res && res.added && res.added.indexOf(cn) >= 0 && App.gradebookClass === cn && !dirty && !gradeSaveTimer) {
+          return api('getGradebook', [cn]).then(function (book) {
+            applyGradebook(book);
+            renderGradebook();
+          });
+        }
+      }).catch(function () {
+        toast('Classroom 作業已建立，但網站作業欄沒建成；可按「從 Classroom 更新學習講義」補上', 8000);
+      });
     }).catch(function (err) {
       setNewWorkStatus(aiCheckErrorText(err));
     }).then(function () {

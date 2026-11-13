@@ -2946,6 +2946,32 @@
       var book = ensureGrades_(store, className);
       return gradebookResult_(className, book);
     },
+    /**
+     * 網站在 Classroom 建立作業後，馬上在那幾班建同名作業欄（已有同名欄就不動），
+     * AI 檢查選單立刻看得到；之後 Classroom 更新會以標題對到同一欄。
+     */
+    ensureHomeworkColumns: function (body) {
+      body = body || {};
+      var store = loadStore();
+      var title = String(body.title || '').replace(/\s+/g, ' ').trim().slice(0, 80);
+      if (!title) throw new Error('缺少作業標題');
+      var due = /^\d{4}-\d{2}-\d{2}$/.test(String(body.dueDate || '')) ? String(body.dueDate) : todayKey_();
+      var max = clampInt(body.max || 100, 1, 200, 100);
+      var sharedId = 'h' + Date.now() + Math.floor(Math.random() * 100000);
+      var added = [];
+      (body.classNames || []).forEach(function (cn) {
+        cn = String(cn || '').trim();
+        if (!cn || !store.classes || !store.classes[cn]) return;
+        var book = ensureGrades_(store, cn);
+        var exists = book.homeworks.some(function (h) { return h && String(h.title || '').trim() === title; });
+        if (exists) return;
+        book.homeworks.push({ id: sharedId, title: title, date: due, dueDate: due, max: max, records: {} });
+        book.homeworks = normalizeHomeworkColumns_(book.homeworks);
+        added.push(cn);
+      });
+      if (added.length) saveStore(store);
+      return wrap({ ok: true, title: title, added: added });
+    },
     addGradeColumn: function (body) {
       var store = loadStore();
       var className = String((body && body.className) || '').trim();
