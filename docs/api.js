@@ -2754,6 +2754,11 @@
       if (!cloudOn()) return Promise.reject(new Error('尚未連上雲端，無法建立 Classroom 作業'));
       return CloudStore.classroomWork('createClassroomWork', body);
     },
+    /** 分數寫成 Classroom 草稿（只限網站建立的作業）。 */
+    writeClassroomGrades: function (body) {
+      if (!cloudOn()) return Promise.reject(new Error('尚未連上雲端，無法寫入 Classroom'));
+      return CloudStore.classroomWork('writeClassroomGrades', body);
+    },
     /**
      * 紙本繳交日（老師看 Classroom 留言後填）：記成已繳交＋繳交日＋紙本；清空日期就改回
      * Classroom 的狀態（有按繳交＝已繳交未評，沒有＝未繳交）。已有的分數保留。
