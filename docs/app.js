@@ -2966,19 +2966,30 @@
       var gid = studentLabGroupId(s.seatNo);
       if (gid >= 1 && gid <= 6) buckets[gid].push(s);
     });
-    var g;
-    for (g = 1; g <= 6; g++) buckets[g].sort(seatOrder);
+
+    function labPrintMemberLi_(s) {
+      return '<li><span class="lab-print-seat">' + escapeHtml(s.seatNo) + '</span> ' +
+        escapeHtml(s.name) + '</li>';
+    }
+
+    function labPrintSideList_(list) {
+      if (!list.length) return '<ul class="lab-print-side"><li class="lab-print-empty">　</li></ul>';
+      return '<ul class="lab-print-side">' + list.map(labPrintMemberLi_).join('') + '</ul>';
+    }
 
     var mapHtml = '';
+    var g;
     for (g = 1; g <= 6; g++) {
-      var members = buckets[g].map(function (s) {
-        return '<li><span class="lab-print-seat">' + escapeHtml(s.seatNo) + '</span> ' +
-          escapeHtml(s.name) + '</li>';
-      }).join('');
+      // 組內座位每次列印都重新洗牌，再拆成左右兩邊（不依座號排序）
+      var list = shuffleInPlace_(buckets[g].slice());
+      var mid = Math.ceil(list.length / 2);
+      var left = list.slice(0, mid);
+      var right = list.slice(mid);
+      var sides = list.length
+        ? ('<div class="lab-print-sides">' + labPrintSideList_(left) + labPrintSideList_(right) + '</div>')
+        : '<p class="lab-print-empty">（空）</p>';
       mapHtml += '<section class="lab-print-zone" data-group="' + g + '">' +
-        '<h3>第' + g + '組</h3>' +
-        '<ul>' + (members || '<li class="lab-print-empty">（空）</li>') + '</ul>' +
-        '</section>';
+        '<h3>第' + g + '組</h3>' + sides + '</section>';
     }
 
     sheet.innerHTML =
