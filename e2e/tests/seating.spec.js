@@ -131,7 +131,8 @@ test('實驗室隨機分組：六組人數均衡、男女平均、成績異質',
   });
   await support.openApp(page);
   await page.getByRole('button', { name: '實驗室模式' }).click();
-  await expect(page.getByRole('button', { name: /甲男一/ })).toBeVisible();
+  await expect(page.locator('.seat-card[data-seat="01"]')).toBeVisible();
+  await expect(page.locator('.seat-card[data-seat="01"]')).toContainText('甲男一');
 
   const stats = await page.evaluate(function (roster) {
     var api = window.__labGrouping;
