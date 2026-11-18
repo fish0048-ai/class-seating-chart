@@ -4608,13 +4608,25 @@
       padding-bottom: 2px;
     }
 
-    .lab-print-zone ul {
-      list-style: none;
-      margin: 0;
-      padding: 0;
+    .lab-print-sides {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px 10px;
+      align-items: start;
     }
 
-    .lab-print-zone li {
+    .lab-print-side {
+      list-style: none;
+      margin: 0;
+      padding: 0 4px;
+      border-right: 1px solid #999;
+    }
+
+    .lab-print-sides .lab-print-side:last-child {
+      border-right: none;
+    }
+
+    .lab-print-side li {
       font-size: 10pt;
       margin: 1px 0;
     }
@@ -4626,5 +4638,7 @@
 
     .lab-print-empty {
       color: #666;
+      margin: 0;
+      font-size: 10pt;
     }
   }

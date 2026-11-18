@@ -107,11 +107,14 @@ test('實驗室可列印分組名單：只含講台與六組位置圖', async fu
     var snapshot = null;
     window.print = function () {
       var s = document.getElementById('labPrintSheet');
+      var zone1 = s && s.querySelector('.lab-print-zone[data-group="1"]');
       snapshot = {
         hasPodium: !!(s && s.querySelector('.lab-print-podium')),
         podiumText: s && s.querySelector('.lab-print-podium') ? s.querySelector('.lab-print-podium').textContent.trim() : '',
         zones: s ? s.querySelectorAll('.lab-print-zone').length : 0,
         hasTable: !!(s && s.querySelector('.lab-print-table')),
+        hasSides: !!(zone1 && zone1.querySelector('.lab-print-sides')),
+        sideCount: zone1 ? zone1.querySelectorAll('.lab-print-side').length : 0,
         hasClass: s ? /測試班/.test(s.textContent || '') : false,
         hasSeatName: s ? /測生甲/.test(s.textContent || '') : false,
         hasGroup: s ? /第\d組/.test(s.textContent || '') : false,
@@ -129,6 +132,8 @@ test('實驗室可列印分組名單：只含講台與六組位置圖', async fu
   expect(html.podiumText).toBe('講台');
   expect(html.zones).toBe(6);
   expect(html.hasTable).toBe(false);
+  expect(html.hasSides).toBe(true);
+  expect(html.sideCount).toBe(2);
   expect(html.hasClass).toBe(true);
   expect(html.hasSeatName).toBe(true);
   expect(html.hasGroup).toBe(true);
