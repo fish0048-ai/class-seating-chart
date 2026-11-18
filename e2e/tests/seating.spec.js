@@ -95,6 +95,51 @@ test('實驗室模式可把學生拖到另一組', async function ({ page }) {
   await support.expectHealthy(health);
 });
 
+test('實驗室可列印分組名單：含講台、位置圖與班級座號姓名分組', async function ({ page }) {
+  const health = support.trackHealth(page);
+  await support.openApp(page);
+  await page.getByRole('button', { name: '實驗室模式' }).click();
+  await expect(page.getByRole('button', { name: '列印分組名單' })).toBeVisible();
+
+  const html = await page.evaluate(function () {
+    var btn = document.getElementById('btnLabPrint');
+    if (!btn) return { error: 'no button' };
+    var snapshot = null;
+    window.print = function () {
+      var s = document.getElementById('labPrintSheet');
+      snapshot = {
+        hasPodium: !!(s && s.querySelector('.lab-print-podium')),
+        podiumText: s && s.querySelector('.lab-print-podium') ? s.querySelector('.lab-print-podium').textContent.trim() : '',
+        zones: s ? s.querySelectorAll('.lab-print-zone').length : 0,
+        tableHeaders: s ? Array.prototype.map.call(s.querySelectorAll('.lab-print-table th'), function (th) {
+          return th.textContent.trim();
+        }) : [],
+        hasClass: s ? /測試班/.test(s.textContent || '') : false,
+        hasSeatName: s ? /測生甲/.test(s.textContent || '') : false,
+        hasGroup: s ? /第\d組/.test(s.textContent || '') : false,
+        hasScore: s ? /\+|分數|排行/.test(s.textContent || '') : false,
+        printing: document.body.classList.contains('printing-lab')
+      };
+      window.dispatchEvent(new Event('afterprint'));
+    };
+    btn.click();
+    return snapshot || { error: 'no print' };
+  });
+
+  expect(html.error || null).toBeNull();
+  expect(html.hasPodium).toBe(true);
+  expect(html.podiumText).toBe('講台');
+  expect(html.zones).toBe(6);
+  expect(html.tableHeaders).toEqual(['班級', '座號', '姓名', '分組']);
+  expect(html.hasClass).toBe(true);
+  expect(html.hasSeatName).toBe(true);
+  expect(html.hasGroup).toBe(true);
+  expect(html.hasScore).toBe(false);
+  await expect(page.locator('body')).not.toHaveClass(/printing-lab/);
+  await expect(page.locator('#labPrintSheet')).toBeHidden();
+  await support.expectHealthy(health);
+});
+
 test('實驗室隨機分組：六組人數均衡、男女平均、成績異質', async function ({ page }) {
   const health = support.trackHealth(page);
   const names = [

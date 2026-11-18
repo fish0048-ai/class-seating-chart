@@ -303,6 +303,8 @@
   if (btnLabBySeat) btnLabBySeat.addEventListener('click', function () { assignLabGroups(false); });
   var btnLabRandom = document.getElementById('btnLabRandom');
   if (btnLabRandom) btnLabRandom.addEventListener('click', function () { assignLabGroups(true); });
+  var btnLabPrint = document.getElementById('btnLabPrint');
+  if (btnLabPrint) btnLabPrint.addEventListener('click', printLabRoster);
   if (els.groupSize) {
     els.groupSize.addEventListener('change', function () {
       var g = classGroups();
@@ -2940,6 +2942,100 @@
       };
     }
   } catch (labHookErr) { /* 測試掛勾失敗可忽略 */ }
+
+  /** 列印實驗室分組：只含班級、座號、姓名、分組與上方有講台的位置圖。 */
+  function printLabRoster() {
+    if (!App.classroom) {
+      toast('請先選擇班級');
+      return;
+    }
+    var students = App.classroom.students || [];
+    if (!students.length) {
+      toast('沒有學生可以列印');
+      return;
+    }
+    fillMissingLabAssign();
+    var sheet = document.getElementById('labPrintSheet');
+    if (!sheet) {
+      toast('找不到列印版面');
+      return;
+    }
+    var cn = App.classroom.className || '';
+    var buckets = { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] };
+    var rows = [];
+    students.forEach(function (s) {
+      var gid = studentLabGroupId(s.seatNo);
+      if (gid >= 1 && gid <= 6) buckets[gid].push(s);
+      rows.push({
+        seatNo: s.seatNo,
+        name: s.name,
+        groupId: gid >= 1 && gid <= 6 ? gid : 0
+      });
+    });
+    var g;
+    for (g = 1; g <= 6; g++) buckets[g].sort(seatOrder);
+    rows.sort(function (a, b) {
+      var ga = a.groupId || 99;
+      var gb = b.groupId || 99;
+      if (ga !== gb) return ga - gb;
+      return seatOrder({ seatNo: a.seatNo }, { seatNo: b.seatNo });
+    });
+
+    var mapHtml = '';
+    for (g = 1; g <= 6; g++) {
+      var members = buckets[g].map(function (s) {
+        return '<li><span class="lab-print-seat">' + escapeHtml(s.seatNo) + '</span> ' +
+          escapeHtml(s.name) + '</li>';
+      }).join('');
+      mapHtml += '<section class="lab-print-zone" data-group="' + g + '">' +
+        '<h3>第' + g + '組</h3>' +
+        '<ul>' + (members || '<li class="lab-print-empty">（空）</li>') + '</ul>' +
+        '</section>';
+    }
+
+    var tableRows = rows.map(function (r) {
+      return '<tr>' +
+        '<td>' + escapeHtml(cn) + '</td>' +
+        '<td>' + escapeHtml(r.seatNo) + '</td>' +
+        '<td>' + escapeHtml(r.name) + '</td>' +
+        '<td>' + (r.groupId ? ('第' + r.groupId + '組') : '未分組') + '</td>' +
+        '</tr>';
+    }).join('');
+
+    sheet.innerHTML =
+      '<header class="lab-print-head">' +
+        '<h1>' + escapeHtml(cn) + '　實驗室分組</h1>' +
+      '</header>' +
+      '<div class="lab-print-podium" aria-label="講台">講台</div>' +
+      '<div class="lab-print-map" aria-label="位置圖">' + mapHtml + '</div>' +
+      '<table class="lab-print-table">' +
+        '<thead><tr><th>班級</th><th>座號</th><th>姓名</th><th>分組</th></tr></thead>' +
+        '<tbody>' + tableRows + '</tbody>' +
+      '</table>';
+    sheet.hidden = false;
+    sheet.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('printing-lab');
+
+    var cleaned = false;
+    function cleanupPrint() {
+      if (cleaned) return;
+      cleaned = true;
+      document.body.classList.remove('printing-lab');
+      sheet.hidden = true;
+      sheet.setAttribute('aria-hidden', 'true');
+      window.removeEventListener('afterprint', cleanupPrint);
+    }
+    window.addEventListener('afterprint', cleanupPrint);
+    try {
+      window.print();
+    } catch (err) {
+      cleanupPrint();
+      toast('無法開啟列印');
+      return;
+    }
+    // 少數瀏覽器不觸發 afterprint，稍後再清一次
+    window.setTimeout(cleanupPrint, 1500);
+  }
 
   function assignLabStudent(seatNo, gid) {
     if (!canEdit()) return;
