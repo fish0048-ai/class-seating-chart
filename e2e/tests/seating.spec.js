@@ -95,7 +95,7 @@ test('實驗室模式可把學生拖到另一組', async function ({ page }) {
   await support.expectHealthy(health);
 });
 
-test('實驗室可列印分組名單：含講台、位置圖與班級座號姓名分組', async function ({ page }) {
+test('實驗室可列印分組名單：只含講台與六組位置圖', async function ({ page }) {
   const health = support.trackHealth(page);
   await support.openApp(page);
   await page.getByRole('button', { name: '實驗室模式' }).click();
@@ -111,9 +111,7 @@ test('實驗室可列印分組名單：含講台、位置圖與班級座號姓�
         hasPodium: !!(s && s.querySelector('.lab-print-podium')),
         podiumText: s && s.querySelector('.lab-print-podium') ? s.querySelector('.lab-print-podium').textContent.trim() : '',
         zones: s ? s.querySelectorAll('.lab-print-zone').length : 0,
-        tableHeaders: s ? Array.prototype.map.call(s.querySelectorAll('.lab-print-table th'), function (th) {
-          return th.textContent.trim();
-        }) : [],
+        hasTable: !!(s && s.querySelector('.lab-print-table')),
         hasClass: s ? /測試班/.test(s.textContent || '') : false,
         hasSeatName: s ? /測生甲/.test(s.textContent || '') : false,
         hasGroup: s ? /第\d組/.test(s.textContent || '') : false,
@@ -130,7 +128,7 @@ test('實驗室可列印分組名單：含講台、位置圖與班級座號姓�
   expect(html.hasPodium).toBe(true);
   expect(html.podiumText).toBe('講台');
   expect(html.zones).toBe(6);
-  expect(html.tableHeaders).toEqual(['班級', '座號', '姓名', '分組']);
+  expect(html.hasTable).toBe(false);
   expect(html.hasClass).toBe(true);
   expect(html.hasSeatName).toBe(true);
   expect(html.hasGroup).toBe(true);

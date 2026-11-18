@@ -2962,24 +2962,12 @@
     }
     var cn = App.classroom.className || '';
     var buckets = { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [] };
-    var rows = [];
     students.forEach(function (s) {
       var gid = studentLabGroupId(s.seatNo);
       if (gid >= 1 && gid <= 6) buckets[gid].push(s);
-      rows.push({
-        seatNo: s.seatNo,
-        name: s.name,
-        groupId: gid >= 1 && gid <= 6 ? gid : 0
-      });
     });
     var g;
     for (g = 1; g <= 6; g++) buckets[g].sort(seatOrder);
-    rows.sort(function (a, b) {
-      var ga = a.groupId || 99;
-      var gb = b.groupId || 99;
-      if (ga !== gb) return ga - gb;
-      return seatOrder({ seatNo: a.seatNo }, { seatNo: b.seatNo });
-    });
 
     var mapHtml = '';
     for (g = 1; g <= 6; g++) {
@@ -2993,25 +2981,12 @@
         '</section>';
     }
 
-    var tableRows = rows.map(function (r) {
-      return '<tr>' +
-        '<td>' + escapeHtml(cn) + '</td>' +
-        '<td>' + escapeHtml(r.seatNo) + '</td>' +
-        '<td>' + escapeHtml(r.name) + '</td>' +
-        '<td>' + (r.groupId ? ('第' + r.groupId + '組') : '未分組') + '</td>' +
-        '</tr>';
-    }).join('');
-
     sheet.innerHTML =
       '<header class="lab-print-head">' +
         '<h1>' + escapeHtml(cn) + '　實驗室分組</h1>' +
       '</header>' +
       '<div class="lab-print-podium" aria-label="講台">講台</div>' +
-      '<div class="lab-print-map" aria-label="位置圖">' + mapHtml + '</div>' +
-      '<table class="lab-print-table">' +
-        '<thead><tr><th>班級</th><th>座號</th><th>姓名</th><th>分組</th></tr></thead>' +
-        '<tbody>' + tableRows + '</tbody>' +
-      '</table>';
+      '<div class="lab-print-map" aria-label="位置圖">' + mapHtml + '</div>';
     sheet.hidden = false;
     sheet.setAttribute('aria-hidden', 'false');
     document.body.classList.add('printing-lab');
