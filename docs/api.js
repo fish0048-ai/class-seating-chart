@@ -1650,6 +1650,18 @@
     return { size: clampInt(size, 2, 12, 4), assign: {}, scores: {} };
   }
 
+  /** 學生性別：只接受明確的男／女（或 M／F），其他一律空白。 */
+  function normalizeStudentGender_(raw) {
+    var t = String(raw == null ? '' : raw).trim();
+    if (!t) return '';
+    var low = t.toLowerCase();
+    if (/^(m|male|男|男生|boy)$/i.test(low)) return 'M';
+    if (/^(f|female|女|女生|girl)$/i.test(low)) return 'F';
+    if (t === '男') return 'M';
+    if (t === '女') return 'F';
+    return '';
+  }
+
   function seatAliasKeys_(seatNo) {
     var raw = String(seatNo == null ? '' : seatNo).trim();
     var keys = [];
@@ -2003,7 +2015,8 @@
         score: Number(s.score) || 0,
         row: s.row === null || s.row === undefined || s.row === '' ? null : Number(s.row),
         col: s.col === null || s.col === undefined || s.col === '' ? null : Number(s.col),
-        note: String(s.note || '')
+        note: String(s.note || ''),
+        gender: normalizeStudentGender_(s.gender)
       };
     }).filter(function (s) { return s.seatNo && s.name; });
     return {
@@ -2354,10 +2367,15 @@
         var seatNo = String(raw.seatNo || '').trim();
         var name = String(raw.name || '').trim();
         if (!seatNo || !name) return;
+        var gender = normalizeStudentGender_(raw.gender);
         if (bySeat[seatNo]) {
           bySeat[seatNo].name = name;
           if (raw.score !== undefined && raw.score !== '') {
             bySeat[seatNo].score = Number(raw.score) || 0;
+          }
+          if (gender) bySeat[seatNo].gender = gender;
+          else if (bySeat[seatNo].gender) {
+            bySeat[seatNo].gender = normalizeStudentGender_(bySeat[seatNo].gender);
           }
         } else {
           bySeat[seatNo] = {
@@ -2366,7 +2384,8 @@
             score: Number(raw.score) || 0,
             row: null,
             col: null,
-            note: String(raw.note || '')
+            note: String(raw.note || ''),
+            gender: gender
           };
         }
       });
@@ -2589,7 +2608,12 @@
         var room = ensureClass(store, cn);
         var pos = {};
         room.students.forEach(function (s) {
-          pos[String(s.seatNo)] = { row: s.row, col: s.col, note: s.note || '' };
+          pos[String(s.seatNo)] = {
+            row: s.row,
+            col: s.col,
+            note: s.note || '',
+            gender: normalizeStudentGender_(s.gender)
+          };
         });
         room.students = grouped[cn].map(function (s) {
           var old = pos[s.seatNo] || {};
@@ -2599,7 +2623,8 @@
             score: s.score,
             row: old.row == null ? null : old.row,
             col: old.col == null ? null : old.col,
-            note: old.note || ''
+            note: old.note || '',
+            gender: old.gender || ''
           };
         });
         persistRoom(store, room, true);
