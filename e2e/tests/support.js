@@ -104,7 +104,11 @@ async function installCloud(page, options) {
   const mode = (options && options.mode) || 'ok';
   let store = freshStore();
   if (options && typeof options.mutate === 'function') options.mutate(store);
-  page.on('dialog', function (dialog) { return dialog.accept(); });
+  // beforeEach 與個別測試都可能呼叫 installCloud；dialog 只掛一次，避免「already handled」
+  if (!page.__seatDialogHook) {
+    page.__seatDialogHook = true;
+    page.on('dialog', function (dialog) { return dialog.accept(); });
+  }
   await blockOutside(page);
   await page.route('https://script.google.com/**', async function (route) {
     const request = route.request();

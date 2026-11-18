@@ -2701,30 +2701,165 @@
   function splitIntoSix(list, shuffle) {
     var students = (list || []).slice();
     if (shuffle) {
-      var i;
-      for (i = students.length - 1; i > 0; i--) {
-        var j = Math.floor(Math.random() * (i + 1));
-        var tmp = students[i];
-        students[i] = students[j];
-        students[j] = tmp;
-      }
+      shuffleInPlace_(students);
     } else {
       students.sort(seatOrder);
     }
     var assign = {};
-    var n = students.length;
-    var base = Math.floor(n / 6);
-    var extra = n % 6;
+    var targets = labTargetSizes_(students.length);
     var idx = 0;
     var g;
     for (g = 1; g <= 6; g++) {
-      var size = base + (g <= extra ? 1 : 0);
+      var size = targets[g - 1];
       var k;
       for (k = 0; k < size; k++) {
         assign[String(students[idx].seatNo)] = g;
         idx += 1;
       }
     }
+    return assign;
+  }
+
+  function labTargetSizes_(n) {
+    var total = Math.max(0, Number(n) || 0);
+    var base = Math.floor(total / 6);
+    var extra = total % 6;
+    var sizes = [];
+    var g;
+    for (g = 1; g <= 6; g++) sizes.push(base + (g <= extra ? 1 : 0));
+    return sizes;
+  }
+
+  function shuffleInPlace_(arr) {
+    var i;
+    for (i = arr.length - 1; i > 0; i--) {
+      var j = Math.floor(Math.random() * (i + 1));
+      var tmp = arr[i];
+      arr[i] = arr[j];
+      arr[j] = tmp;
+    }
+    return arr;
+  }
+
+  function compareTuple_(a, b) {
+    var i;
+    for (i = 0; i < a.length; i++) {
+      if (a[i] < b[i]) return -1;
+      if (a[i] > b[i]) return 1;
+    }
+    return 0;
+  }
+
+  /** 正規成 M／F／空字串（只認明確標示，避免備註長句誤判）。 */
+  function normalizeGenderValue_(raw) {
+    var t = String(raw == null ? '' : raw).trim();
+    if (!t) return '';
+    var low = t.toLowerCase();
+    if (/^(m|male|男|男生|boy)$/i.test(low)) return 'M';
+    if (/^(f|female|女|女生|girl)$/i.test(low)) return 'F';
+    return '';
+  }
+
+  function genderFromNameHeuristic_(name) {
+    var n = String(name || '').trim();
+    if (!n) return '';
+    var ch = n.charAt(n.length - 1);
+    var female = '婷涵萱詩怡欣瑜雯雅妤琳甄慧珮君芳美玲蓉潔晴柔茜妮薇琪芬蘭娟秀鳳花莉萱安';
+    var male = '豪傑宇翔柏翰哲宏偉強明輝彥廷皓睿辰澤凱磊峻恩德仁勇武剛勝達峰銘亮翔';
+    var isF = female.indexOf(ch) >= 0;
+    var isM = male.indexOf(ch) >= 0;
+    if (isF && !isM) return 'F';
+    if (isM && !isF) return 'M';
+    return '';
+  }
+
+  function studentGenderOf_(student) {
+    if (!student) return '';
+    var g = normalizeGenderValue_(student.gender);
+    if (g) return g;
+    g = normalizeGenderValue_(student.note);
+    if (g) return g;
+    return genderFromNameHeuristic_(student.name);
+  }
+
+  /**
+   * 異質＋男女均衡分成六組：先洗牌再依成績高→低，逐人放進
+   * 「性別最均衡 → 成績總和較低 → 人數較少」的未滿組。
+   */
+  function splitIntoSixBalanced(list, scoreOf, genderOf) {
+    var students = (list || []).slice();
+    shuffleInPlace_(students);
+    var tagged = students.map(function (s) {
+      var score = 0;
+      try {
+        score = Number(typeof scoreOf === 'function' ? scoreOf(s) : 0) || 0;
+      } catch (err) {
+        score = 0;
+      }
+      if (!isFinite(score)) score = 0;
+      var gender = '';
+      try {
+        gender = typeof genderOf === 'function' ? String(genderOf(s) || '') : '';
+      } catch (err2) {
+        gender = '';
+      }
+      if (gender !== 'M' && gender !== 'F') gender = '';
+      return { student: s, score: score, gender: gender };
+    });
+    tagged.sort(function (a, b) {
+      if (b.score !== a.score) return b.score - a.score;
+      return 0;
+    });
+    var targets = labTargetSizes_(tagged.length);
+    var groups = [null];
+    var g;
+    for (g = 1; g <= 6; g++) {
+      groups.push({ count: 0, male: 0, female: 0, scoreSum: 0, target: targets[g - 1] });
+    }
+    var assign = {};
+    tagged.forEach(function (item) {
+      var best = 0;
+      var bestKey = null;
+      for (g = 1; g <= 6; g++) {
+        var grp = groups[g];
+        if (grp.count >= grp.target) continue;
+        var genderPenalty = 0;
+        if (item.gender === 'M' || item.gender === 'F') {
+          var keyName = item.gender === 'M' ? 'male' : 'female';
+          var counts = [];
+          var h;
+          for (h = 1; h <= 6; h++) {
+            if (groups[h].target <= 0) continue;
+            var c = groups[h][keyName];
+            if (h === g) c += 1;
+            counts.push(c);
+          }
+          if (counts.length) {
+            genderPenalty = Math.max.apply(null, counts) - Math.min.apply(null, counts);
+          }
+        }
+        var key = [genderPenalty, grp.scoreSum + item.score, grp.count, g];
+        if (!best || compareTuple_(key, bestKey) < 0) {
+          best = g;
+          bestKey = key;
+        }
+      }
+      if (!best) {
+        for (g = 1; g <= 6; g++) {
+          if (groups[g].count < groups[g].target) {
+            best = g;
+            break;
+          }
+        }
+      }
+      if (!best) return;
+      var pick = groups[best];
+      pick.count += 1;
+      pick.scoreSum += item.score;
+      if (item.gender === 'M') pick.male += 1;
+      if (item.gender === 'F') pick.female += 1;
+      assign[String(item.student.seatNo)] = best;
+    });
     return assign;
   }
 
@@ -2772,16 +2907,39 @@
       return;
     }
     if (Object.keys(classLab().assign).length && !window.confirm(shuffle
-      ? '重新隨機會蓋掉目前的實驗分組，小組分數也會歸零。確定嗎？'
+      ? '重新隨機會依成績異質、男女平均分成六組，會蓋掉目前的實驗分組，小組分數也會歸零。確定嗎？'
       : '依座號重分六組會蓋掉目前的實驗分組，小組分數也會歸零。確定嗎？')) {
       return;
     }
-    classLab().assign = splitIntoSix(students, shuffle);
+    var unknownGender = 0;
+    if (shuffle) {
+      classLab().assign = splitIntoSixBalanced(students, usualScoreForDraw, function (s) {
+        var g = studentGenderOf_(s);
+        if (!g) unknownGender += 1;
+        return g;
+      });
+    } else {
+      classLab().assign = splitIntoSix(students, false);
+    }
     classLab().scores = {};
     if (isLabView()) renderLabBoard();
     renderGroupRoster();
-    persistLab(shuffle ? '已隨機分成六組' : '已依座號分成六組');
+    var msg = shuffle ? '已依成績異質、男女平均分成六組' : '已依座號分成六組';
+    if (shuffle && students.length && unknownGender * 2 >= students.length) {
+      msg += '（建議在名單加性別欄再匯入，分組會更準）';
+    }
+    persistLab(msg);
   }
+
+  try {
+    if (typeof window !== 'undefined') {
+      window.__labGrouping = {
+        splitIntoSixBalanced: splitIntoSixBalanced,
+        studentGenderOf_: studentGenderOf_,
+        normalizeGenderValue_: normalizeGenderValue_
+      };
+    }
+  } catch (labHookErr) { /* 測試掛勾失敗可忽略 */ }
 
   function assignLabStudent(seatNo, gid) {
     if (!canEdit()) return;
@@ -11555,24 +11713,24 @@
     withXlsx(function (X) {
       var wb = X.utils.book_new();
       var data = [
-        ['班級', '座號', '姓名'],
-        ['301', '01', '陳安安'],
-        ['301', '02', '林冠宇'],
-        ['301', '03', '黃詩涵'],
-        ['302', '01', '吳品萱'],
-        ['302', '02', '劉子豪']
+        ['班級', '座號', '姓名', '性別'],
+        ['301', '01', '陳安安', '女'],
+        ['301', '02', '林冠宇', '男'],
+        ['301', '03', '黃詩涵', '女'],
+        ['302', '01', '吳品萱', '女'],
+        ['302', '02', '劉子豪', '男']
       ];
       var sheet = X.utils.aoa_to_sheet(data);
-      sheet['!cols'] = [{ wch: 10 }, { wch: 8 }, { wch: 14 }];
+      sheet['!cols'] = [{ wch: 10 }, { wch: 8 }, { wch: 14 }, { wch: 8 }];
       X.utils.book_append_sheet(wb, sheet, '學生名單');
       var help = X.utils.aoa_to_sheet([
         ['使用說明'],
-        ['1. 在「學生名單」工作表填班級、座號、姓名。'],
+        ['1. 在「學生名單」工作表填班級、座號、姓名；性別填「男」或「女」（實驗室分組會用到）。'],
         ['2. 一個檔案可以有多個班級，只要班級欄填不同名稱。'],
         ['3. 座號建議兩位數，例如 01、02。'],
         ['4. 存檔後回到座位表 → 教師模式 → 設定與上傳 → 選擇 Excel 檔 → 匯入名單。'],
         ['5. 若只要新增一個班，班級欄全部填同一個名稱即可。'],
-        ['6. 分數欄可以沒有。']
+        ['6. 分數欄可以沒有；性別欄也可以沒有，但有填時實驗室隨機分組會更準。']
       ]);
       help['!cols'] = [{ wch: 70 }];
       X.utils.book_append_sheet(wb, help, '說明');
@@ -12801,11 +12959,13 @@
       const className = String(row.className || fallbackClass || '').trim();
       if (!className || !row.seatNo || !row.name) return;
       if (!grouped[className]) grouped[className] = [];
-      grouped[className].push({
+      var item = {
         seatNo: row.seatNo,
         name: row.name,
         score: row.score
-      });
+      };
+      if (row.gender) item.gender = row.gender;
+      grouped[className].push(item);
     });
     return grouped;
   }
@@ -12918,12 +13078,13 @@
   }
 
   function headerMap(cells) {
-    const map = { className: -1, seatNo: -1, name: -1, score: -1 };
+    const map = { className: -1, seatNo: -1, name: -1, score: -1, gender: -1 };
     cells.forEach(function (cell, i) {
       const key = String(cell).toLowerCase();
       if (/班級|班別|class/.test(key)) map.className = i;
       else if (/座號|座号|seat|學號|学号/.test(key)) map.seatNo = i;
       else if (/姓名|名字|name/.test(key)) map.name = i;
+      else if (/性別|性别|gender|sex/.test(key)) map.gender = i;
       else if (/分數|分数|score|成績|成绩/.test(key)) map.score = i;
     });
     return map;
@@ -12934,7 +13095,8 @@
       className: map.className >= 0 ? cells[map.className] : fallbackClass,
       seatNo: map.seatNo >= 0 ? cells[map.seatNo] : '',
       name: map.name >= 0 ? cells[map.name] : '',
-      score: map.score >= 0 ? cells[map.score] : undefined
+      score: map.score >= 0 ? cells[map.score] : undefined,
+      gender: map.gender >= 0 ? cells[map.gender] : undefined
     }, fallbackClass);
   }
 
@@ -12972,6 +13134,8 @@
       const score = Number(row.score);
       if (isFinite(score)) item.score = score;
     }
+    var gender = normalizeGenderValue_(row.gender);
+    if (gender) item.gender = gender;
     return item;
   }
 
@@ -12989,13 +13153,15 @@
       rows: App.classroom.rows,
       cols: App.classroom.cols,
       students: App.classroom.students.map(function (s) {
+        var gender = normalizeGenderValue_(s.gender);
         return {
           seatNo: s.seatNo,
           name: s.name,
           score: s.score,
           row: s.row,
           col: s.col,
-          note: s.note || ''
+          note: s.note || '',
+          gender: gender
         };
       }),
       groups: classGroups(),

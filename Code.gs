@@ -17,7 +17,7 @@ const SHEETS = {
 const CLOUD_CHUNK = 45000;
 
 const HEADERS = {
-  STUDENTS: ['班級', '座號', '姓名', '分數', '列', '欄', '備註', '組別'],
+  STUDENTS: ['班級', '座號', '姓名', '分數', '列', '欄', '備註', '組別', '性別'],
   CONFIG: ['班級', '列數', '欄數', '版本', '更新時間'],
   HISTORY: ['時間', '班級', '類型', '座號', '姓名', '分數變化', '新分數', '詳情', '可復原', '已復原'],
   GRADES: ['班級', '座號', '姓名', '類型', '項目', '日期', '分數', '滿分', '狀態'],
@@ -2807,7 +2807,8 @@ function syncVisibleRoster_(ss, store) {
         s.row == null || s.row === '' ? '' : Number(s.row) + 1,
         s.col == null || s.col === '' ? '' : Number(s.col) + 1,
         s.note || '',
-        groupIdOf_(room, seatNo)
+        groupIdOf_(room, seatNo),
+        genderLabelOf_(s.gender)
       ]);
     });
     configRows.push([
@@ -3058,7 +3059,7 @@ function seedSampleData_(ss) {
     const seatNo = String(i + 1).padStart(2, '0');
     const row = Math.floor(i / 6) + 1;
     const col = (i % 6) + 1;
-    return ['範例班', seatNo, name, 0, row, col, '', ''];
+    return ['範例班', seatNo, name, 0, row, col, '', '', ''];
   });
   ss.getSheetByName(SHEETS.STUDENTS)
     .getRange(2, 1, students.length, HEADERS.STUDENTS.length)
@@ -3079,4 +3080,12 @@ function clampInt_(value, min, max, fallback) {
 function seatNoValue_(seatNo) {
   const n = parseInt(String(seatNo).replace(/\D/g, ''), 10);
   return isFinite(n) ? n : 0;
+}
+
+/** 雲端 JSON 的 M／F → 學生表顯示「男／女」。 */
+function genderLabelOf_(raw) {
+  var t = String(raw == null ? '' : raw).trim().toUpperCase();
+  if (t === 'M' || t === '男' || t === '男生') return '男';
+  if (t === 'F' || t === '女' || t === '女生') return '女';
+  return '';
 }
