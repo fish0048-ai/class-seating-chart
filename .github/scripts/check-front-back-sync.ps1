@@ -37,7 +37,9 @@ function Get-TopLevelFunctionBody {
 function Test-FunctionDefined {
   param([string]$Text, [string]$Name)
   if (-not $Text) { return $false }
-  return [regex]::IsMatch($Text, '(?m)^\s*function\s+' + [regex]::Escape($Name) + '\s*\(')
+  if ([regex]::IsMatch($Text, '(?m)^\s*function\s+' + [regex]::Escape($Name) + '\s*\(')) { return $true }
+  # api.js 的 Store API 用 name: function (...) 寫法
+  return [regex]::IsMatch($Text, '(?m)^\s*' + [regex]::Escape($Name) + '\s*:\s*function\s*\(')
 }
 
 function Compare-AsSet {
