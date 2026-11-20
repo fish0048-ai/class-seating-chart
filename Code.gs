@@ -921,7 +921,7 @@ function seatAliasKeysGs_(seatNo) {
 
 /**
  * 把一班的 Classroom 學習講義寫進雲端資料。
- * 與前端 api.js importClassroomHandouts 成對（改一邊要改另一邊）：
+ * 與前端 api.js importClassroomHandouts 成對（改一邊要改另一邊；僅 Classroom 更新／自動更新用，AI 檢查不走這條）：
  * 有分數＝已繳＋分數；已繳未打分＝已繳（網站已有分數就保留）；空白＝未繳；整欄空白先跳過。
  * 有變動的欄記 classroomAt，網站舊分頁存檔時不會用舊紀錄蓋回去。
  */

@@ -253,8 +253,8 @@
             <summary class="tool">匯入成績 ▾</summary>
             <div class="tool-menu-list">
               <button type="button" class="tool-menu-item" id="btnImportGrades">從 Excel 匯入<small>本班成績表，或學校讀卡檔（小考、期中考 XLS）</small></button>
-              <button type="button" class="tool-menu-item" id="btnClassroomHandouts">從 Classroom 更新學習講義<small>直接讀 Classroom 最新成績（讀不到時改用設定的成績表）</small></button>
-              <button type="button" class="tool-menu-item" id="btnAiCheck">AI 檢查作業（試用）<small>依繳交日期算分，AI 看照片有沒有寫完、錯題有沒有寫原因</small></button>
+              <button type="button" class="tool-menu-item" id="btnClassroomHandouts">從 Classroom 更新學習講義<small>同步繳交／缺交到網站（成績也一併更新）</small></button>
+              <button type="button" class="tool-menu-item" id="btnAiCheck">AI 檢查作業（試用）<small>檢查未評分的繳交，分數寫進 Classroom 草稿</small></button>
             </div>
           </details>
           <details class="tool-menu teacher-tab-only" data-for-tab="grades" data-grades-action="summary" hidden>
@@ -1146,7 +1146,6 @@
           <button type="button" class="tool" id="btnAiCheckRefresh">重新整理</button>
           <button type="button" class="tool" id="btnAiCheckRecheck" hidden>全部重新檢查</button>
           <button type="button" class="tool" id="btnAiCheckStart">開始檢查</button>
-          <button type="button" class="tool primary" id="btnAiCheckApply" hidden>把分數寫進網站</button>
           <button type="button" class="tool primary" id="btnAiCheckClassroom" hidden>寫成 Classroom 草稿分數</button>
         </div>
       </div>
