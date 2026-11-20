@@ -12560,7 +12560,7 @@
   /** AI 看到的問題（未通過另扣 AI_CHECK_ERROR_PENALTY）。 */
   function aiCheckIssues(s) {
     if (s.status === '待檢查') return 'AI 檢查中';
-    if (s.status === '缺交') return 'Classroom 已設為缺交（空白退回），尚未再繳交';
+    if (s.status === '缺交') return '有按過繳交、沒檔案被退回後標缺交，尚未再繳交（與從頭沒交的「未繳」不同）';
     if (s.status === '沒有檔案') return '有按繳交，沒有上傳照片（先算有交）';
     if (s.status === '讀取失敗') return '照片讀不到';
     if (s.status === '需確認') return 'AI 沒把握，請看照片' + (s.note ? '：' + s.note : '');
@@ -12624,7 +12624,7 @@
         return;
       }
       if (row.turnedKey) row.why = (late ? '晚交 ' + late + ' 個工作天' : '') + (late && penalty ? '、' : '') + (penalty ? '作業有問題' : '') + '，扣到 0 分';
-      else if (s.status === '缺交') row.why = 'Classroom 已設為缺交（空白退回）；學生補交後按「檢查新繳交的」會再查';
+      else if (s.status === '缺交') row.why = '有按過繳交後被退回並標缺交（不是從頭沒交）；學生補交後按「檢查新繳交的」會再查';
       else if (s.status === '未按繳交') row.why = '有上傳照片但沒有按「繳交」';
       else row.why = Number(String(s.classroomGrade || '').replace(/^草稿\s*/, '')) > 0
         ? '沒有在 Classroom 繳交，但 Classroom 有分數（可能交紙本）'
