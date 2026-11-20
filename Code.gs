@@ -499,17 +499,33 @@ function classroomSeatCode_(profile) {
 
 /**
  * 照老師在 Classroom 學生作業頁看的三種狀態判斷：
- * 已評分（有發還分數，含 0 分）＝已繳，記分數；
- * 已繳交（還沒發還）＝已繳，有草稿分數記草稿分數，沒有記 'submitted'；
- * 已指派（沒交、或被退回且沒有發還分數）＝空白（未繳交）。
+ * 已繳交（TURNED_IN）＝已繳；有發還／草稿分數就記分數，沒有記 'submitted'；
+ * 非已繳交（沒交、退回、標缺交）＝空白（未繳交）。
+ * Classroom 標「缺交」常帶 draft／assigned 0，API 分不出缺交與真的打 0 分；
+ * 非已繳交時 0 分一律當缺交，只有 > 0 的發還分數（例如交紙本）才寫入。
  */
 function classroomScore_(sub) {
   if (!sub) return '';
-  if (sub.assignedGrade != null && isFinite(Number(sub.assignedGrade))) return Number(sub.assignedGrade);
   if (sub.state === 'TURNED_IN') {
+    if (sub.assignedGrade != null && isFinite(Number(sub.assignedGrade))) return Number(sub.assignedGrade);
     return sub.draftGrade != null && isFinite(Number(sub.draftGrade)) ? Number(sub.draftGrade) : 'submitted';
   }
+  if (sub.assignedGrade != null && isFinite(Number(sub.assignedGrade)) && Number(sub.assignedGrade) > 0) {
+    return Number(sub.assignedGrade);
+  }
   return '';
+}
+
+/**
+ * AI 檢查要不要略過（已有分數）：缺交標 0 分不算「已打完」。
+ * 只有發還／草稿分數 > 0，或目前仍是已繳交且已發還分數（含真的打 0）才略過。
+ */
+function classroomAiAlreadyGraded_(sub) {
+  if (!sub) return false;
+  if (sub.state === 'TURNED_IN' && sub.assignedGrade != null) return true;
+  if (Number(sub.draftGrade) > 0) return true;
+  if (sub.assignedGrade != null && Number(sub.assignedGrade) > 0) return true;
+  return false;
 }
 
 /**
@@ -1461,10 +1477,10 @@ function classroomHandoutTargets_(className, title) {
       students.push({
         seat: seat,
         state: sub.state || '',
-        // 已發還分數（含 0）或草稿 > 0 就算老師已經打過分；草稿 0 多半是先記未繳，補交時仍要檢查
-        graded: sub.assignedGrade != null || Number(sub.draftGrade) > 0,
+        // 缺交標 0 分不算已打完，補交後「檢查新繳交的」才會再查
+        graded: classroomAiAlreadyGraded_(sub),
         grade: sub.assignedGrade != null ? sub.assignedGrade : (sub.draftGrade != null ? '草稿 ' + sub.draftGrade : ''),
-        // 只認目前仍是已繳交；被退回後清空，再交才用最近一次時間
+        // 只認目前仍是已繳交；退回／標缺交後清空，再交才用最近一次時間
         turnedInAt: classroomActiveTurnIn_(sub),
         everTurnedIn: !!classroomFirstTurnIn_(sub),
         files: files
@@ -1507,7 +1523,8 @@ function aiFileIds_(json) {
 /**
  * 讀 Classroom 更新名單。recheck 不是 true 時，之前 AI 檢查過、照片沒換、繳交時間也沒變的沿用舊結果；
  * 新繳交、換照片、被退回後再交的會重新送 AI（省額度）。
- * 被退回、目前不是已繳交的改記「已退回／未繳」，不再沿用「沒有檔案先算有交」。
+ * 老師把空白退回並在 Classroom 標缺交後，改記「缺交」，不再沿用「沒有檔案先算有交」；
+ * 學生再按繳交後，「檢查新繳交的」會重送 AI。
  */
 function startHandoutCheckApi_(className, title, recheck) {
   if (!PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY')) {
@@ -1553,10 +1570,10 @@ function queueHandoutCheck_(className, title, recheck) {
   var now = taipeiTime_(new Date());
   var reused = 0;
   var add = target.students.map(function (s) {
-    // 只送「目前仍是已繳交、還沒打分數、有上傳檔案」的人給 AI；被退回的不算有交
+    // 只送「目前仍是已繳交、還沒打完分數、有上傳檔案」的人給 AI；Classroom 標缺交／退回不算有交
     var status = s.graded ? '已有分數'
       : s.turnedInAt ? (s.files.length ? '待檢查' : '沒有檔案')
-        : (s.everTurnedIn ? '已退回' : (s.files.length ? '未按繳交' : '未繳'));
+        : (s.everTurnedIn ? '缺交' : (s.files.length ? '未按繳交' : '未繳'));
     var filesJson = JSON.stringify(s.files);
     var turnedAt = s.turnedInAt ? taipeiTime_(new Date(s.turnedInAt)) : '';
     var turnedKey = s.turnedInAt ? taipeiTime_(new Date(s.turnedInAt), 'yyyy-MM-dd') : '';

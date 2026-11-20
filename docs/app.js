@@ -12543,7 +12543,7 @@
     setAiCheckButtons(true);
     setAiCheckStatus(recheck
       ? '正在讀 Classroom，全部重新檢查（約 1 分鐘）…'
-      : '正在讀 Classroom 找新繳交／退回後再交的（之前檢查過且沒變的沿用）…');
+      : '正在讀 Classroom 找新繳交／缺交後再交的（之前檢查過且沒變的沿用）…');
     api('startHandoutCheck', [Object.assign({ recheck: !!recheck }, t)]).then(function (data) {
       App.aiCheck = { className: t.className, title: t.title, data: data };
       renderAiCheck(data);
@@ -12562,7 +12562,7 @@
   /** AI 看到的問題（未通過另扣 AI_CHECK_ERROR_PENALTY）。 */
   function aiCheckIssues(s) {
     if (s.status === '待檢查') return 'AI 檢查中';
-    if (s.status === '已退回') return '已被退回，尚未再繳交';
+    if (s.status === '缺交') return 'Classroom 已設為缺交（空白退回），尚未再繳交';
     if (s.status === '沒有檔案') return '有按繳交，沒有上傳照片（先算有交）';
     if (s.status === '讀取失敗') return '照片讀不到';
     if (s.status === '需確認') return 'AI 沒把握，請看照片' + (s.note ? '：' + s.note : '');
@@ -12570,9 +12570,9 @@
     return '';
   }
 
-  /** 沒有上傳檔案的學生（有按繳交沒照片、已退回、或完全沒繳）：可能交紙本，老師看留言後填紙本繳交日。 */
+  /** 沒有上傳檔案的學生（有按繳交沒照片、缺交、或完全沒繳）：可能交紙本，老師看留言後填紙本繳交日。 */
   function aiNoFile(s) {
-    return !(s.files || []).length && (s.status === '沒有檔案' || s.status === '未繳' || s.status === '已退回');
+    return !(s.files || []).length && (s.status === '沒有檔案' || s.status === '未繳' || s.status === '缺交');
   }
 
   /** 網站作業欄裡這位學生的紙本繳交紀錄（老師填的日期）。 */
@@ -12626,7 +12626,7 @@
         return;
       }
       if (row.turnedKey) row.why = (late ? '晚交 ' + late + ' 個工作天' : '') + (late && penalty ? '、' : '') + (penalty ? '作業有問題' : '') + '，扣到 0 分';
-      else if (s.status === '已退回') row.why = '已被退回，尚未再繳交（空白退回會變缺交；補交後按「檢查新繳交的」）';
+      else if (s.status === '缺交') row.why = 'Classroom 已設為缺交（空白退回）；學生補交後按「檢查新繳交的」會再查';
       else if (s.status === '未按繳交') row.why = '有上傳照片但沒有按「繳交」';
       else row.why = Number(String(s.classroomGrade || '').replace(/^草稿\s*/, '')) > 0
         ? '沒有在 Classroom 繳交，但 Classroom 有分數（可能交紙本）'
@@ -12715,7 +12715,7 @@
       // Classroom 已有分數（多半交紙本）要老師先判斷，不自動給留言
       if (Number(String(r.classroomGrade || '').replace(/^草稿\s*/, '')) > 0) return '';
       if (r.status === '未按繳交') return head + '有上傳照片，但 Classroom 還沒有按「繳交」，請按繳交。';
-      if (r.status === '已退回') return head + '這份已被退回，請寫完後重新拍照上傳並按「繳交」。';
+      if (r.status === '缺交') return head + '這份目前是缺交，請寫完後重新拍照上傳並按「繳交」。';
       return head + '還沒有繳交，請盡快寫完拍照上傳並按「繳交」。';
     }
     var bits = [];
