@@ -500,9 +500,9 @@ function classroomSeatCode_(profile) {
 /**
  * 照老師在 Classroom 學生作業頁看的三種狀態判斷：
  * 已繳交（TURNED_IN）＝已繳；有發還／草稿分數就記分數，沒有記 'submitted'；
- * 非已繳交（沒交、退回、標缺交）＝空白（未繳交）。
- * Classroom 標「缺交」常帶 draft／assigned 0，API 分不出缺交與真的打 0 分；
- * 非已繳交時 0 分一律當缺交，只有 > 0 的發還分數（例如交紙本）才寫入。
+ * 已發還（RETURNED）且有 assignedGrade（含真的 0 分，例如遲交扣光）＝已繳＋分數；
+ * 標「缺交」＝多半只有自動 draftGrade 0、沒有發還給學生的 assignedGrade → 未繳。
+ * Google 文件也寫 missing／excused 在 API 分不太開；用「有沒有 assignedGrade」區分缺交 0 與批改 0。
  */
 function classroomScore_(sub) {
   if (!sub) return '';
@@ -510,21 +510,30 @@ function classroomScore_(sub) {
     if (sub.assignedGrade != null && isFinite(Number(sub.assignedGrade))) return Number(sub.assignedGrade);
     return sub.draftGrade != null && isFinite(Number(sub.draftGrade)) ? Number(sub.draftGrade) : 'submitted';
   }
-  if (sub.assignedGrade != null && isFinite(Number(sub.assignedGrade)) && Number(sub.assignedGrade) > 0) {
+  // 已發還給學生的分數（含 0）：遲交扣到 0 仍算有繳交有分數，不要當缺交
+  if (sub.assignedGrade != null && isFinite(Number(sub.assignedGrade)) &&
+      (sub.state === 'RETURNED' || Number(sub.assignedGrade) > 0)) {
     return Number(sub.assignedGrade);
+  }
+  // 只有草稿且 > 0（例如交紙本先打分還沒發還）；草稿 0 多半是缺交自動帶的，當未繳
+  if (sub.draftGrade != null && isFinite(Number(sub.draftGrade)) && Number(sub.draftGrade) > 0) {
+    return Number(sub.draftGrade);
   }
   return '';
 }
 
 /**
- * AI 檢查要不要略過（已有分數）：缺交標 0 分不算「已打完」。
- * 只有發還／草稿分數 > 0，或目前仍是已繳交且已發還分數（含真的打 0）才略過。
+ * AI 檢查要不要略過（已有分數）：
+ * 缺交只有 draft 0 → 不算已打完；已發還的 assignedGrade（含真的 0）才略過。
  */
 function classroomAiAlreadyGraded_(sub) {
   if (!sub) return false;
-  if (sub.state === 'TURNED_IN' && sub.assignedGrade != null) return true;
+  if (sub.assignedGrade != null && isFinite(Number(sub.assignedGrade))) {
+    if (Number(sub.assignedGrade) > 0) return true;
+    // 真的打 0 分：已繳交或已發還；缺交自動 0 通常沒有 assignedGrade
+    if (sub.state === 'TURNED_IN' || sub.state === 'RETURNED') return true;
+  }
   if (Number(sub.draftGrade) > 0) return true;
-  if (sub.assignedGrade != null && Number(sub.assignedGrade) > 0) return true;
   return false;
 }
 
