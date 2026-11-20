@@ -497,12 +497,35 @@ function classroomSeatCode_(profile) {
   return '';
 }
 
+/** 學生有沒有上傳雲端硬碟附件（空白按繳交、從頭沒交通常都沒有）。 */
+function classroomHasDriveFiles_(sub) {
+  var list = sub && sub.assignmentSubmission && sub.assignmentSubmission.attachments;
+  if (!list || !list.length) return false;
+  for (var i = 0; i < list.length; i++) {
+    if (list[i] && list[i].driveFile && list[i].driveFile.id) return true;
+  }
+  return false;
+}
+
+/**
+ * 是否為「真的打 0 分」（有繳交、遲交扣光等），不是標缺交自動帶的 0。
+ * Classroom UI：真 0 分通常已發還且有上傳檔；「草稿 • 缺交」只有 draft 0；
+ * 「有按繳交沒檔案被退回再標缺交」即使 assigned 0 也不該當已評分。
+ */
+function classroomRealZeroGrade_(sub) {
+  if (!sub || sub.assignedGrade == null || !isFinite(Number(sub.assignedGrade))) return false;
+  if (Number(sub.assignedGrade) !== 0) return false;
+  if (sub.state === 'TURNED_IN') return true;
+  // 已發還的 0：要曾繳交過且有上傳檔，才跟「空白退回／從頭缺交」分開
+  return sub.state === 'RETURNED' && !!classroomFirstTurnIn_(sub) && classroomHasDriveFiles_(sub);
+}
+
 /**
  * 照老師在 Classroom 學生作業頁看的三種狀態判斷：
  * 已繳交（TURNED_IN）＝已繳；有發還／草稿分數就記分數，沒有記 'submitted'；
- * 已發還（RETURNED）且有 assignedGrade（含真的 0 分，例如遲交扣光）＝已繳＋分數；
- * 標「缺交」＝多半只有自動 draftGrade 0、沒有發還給學生的 assignedGrade → 未繳。
- * Google 文件也寫 missing／excused 在 API 分不太開；用「有沒有 assignedGrade」區分缺交 0 與批改 0。
+ * 已發還且分數 > 0，或「真的 0 分」＝已繳＋分數；
+ * 標缺交（草稿 0、或空白繳交後退回標缺交）＝未繳。
+ * AI 名單另用 everTurnedIn 區分「缺交」（曾按繳交）與「未繳」（從頭沒交）。
  */
 function classroomScore_(sub) {
   if (!sub) return '';
@@ -510,12 +533,11 @@ function classroomScore_(sub) {
     if (sub.assignedGrade != null && isFinite(Number(sub.assignedGrade))) return Number(sub.assignedGrade);
     return sub.draftGrade != null && isFinite(Number(sub.draftGrade)) ? Number(sub.draftGrade) : 'submitted';
   }
-  // 已發還給學生的分數（含 0）：遲交扣到 0 仍算有繳交有分數，不要當缺交
-  if (sub.assignedGrade != null && isFinite(Number(sub.assignedGrade)) &&
-      (sub.state === 'RETURNED' || Number(sub.assignedGrade) > 0)) {
-    return Number(sub.assignedGrade);
+  if (sub.assignedGrade != null && isFinite(Number(sub.assignedGrade))) {
+    if (Number(sub.assignedGrade) > 0) return Number(sub.assignedGrade);
+    if (classroomRealZeroGrade_(sub)) return 0;
   }
-  // 只有草稿且 > 0（例如交紙本先打分還沒發還）；草稿 0 多半是缺交自動帶的，當未繳
+  // 只有草稿且 > 0（例如交紙本先打分還沒發還）；草稿 0＝缺交自動帶的，當未繳
   if (sub.draftGrade != null && isFinite(Number(sub.draftGrade)) && Number(sub.draftGrade) > 0) {
     return Number(sub.draftGrade);
   }
@@ -524,14 +546,13 @@ function classroomScore_(sub) {
 
 /**
  * AI 檢查要不要略過（已有分數）：
- * 缺交只有 draft 0 → 不算已打完；已發還的 assignedGrade（含真的 0）才略過。
+ * 缺交／空白退回的 0 不算已打完；真的發還 0（有檔）或分數 > 0 才略過。
  */
 function classroomAiAlreadyGraded_(sub) {
   if (!sub) return false;
   if (sub.assignedGrade != null && isFinite(Number(sub.assignedGrade))) {
     if (Number(sub.assignedGrade) > 0) return true;
-    // 真的打 0 分：已繳交或已發還；缺交自動 0 通常沒有 assignedGrade
-    if (sub.state === 'TURNED_IN' || sub.state === 'RETURNED') return true;
+    if (classroomRealZeroGrade_(sub)) return true;
   }
   if (Number(sub.draftGrade) > 0) return true;
   return false;
@@ -1580,7 +1601,8 @@ function queueHandoutCheck_(className, title, recheck) {
   var now = taipeiTime_(new Date());
   var reused = 0;
   var add = target.students.map(function (s) {
-    // 只送「目前仍是已繳交、還沒打完分數、有上傳檔案」的人給 AI；Classroom 標缺交／退回不算有交
+    // 只送「目前仍是已繳交、還沒打完分數、有上傳檔案」的人給 AI。
+    // 曾按繳交→退回／標缺交＝「缺交」；從頭沒按過＝「未繳」（畫面都可能寫缺交，這裡要分開）
     var status = s.graded ? '已有分數'
       : s.turnedInAt ? (s.files.length ? '待檢查' : '沒有檔案')
         : (s.everTurnedIn ? '缺交' : (s.files.length ? '未按繳交' : '未繳'));
