@@ -1397,12 +1397,28 @@ function classroomDueKey_(cw) {
   return taipeiTime_(new Date(Date.UTC(dd.year, dd.month - 1, dd.day, t.hours || 0, t.minutes || 0)), 'yyyy-MM-dd');
 }
 
-/** 學生第一次按「繳交」的時間（ISO）；沒按過回空字串。 */
-function classroomFirstTurnIn_(sub) {
-  var times = (sub && sub.submissionHistory || []).filter(function (h) {
+/** 學生繳交紀錄裡所有「按繳交」時間（ISO），由早到晚。 */
+function classroomTurnInTimes_(sub) {
+  return (sub && sub.submissionHistory || []).filter(function (h) {
     return h && h.stateHistory && h.stateHistory.state === 'TURNED_IN' && h.stateHistory.stateTimestamp;
   }).map(function (h) { return String(h.stateHistory.stateTimestamp); }).sort();
+}
+
+/** 學生第一次按「繳交」的時間（ISO）；沒按過回空字串。 */
+function classroomFirstTurnIn_(sub) {
+  var times = classroomTurnInTimes_(sub);
   return times[0] || '';
+}
+
+/**
+ * 目前仍算「有繳交」的時間：只有 Classroom 狀態是 TURNED_IN 才算。
+ * 老師退回空白後狀態變回已指派／已退回時回空（網站視為缺交）；
+ * 學生再按繳交後用「最近一次」繳交時間算遲交。
+ */
+function classroomActiveTurnIn_(sub) {
+  if (!sub || sub.state !== 'TURNED_IN') return '';
+  var times = classroomTurnInTimes_(sub);
+  return times.length ? times[times.length - 1] : (sub.updateTime ? String(sub.updateTime) : '');
 }
 
 /** 讀這班這份講義：每位學生的繳交時間、Classroom 分數與上傳的檔案（不含姓名）。 */
@@ -1448,7 +1464,9 @@ function classroomHandoutTargets_(className, title) {
         // 已發還分數（含 0）或草稿 > 0 就算老師已經打過分；草稿 0 多半是先記未繳，補交時仍要檢查
         graded: sub.assignedGrade != null || Number(sub.draftGrade) > 0,
         grade: sub.assignedGrade != null ? sub.assignedGrade : (sub.draftGrade != null ? '草稿 ' + sub.draftGrade : ''),
-        turnedInAt: classroomFirstTurnIn_(sub),
+        // 只認目前仍是已繳交；被退回後清空，再交才用最近一次時間
+        turnedInAt: classroomActiveTurnIn_(sub),
+        everTurnedIn: !!classroomFirstTurnIn_(sub),
         files: files
       });
     });
@@ -1487,8 +1505,9 @@ function aiFileIds_(json) {
 }
 
 /**
- * 讀 Classroom 更新名單。recheck 不是 true 時，之前 AI 檢查過、照片沒換的學生沿用舊結果，
- * 只有新繳交或換了照片的才重新送 AI（省額度）。
+ * 讀 Classroom 更新名單。recheck 不是 true 時，之前 AI 檢查過、照片沒換、繳交時間也沒變的沿用舊結果；
+ * 新繳交、換照片、被退回後再交的會重新送 AI（省額度）。
+ * 被退回、目前不是已繳交的改記「已退回／未繳」，不再沿用「沒有檔案先算有交」。
  */
 function startHandoutCheckApi_(className, title, recheck) {
   if (!PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY')) {
@@ -1534,17 +1553,21 @@ function queueHandoutCheck_(className, title, recheck) {
   var now = taipeiTime_(new Date());
   var reused = 0;
   var add = target.students.map(function (s) {
-    // 只送「有按繳交、還沒打分數、有上傳檔案」的人給 AI，省額度
+    // 只送「目前仍是已繳交、還沒打分數、有上傳檔案」的人給 AI；被退回的不算有交
     var status = s.graded ? '已有分數'
-      : !s.turnedInAt ? (s.files.length ? '未按繳交' : '未繳')
-        : (s.files.length ? '待檢查' : '沒有檔案');
+      : s.turnedInAt ? (s.files.length ? '待檢查' : '沒有檔案')
+        : (s.everTurnedIn ? '已退回' : (s.files.length ? '未按繳交' : '未繳'));
     var filesJson = JSON.stringify(s.files);
+    var turnedAt = s.turnedInAt ? taipeiTime_(new Date(s.turnedInAt)) : '';
+    var turnedKey = s.turnedInAt ? taipeiTime_(new Date(s.turnedInAt), 'yyyy-MM-dd') : '';
     var verdict = ['', '', '', ''];
     var problems = '';
     var checkedAt = now;
     var prev = prevBySeat[String(s.seat)];
+    // 沿用條件：同一組檔案＋同一筆繳交時間（退回後再交即使照片相同也要重查）
     if (status === '待檢查' && !recheck && prev && /^(通過|未通過|需確認|讀取失敗)$/.test(String(prev[3])) &&
-        aiFileIds_(prev[12]) === aiFileIds_(filesJson)) {
+        aiFileIds_(prev[12]) === aiFileIds_(filesJson) &&
+        String(prev[8] || '') === turnedAt) {
       status = String(prev[3]);
       verdict = [prev[4], prev[5], prev[6], prev[7]];
       problems = String(prev[15] || '');
@@ -1552,8 +1575,7 @@ function queueHandoutCheck_(className, title, recheck) {
       reused += 1;
     }
     return [cn, target.title, s.seat, status, verdict[0], verdict[1], verdict[2], verdict[3],
-      s.turnedInAt ? taipeiTime_(new Date(s.turnedInAt)) : '',
-      s.turnedInAt ? taipeiTime_(new Date(s.turnedInAt), 'yyyy-MM-dd') : '',
+      turnedAt, turnedKey,
       target.dueKey, s.grade === '' ? '' : String(s.grade), filesJson, '0', checkedAt, problems];
   });
   if (add.length) sheet.getRange(sheet.getLastRow() + 1, 1, add.length, AI_CHECK_HEADERS_.length).setValues(add);
