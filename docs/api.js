@@ -2863,8 +2863,10 @@
       return CloudStore.readClassroomCourse(className);
     },
     /**
-     * 學習講義寫進作業欄：同名欄更新、沒有就新增；以 Classroom 為準覆蓋這些座號。
+     * 學習講義寫進作業欄：同名欄更新、沒有就新增；以傳入的 scores 覆蓋這些座號。
      * 分數＝已繳交＋分數；'submitted'＝已繳交未打分；空白＝未繳交。
+     * fromAiCheck：AI 檢查寫入／清缺交時，允許整欄都是空白（把先前「沒有檔案先算有交」清成未繳）。
+     * 與 Code.gs applyHandoutColumns_ 規則成對，改一邊要改另一邊。
      */
     importClassroomHandouts: function (body) {
       body = body || {};
@@ -2877,6 +2879,7 @@
         seatAliasKeys_(s.seatNo).forEach(function (k) { seatOf[k] = String(s.seatNo); });
       });
       var book = ensureGrades_(store, cn);
+      var fromAiCheck = !!body.fromAiCheck;
       var report = {
         ok: true, className: cn, created: 0, updated: 0,
         submitted: 0, pending: 0, missing: 0, kept: 0, blankColumns: [], unknownSeats: []
@@ -2888,8 +2891,8 @@
           var v = col.scores[key];
           return (typeof v === 'number' && isFinite(v)) || v === 'submitted';
         });
-        // 整欄空白多半是還沒批改：先跳過，不建立也不改既有紀錄，避免全班變 0 分
-        if (!hasAny) {
+        // 整欄空白多半是還沒批改：先跳過；AI 檢查清缺交時例外（本來就可能全是未繳）
+        if (!hasAny && !fromAiCheck) {
           report.blankColumns.push(title);
           return;
         }
