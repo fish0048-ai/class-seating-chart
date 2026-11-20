@@ -12547,9 +12547,17 @@
     api('startHandoutCheck', [Object.assign({ recheck: !!recheck }, t)]).then(function (data) {
       App.aiCheck = { className: t.className, title: t.title, data: data };
       renderAiCheck(data);
-      if (!recheck && data && data.reused != null) {
-        toast('沿用之前結果 ' + data.reused + ' 位，新送 AI 檢查 ' + (data.newChecks || 0) + ' 位', 6000);
-      }
+      var baseToast = !recheck && data && data.reused != null
+        ? '沿用之前結果 ' + data.reused + ' 位，新送 AI 檢查 ' + (data.newChecks || 0) + ' 位'
+        : '';
+      return syncAiMissingAfterCheck_(data).then(function (cleared) {
+        if (cleared) {
+          toast((baseToast ? baseToast + '。' : '') +
+            '已把 Classroom 缺交、網站還留著舊分數的 ' + cleared + ' 位改成未繳', 8000);
+        } else if (baseToast) {
+          toast(baseToast, 6000);
+        }
+      });
     }).catch(function (err) {
       setAiCheckStatus(aiCheckErrorText(err));
     }).then(function () {
@@ -12886,22 +12894,53 @@
     });
   }
 
+  /**
+   * 依 AI 檢查結果組出要寫進作業欄的 scores：
+   * 有繳交→分數；缺交／未繳→空白（清掉先前「沒有檔案先算有交」寫進去的分）。
+   * 與「從 Classroom 更新」共用 importClassroomHandouts，避免兩套規則打架。
+   */
+  function aiCheckScoresForWebsite_(sum) {
+    var scores = {};
+    var written = 0;
+    var cleared = 0;
+    (sum.passes || []).forEach(function (r) {
+      if (r.status === '待檢查') return;
+      scores[r.seat] = r.score;
+      written += 1;
+    });
+    (sum.reminders || []).forEach(function (r) {
+      if (r.turnedKey) {
+        if (!(r.seat in scores)) {
+          scores[r.seat] = r.score;
+          written += 1;
+        }
+        return;
+      }
+      if (r.status === '缺交' || r.status === '未繳') {
+        scores[r.seat] = '';
+        cleared += 1;
+      }
+    });
+    return { scores: scores, written: written, cleared: cleared };
+  }
+
   function applyAiCheckScores() {
     var st = App.aiCheck;
     var sum = aiCheckSummary(st && st.data);
-    // AI 還在檢查的人分數可能再扣，先不寫
-    var ready = sum.passes.filter(function (r) { return r.status !== '待檢查'; });
-    if (!ready.length) {
-      toast('還在等 AI 檢查，檢查完再寫入');
+    var pack = aiCheckScoresForWebsite_(sum);
+    var waiting = (sum.passes || []).filter(function (r) { return r.status === '待檢查'; }).length;
+    if (!pack.written && !pack.cleared) {
+      toast(waiting ? '還在等 AI 檢查，檢查完再寫入' : '沒有可寫入的分數或缺交');
       return;
     }
-    var scores = {};
-    ready.forEach(function (r) { scores[r.seat] = r.score; });
-    var due = (ready[0] && ready[0].dueKey) || '';
-    var waiting = sum.passes.length - ready.length;
-    if (!window.confirm('把 ' + ready.length + ' 位有繳交的分數寫進網站「' + st.title + '」？\n' +
-      (waiting ? '還在等 AI 檢查的 ' + waiting + ' 位先不寫，檢查完再按一次。\n' : '') +
-      '會覆蓋這些人在網站上的分數；提醒清單的人不會動。Classroom 不會被改，請自己在 Classroom 輸入。')) return;
+    var due = ((sum.passes || []).concat(sum.reminders || [])[0] || {}).dueKey || '';
+    if (!window.confirm(
+      '寫進網站「' + st.title + '」？\n' +
+      (pack.written ? '有繳交 ' + pack.written + ' 位會寫入分數。\n' : '') +
+      (pack.cleared ? '缺交／未繳 ' + pack.cleared + ' 位會改成未繳交（清掉先前先算有交的分數）。\n' : '') +
+      (waiting ? '還在等 AI 檢查的 ' + waiting + ' 位先不寫。\n' : '') +
+      'Classroom 不會被改，請自己在 Classroom 輸入。'
+    )) return;
     var btn = document.getElementById('btnAiCheckApply');
     if (btn) {
       btn.disabled = true;
@@ -12913,11 +12952,11 @@
       ? api('saveGradebook', [collectGradebookFromTable({ dirtyOnly: true })])
       : Promise.resolve();
     flush.then(function () {
-      // 先寫進網站就好，雲端在背景同步，不用等整包上傳
       return api('importClassroomHandouts', [{
         className: st.className,
         background: true,
-        columns: [{ title: st.title, dueDate: due, max: 100, scores: scores }]
+        fromAiCheck: true,
+        columns: [{ title: st.title, dueDate: due, max: 100, scores: pack.scores }]
       }]);
     }).then(function () {
       var refresh = teacherTargetClass() === st.className ? api('getGradebook', [st.className]) : Promise.resolve(null);
@@ -12925,8 +12964,12 @@
         if (book) {
           applyGradebook(book);
           renderGradebook();
+          App.aiCheckBook = { className: st.className, book: book };
         }
-        toast('已把 ' + ready.length + ' 位的分數寫進「' + st.title + '」，正在背景同步到雲端', 7000);
+        var msg = '已更新「' + st.title + '」';
+        if (pack.written) msg += '：寫入 ' + pack.written + ' 位';
+        if (pack.cleared) msg += (pack.written ? '、' : '：') + '缺交改未繳 ' + pack.cleared + ' 位';
+        toast(msg + '，正在背景同步到雲端', 7000);
       });
     }).catch(function (err) {
       toast(err && err.message ? err.message : '寫入失敗', 7000);
@@ -12936,6 +12979,54 @@
         btn.textContent = '把分數寫進網站';
       }
     });
+  }
+
+  /** 檢查新繳交後：把 Classroom 已標缺交、但網站還留著先前分數的人自動改成未繳。 */
+  function syncAiMissingAfterCheck_(data) {
+    var st = App.aiCheck;
+    if (!st || !st.className || !st.title || !data) return Promise.resolve(0);
+    var sum = aiCheckSummary(data);
+    var scores = {};
+    var n = 0;
+    (sum.reminders || []).forEach(function (r) {
+      if (r.status !== '缺交' && r.status !== '未繳') return;
+      if (r.turnedKey || r.paper) return;
+      var prev = aiWebsiteHwRec_(st.className, st.title, r.seat);
+      if (!(prev && prev.status === 'submitted' && !prev.paper)) return;
+      scores[r.seat] = '';
+      n += 1;
+    });
+    if (!n) return Promise.resolve(0);
+    return api('importClassroomHandouts', [{
+      className: st.className,
+      background: true,
+      fromAiCheck: true,
+      columns: [{ title: st.title, dueDate: (sum.reminders[0] && sum.reminders[0].dueKey) || '', max: 100, scores: scores }]
+    }]).then(function () {
+      return api('getGradebook', [st.className]).then(function (book) {
+        if (book) {
+          App.aiCheckBook = { className: st.className, book: book };
+          if (teacherTargetClass() === st.className) {
+            applyGradebook(book);
+            renderGradebook();
+          }
+        }
+        return n;
+      });
+    });
+  }
+
+  function aiWebsiteHwRec_(className, title, seat) {
+    var pack = App.gradebookClass === className && App.gradebook
+      ? { className: className, book: App.gradebook }
+      : App.aiCheckBook;
+    if (!pack || pack.className !== className) return null;
+    var col = ((pack.book && pack.book.homeworks) || []).filter(function (h) {
+      return String(h.title || '').trim() === title;
+    })[0];
+    if (!col) return null;
+    var rec = readHwRecord(col.records || {}, seat);
+    return rec && rec.status ? rec : null;
   }
 
   function saveSettings() {
