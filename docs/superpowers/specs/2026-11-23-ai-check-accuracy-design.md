@@ -1,7 +1,7 @@
 # AI 檢查作業：提升判讀準確度
 
 日期：2026-11-23  
-狀態：已定稿（待實作）  
+狀態：已實作  
 相關：AI 檢查作業（`Code.gs` `handoutCheckPrompt_`／`aiVerdict_`／`callGemini_`）
 
 ## 目標

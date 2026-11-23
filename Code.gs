@@ -1426,7 +1426,8 @@ var AI_CHECK_HEADERS_ = ['班級', '講義', '座號', '狀態', '寫完', '錯�
   '繳交時間', '繳交日', '期限日', 'Classroom 分數', '檔案', '嘗試次數', '檢查時間', '問題照片'];
 var AI_CHECK_JOB_KEY_ = 'AI_CHECK_JOB';
 var AI_CHECK_RUNNING_KEY_ = 'AI_CHECK_RUNNING';
-var AI_MODELS_ = ['gemini-flash-latest', 'gemini-2.5-flash', 'gemini-2.0-flash'];
+// Pro 優先（老師有 Google AI Pro）；flash 僅備援。GEMINI_MODEL 屬性可手動覆寫。
+var AI_MODELS_ = ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-flash-latest', 'gemini-2.0-flash'];
 var AI_MIN_GAP_MS_ = 7000;
 var AI_MAX_BYTES_ = 15 * 1024 * 1024;
 
@@ -1779,18 +1780,20 @@ function driveThumbnail_(id) {
 function handoutCheckPrompt_(title) {
   return [
     '你是國中理化老師的助教。下面是學生把紙本作業「' + title + '」拍照或掃描後上傳的檔案（可能有好幾頁）。',
-    '只根據看得到的內容判斷，不要猜，也不要評分答案對錯。請檢查：',
-    '1. readable：照片是否清楚完整、看得出作答內容（模糊、太暗、只拍到一部分＝false）。',
+    '只根據看得到的內容判斷，不要猜，也不要評分答案對錯。',
+    '【最重要】寧可放過、不要冤枉：字跡、角度、光線讓你拿不定時，仍把 all_answered、corrections_ok 設為 true，confident 設為 false；不要把「好像空白」「好像沒寫原因」寫進 missing／wrong_without_reason。只有非常確定才標問題。',
+    '請檢查：',
+    '1. readable：只有完全看不出作答（嚴重模糊、全黑、空白頁）才＝false；略糊但還看得出字＝true，並把 confident 設 false。',
     '2. same_handout：上傳的是不是這份講義（明顯是別份作業或無關照片＝false）。',
-    '3. all_answered：每一個需要學生作答的格子、空格、題目是否都有寫答案（空白、只寫題號、明顯沒寫完＝false）。沒寫的題號或位置列到 missing。',
+    '3. all_answered：每一個需要學生作答的格子、空格、題目是否都有寫答案。只有非常確定是空白、只寫題號、明顯沒寫完才＝false，並把題號列到 missing；拿不定就＝true、missing 留空。',
     '   例題、好題示例也要學生寫。只有已經印好答案或解析的地方、標題與說明文字不用寫。',
     '   上傳的檔案依序標成「第 1 張、第 2 張…」。missing 與 wrong_without_reason 的每一項寫成「第N張 頁碼或位置 題號」。',
-    '4. 找出被標成錯的題目（紅筆打叉、圈起來、旁邊有改正、明顯改過答案）。wrong_count＝錯題數。',
-    '5. 每一題錯題旁邊（或講義的訂正區）是否有寫「錯誤原因」（為什麼錯、哪個觀念錯；只寫正確答案不算）。沒寫原因的錯題列到 wrong_without_reason。',
-    '6. corrections_ok：所有錯題都有寫錯誤原因＝true；沒有錯題也＝true。',
-    '7. confident：照片角度、字跡讓你沒把握時＝false。',
-    '8. note：用繁體中文一兩句話說明問題在哪（例如「第 2 張第 5、6 題空白」「第 1 張第 3、7 題錯了沒寫原因」），都沒問題就寫「都有寫完、錯題都有原因」。不要寫學生姓名。',
-    '9. problem_files：有問題（沒寫完、錯題沒寫原因、看不清楚）的是第幾張，數字陣列，例如 [2]；都沒問題就是 []。',
+    '4. 找出被標成錯的題目（紅筆打叉、圈起來、旁邊有改正、明顯改過答案）。wrong_count＝錯題數；不確定有沒有打叉就當沒有錯題。',
+    '5. 每一題錯題旁邊（或講義的訂正區）是否有寫「錯誤原因」（為什麼錯、哪個觀念錯；只寫正確答案不算）。只有非常確定缺原因才列入 wrong_without_reason。',
+    '6. corrections_ok：所有錯題都有寫錯誤原因＝true；沒有錯題也＝true；拿不定＝true。',
+    '7. confident：照片角度、字跡讓你沒把握時＝false（此時 all_answered／corrections_ok 仍應為 true）。',
+    '8. note：用繁體中文一兩句話。都沒問題就寫「都有寫完、錯題都有原因」；沒把握就寫「把握較低，建議抽查」。不要寫學生姓名。',
+    '9. problem_files：只有非常確定有問題（沒寫完、錯題沒寫原因、完全看不清楚）的第幾張；拿不定就是 []。',
     '只回傳 JSON：{"readable":true,"same_handout":true,"all_answered":true,"missing":[],"wrong_count":0,"wrong_without_reason":[],"corrections_ok":true,"confident":true,"note":"","problem_files":[]}'
   ].join('\n');
 }
@@ -1798,7 +1801,8 @@ function handoutCheckPrompt_(title) {
 /** 呼叫 Gemini；模型名稱會隨時間更新，找不到就換下一個並記住能用的。 */
 function callGemini_(apiKey, parts) {
   var props = PropertiesService.getScriptProperties();
-  var models = [props.getProperty('GEMINI_MODEL'), props.getProperty('AI_MODEL_OK')].concat(AI_MODELS_)
+  // GEMINI_MODEL 手動覆寫 → 預設清單（Pro 優先）→ 上次成功的（避免舊 flash 快取永遠蓋掉 Pro）
+  var models = [props.getProperty('GEMINI_MODEL')].concat(AI_MODELS_).concat([props.getProperty('AI_MODEL_OK')])
     .filter(function (m, i, arr) { return m && arr.indexOf(m) === i; });
   var body = JSON.stringify({
     contents: [{ role: 'user', parts: parts }],
@@ -1874,16 +1878,20 @@ function aiVerdict_(text) {
   var answered = j.all_answered === true;
   var reasonsOk = j.corrections_ok === true;
   var pass = readable && answered && reasonsOk;
-  var status = !pass ? '未通過' : (j.confident === false ? '需確認' : '通過');
+  // 沒把握寧可給通過（不扣分、不標需確認）；舊列「需確認」仍可由前端顯示
+  var status = !pass ? '未通過' : '通過';
   var wrongCount = Number(j.wrong_count) || 0;
   var missingReasons = list(j.wrong_without_reason);
   var note = safeAiText_(j.note || '');
   if (j.same_handout === false && note.indexOf('講義') < 0) note = '上傳的好像不是這份講義。' + note;
+  if (pass && j.confident === false && note.indexOf('把握') < 0) {
+    note = (note ? note + '；' : '') + '把握較低，建議抽查';
+  }
   var problemFiles = (Array.isArray(j.problem_files) ? j.problem_files : []).map(Number)
     .filter(function (n) { return n >= 1 && n <= 8; });
   return {
     status: status,
-    problemFiles: pass && j.confident !== false ? '' : problemFiles.join(','),
+    problemFiles: pass ? '' : problemFiles.join(','),
     allAnswered: answered ? '是' : ('否' + (list(j.missing) ? '：' + list(j.missing) : '')),
     reasons: wrongCount ? (reasonsOk ? '錯 ' + wrongCount + ' 題都有原因' : '缺原因：' + (missingReasons || '有錯題沒寫')) : (reasonsOk ? '沒有錯題' : '缺原因'),
     readable: readable ? '是' : '否',
